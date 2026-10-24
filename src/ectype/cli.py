@@ -155,6 +155,29 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_review(args: argparse.Namespace) -> int:
+    from .review import serve
+
+    server = serve(Path(args.workspace), port=args.port)
+    print(f"Reviewing {args.workspace} at http://127.0.0.1:{args.port}/  (Ctrl+C to stop)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def cmd_rebuild(args: argparse.Namespace) -> int:
+    """After corrections: segmentation through the output PDF again."""
+    ws = str(args.workspace)
+    cmd_segment(argparse.Namespace(workspace=ws, truth=None))
+    if args.mode == "substitute":
+        return cmd_substitute(argparse.Namespace(workspace=ws, font=args.font, name=args.name, background_dpi=150))
+    cmd_cluster(argparse.Namespace(workspace=ws, threshold=0.25))
+    cmd_fonts(argparse.Namespace(workspace=ws, family=None, threshold=0.45))
+    return cmd_traced(argparse.Namespace(workspace=ws, name=args.name, background_dpi=150, min_conf=60.0))
+
+
 def cmd_synth(args: argparse.Namespace) -> int:
     from .synth import DEFAULT_TEXT, Degrade, find_font, make_page, make_set
 
@@ -268,6 +291,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--overrides", help="JSON of per-page preprocessing corrections")
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("review", help="correct OCR in the browser; corrections become training data")
+    p.add_argument("workspace")
+    p.add_argument("--port", type=int, default=8765)
+    p.set_defaults(func=cmd_review)
+
+    p = sub.add_parser("rebuild", help="after corrections: segment, cluster, fonts and the PDF again")
+    p.add_argument("workspace")
+    p.add_argument("--mode", choices=["traced", "substitute"], default="traced")
+    p.add_argument("--font", help="substitute mode: font file or family name")
+    p.add_argument("--name", help="output file name without .pdf")
+    p.set_defaults(func=cmd_rebuild)
 
     p = sub.add_parser("synth", help="make a synthetic test page with known text and font")
     p.add_argument("-o", "--output", help="output folder (default reports/synth)")

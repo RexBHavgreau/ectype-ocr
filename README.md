@@ -2,7 +2,7 @@
 
 Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. See [`PLAN.md`](PLAN.md) for the design and the phased build plan.
 
-**Status: Phases 0–5 are done.** `ectype run scan.pdf` goes from a scan to a PDF whose visible text is set in fonts traced from the scan itself. Results by phase:
+**Status: Phases 0–5 are done, and Phase 6 is under way** (parallel processing, caching, and a review tool that saves corrections as training data; the Qt GUI is still to come). `ectype run scan.pdf` goes from a scan to a PDF whose visible text is set in fonts traced from the scan itself. Results by phase:
 - preprocessing, OCR and tying each character to its ink ([results](docs/phase1.md))
 - substitute mode ([results](docs/phase2.md))
 - glyph grouping and averaging ([results](docs/phase3.md))
@@ -65,6 +65,15 @@ ectype traced reports/work-young    # the traced-mode PDF: every glyph drawn fro
 ```
 
 ```
+ectype review reports/work-young    # correct OCR in the browser at http://127.0.0.1:8765/
+ectype rebuild reports/work-young   # after corrections: segment, cluster, fonts and the PDF again
+```
+
+The review page boxes every word: red for low OCR confidence, orange where a glyph looks like a different character than the OCR says, green once corrected. Each correction updates `ocr/`, is logged in `corrections/`, and saves the corrected line as a training pair in `training/` (`.png` + `.gt.txt`, as Kraken's `ketos train` reads them).
+
+OCR and segmentation run in parallel across pages (one worker per CPU) and reuse a page's result when it's newer than its inputs.
+
+```
 ectype synth -o reports/synth [--font "EB Garamond"] [--clean]
 ```
 
@@ -89,6 +98,7 @@ This compares two documents page by page. You get side-by-side renders, a differ
   - `cluster` is Phase 3.
   - `trace` and `fontbuild` are Phase 4.
   - `traced` is Phase 5.
+  - `review` is the start of Phase 6.
   - `lept` holds ctypes bindings to Leptonica's symbol classifier.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).
 - `corpus/`: test scans. Never modified.

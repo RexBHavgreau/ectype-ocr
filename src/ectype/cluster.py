@@ -395,7 +395,7 @@ def find_suspects(glyphs: list, features: dict[int, np.ndarray], min_size: int =
             d = _corr_dist(features[g.id], features[other.id])
             if d < best_d:
                 best, best_d = other, d
-        if best is not None and best_d < 0.3:
+        if best is not None and best_d < 0.15:  # looser cutoffs flagged many sound words on the Young chapter
             out.append({"glyph": g.id, "text": g.text, "looks_like": best.text, "distance": round(best_d, 3),
                         "count": g.count, "instances": g.instances})
     return out

@@ -41,14 +41,17 @@ def table(headers: list[str], rows: list[list[object]], numeric: set[int] | None
     return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
 
 
-def write_page(path: Path, title: str, body: str) -> None:
-    path.write_text(
+def render_page(title: str, body: str, extra_css: str = "") -> str:
+    return (
         "<!doctype html><html><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-        f"<title>{esc(title)}</title><style>{_STYLE}</style></head>"
-        f"<body><h1>{esc(title)}</h1>{body}</body></html>",
-        encoding="utf-8",
+        f"<title>{esc(title)}</title><style>{_STYLE}{extra_css}</style></head>"
+        f"<body><h1>{esc(title)}</h1>{body}</body></html>"
     )
+
+
+def write_page(path: Path, title: str, body: str) -> None:
+    path.write_text(render_page(title, body), encoding="utf-8")
 
 
 def write_json(path: Path, data: object) -> None:

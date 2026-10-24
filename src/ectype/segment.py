@@ -509,49 +509,72 @@ def evaluate(seg: Segmentation, ocr: OcrPage, labels: np.ndarray, gray: np.ndarr
 # Driver
 
 
-def segment_workspace(workspace: Path, truth_root: Path | None = None) -> dict:
-    """Segment every page in <workspace>/pages using <workspace>/ocr; write <workspace>/segment."""
-    workspace = Path(workspace)
-    out = workspace / "segment"
-    out.mkdir(parents=True, exist_ok=True)
-    rows = []
-    for png in sorted((workspace / "pages").glob("*.png")):
-        ocr_path = workspace / "ocr" / f"{png.stem}.ocr.json"
-        if not ocr_path.is_file():
-            continue
-        import json
+def _segment_one(png: Path, workspace: Path, truth_root: Path | None, force: bool) -> dict | None:
+    import json
 
-        ocr = OcrPage.from_json(json.loads(ocr_path.read_text(encoding="utf-8")))
-        gray = np.asarray(Image.open(png).convert("L"))
+    from .ocr import _fresh
+
+    out = workspace / "segment"
+    ocr_path = workspace / "ocr" / f"{png.stem}.ocr.json"
+    if not ocr_path.is_file():
+        return None
+    ocr = OcrPage.from_json(json.loads(ocr_path.read_text(encoding="utf-8")))
+    seg_path, labels_path = out / f"{png.stem}.seg.json", out / f"{png.stem}.labels.png"
+    gray = np.asarray(Image.open(png).convert("L"))
+    if not force and _fresh(seg_path, png, ocr_path) and labels_path.is_file():
+        seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
+        labels = cv2.imread(str(labels_path), cv2.IMREAD_UNCHANGED).astype(np.int32)
+    else:
         seg, labels = segment_page(gray, ocr)
-        report.write_json(out / f"{png.stem}.seg.json", seg.to_json())
-        cv2.imwrite(str(out / f"{png.stem}.labels.png"), labels.astype(np.uint16 if labels.max() < 65536 else np.uint32))
+        report.write_json(seg_path, seg.to_json())
+        cv2.imwrite(str(labels_path), labels.astype(np.uint16 if labels.max() < 65536 else np.uint32))
         view = draw_overlay(gray, seg, labels)
         for b in no_ink_boxes(seg, ocr):
             cv2.rectangle(view, (b[0], b[1]), (b[2] - 1, b[3] - 1), (230, 30, 30), 2)
         Image.fromarray(view).save(out / f"{png.stem}.overlay.png")
-        row = {
-            "page": png.stem,
-            "units": len(seg.units),
-            "multi": [u.text for u in seg.units if u.kind == "multi"],
-            "no_ink": [u.text for u in seg.units if u.kind == "no ink"],
-            "unassigned": {r: sum(1 for x in seg.unassigned if x["reason"] == r) for r in sorted({x["reason"] for x in seg.unassigned})},
-        }
-        truth_dir = (truth_root / png.stem) if truth_root else None
-        if truth_dir and (truth_dir / "truth.json").is_file():
-            from .synth import scan_labels
+    row = {
+        "page": png.stem,
+        "units": len(seg.units),
+        "multi": [u.text for u in seg.units if u.kind == "multi"],
+        "no_ink": [u.text for u in seg.units if u.kind == "no ink"],
+        "unassigned": {r: sum(1 for x in seg.unassigned if x["reason"] == r) for r in sorted({x["reason"] for x in seg.unassigned})},
+    }
+    truth_dir = (truth_root / png.stem) if truth_root else None
+    if truth_dir and (truth_dir / "truth.json").is_file():
+        from .synth import scan_labels
 
-            truth = json.loads((truth_dir / "truth.json").read_text(encoding="utf-8"))
-            row["eval"] = evaluate(seg, ocr, labels, gray, truth, scan_labels(truth_dir, truth))
-        rows.append(row)
+        truth = json.loads((truth_dir / "truth.json").read_text(encoding="utf-8"))
+        row["eval"] = evaluate(seg, ocr, labels, gray, truth, scan_labels(truth_dir, truth))
+    return row
+
+
+def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int | None = None, force: bool = False) -> dict:
+    """Segment every page in <workspace>/pages using <workspace>/ocr; write <workspace>/segment.
+    Pages run in parallel processes; a page whose result is newer than its inputs is reused."""
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+
+    workspace = Path(workspace)
+    (workspace / "segment").mkdir(parents=True, exist_ok=True)
+    pngs = sorted((workspace / "pages").glob("*.png"))
+    jobs = max(1, jobs or (os.cpu_count() or 1))
+    if jobs == 1 or len(pngs) < 2:
+        rows = [_segment_one(p, workspace, truth_root, force) for p in pngs]
+    else:
+        import multiprocessing
+
+        # spawn, not fork: forking a process that has threads (OpenCV, BLAS) can deadlock.
+        with ProcessPoolExecutor(max_workers=min(jobs, len(pngs)), mp_context=multiprocessing.get_context("spawn")) as pool:
+            rows = list(pool.map(_segment_one, pngs, [workspace] * len(pngs), [truth_root] * len(pngs), [force] * len(pngs)))
+    rows = [r for r in rows if r is not None]
     evals = [r["eval"] for r in rows if "eval" in r]
     summary = {"pages": rows}
     if evals:
         total = sum(e["truth_chars"] for e in evals)
         summary["eval"] = {"truth_chars": total, "owned": sum(e["owned"] for e in evals),
                            "owned_share": round(sum(e["owned"] for e in evals) / max(1, total), 4)}
-    report.write_json(out / "segment.json", summary)
-    _write_html(summary, out / "index.html")
+    report.write_json(workspace / "segment" / "segment.json", summary)
+    _write_html(summary, workspace / "segment" / "index.html")
     return summary
 
 

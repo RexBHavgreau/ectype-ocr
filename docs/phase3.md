@@ -39,7 +39,7 @@ ectype cluster reports/work-young
   - "e" 3 is a bold sans "e".
 
   The suspect list flags these.
-- **57 probable misreadings** are listed in the report with page and unit, for example "R" read as "B", "p" as "b", "v" as "u", "fir" as "m".
+- **35 probable misreadings** are listed in the report with page and unit, for example "R" read as "B", "u" as "n", "I" as "l", and a quote mark read as a period. (A looser cutoff listed about 90, but flagged too many sound words.)
 
 On synthetic pages, the averaged "e" has the same ink area as the font's "e" (within 8%). It comes out about a pixel short, because thin curves averaged from blurred instances fall just under the threshold.
 

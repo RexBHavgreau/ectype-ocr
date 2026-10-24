@@ -8,6 +8,8 @@ unavailable until it is installed. Results are written as `<page>.ocr.json`.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -116,10 +118,10 @@ class EngineUnavailable(RuntimeError):
 class TesseractEngine:
     name = "tesseract"
 
-    def __init__(self, psm: int = 3, oem: int = 1):
+    def __init__(self, psm: int = 3, oem: int = 1, threads: int = 0):
         if not shutil.which("tesseract"):
             raise EngineUnavailable("tesseract not found; install it (e.g. apt install tesseract-ocr)")
-        self.psm, self.oem = psm, oem
+        self.psm, self.oem, self.threads = psm, oem, threads  # threads 0: Tesseract's own default
 
     def recognize(self, gray: np.ndarray, dpi: float = 300, lang: str = "eng") -> OcrPage:
         with tempfile.TemporaryDirectory(prefix="ectype-tess-") as tmp:
@@ -130,6 +132,7 @@ class TesseractEngine:
                  "--psm", str(self.psm), "--oem", str(self.oem),
                  "-c", "hocr_char_boxes=1", "-c", "hocr_font_info=1", "hocr"],
                 check=True, capture_output=True,
+                env={**os.environ, "OMP_THREAD_LIMIT": str(self.threads)} if self.threads else None,
             )
             hocr = (Path(tmp) / "out.hocr").read_text(encoding="utf-8")
         page = parse_hocr(hocr, engine=self.name, lang=lang, dpi=dpi)
@@ -229,29 +232,49 @@ def parse_hocr(hocr: str, engine: str = "tesseract", lang: str = "eng", dpi: flo
 # Driver
 
 
+def _fresh(output: Path, *inputs: Path) -> bool:
+    """True when output exists and is newer than every input (a cached result)."""
+    return output.is_file() and all(output.stat().st_mtime >= i.stat().st_mtime for i in inputs if i.is_file())
+
+
+def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, threads: int, force: bool) -> dict:
+    target = out_dir / f"{png.stem}.ocr.json"
+    if not force and _fresh(target, png):
+        page = OcrPage.from_json(json.loads(target.read_text(encoding="utf-8")))
+    else:
+        image = Image.open(png)
+        gray = np.asarray(image.convert("L"))
+        eng = get_engine(engine, threads=threads) if engine == "tesseract" else get_engine(engine)
+        page = drop_margin_noise(eng.recognize(gray, dpi=report.image_dpi(image), lang=lang))
+        report.write_json(target, page.to_json())
+        Image.fromarray(draw_overlay(gray, page, low_conf)).save(out_dir / f"{png.stem}.overlay.png")
+    words = list(page.words())
+    return {
+        "page": png.stem, "lines": len(page.lines), "words": len(words),
+        "chars": sum(len(w.chars) for w in words),
+        "mean_conf": round(float(np.mean([w.conf for w in words])), 1) if words else None,
+        "low_conf_words": [w.text for w in words if w.conf < low_conf],
+        "dropped": len(page.dropped),
+    }
+
+
 def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: str = "eng",
-              low_conf: float = 70.0) -> dict:
-    """OCR every page PNG from a preprocess run; write .ocr.json, overlays and a report."""
+              low_conf: float = 70.0, jobs: int | None = None, force: bool = False) -> dict:
+    """OCR every page PNG from a preprocess run; write .ocr.json, overlays and a report.
+
+    Pages run in parallel (`jobs`, default one per CPU, each Tesseract on one thread);
+    a page whose .ocr.json is newer than its image is reused unless `force`.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     pages_dir, out_dir = Path(pages_dir), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    eng = get_engine(engine)
-    rows = []
-    for png in sorted(pages_dir.glob("*.png")):
-        image = Image.open(png)
-        dpi = report.image_dpi(image)
-        gray = np.asarray(image.convert("L"))
-        page = drop_margin_noise(eng.recognize(gray, dpi=dpi, lang=lang))
-        report.write_json(out_dir / f"{png.stem}.ocr.json", page.to_json())
-        Image.fromarray(draw_overlay(gray, page, low_conf)).save(out_dir / f"{png.stem}.overlay.png")
-        words = list(page.words())
-        low = [w for w in words if w.conf < low_conf]
-        rows.append({
-            "page": png.stem, "lines": len(page.lines), "words": len(words),
-            "chars": sum(len(w.chars) for w in words),
-            "mean_conf": round(float(np.mean([w.conf for w in words])), 1) if words else None,
-            "low_conf_words": [w.text for w in low],
-            "dropped": len(page.dropped),
-        })
+    get_engine(engine)  # fail early if unavailable
+    pngs = sorted(pages_dir.glob("*.png"))
+    jobs = max(1, jobs or (os.cpu_count() or 1))
+    threads = 1 if jobs > 1 else 0
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        rows = list(pool.map(lambda p: _ocr_one(p, out_dir, engine, lang, low_conf, threads, force), pngs))
     summary = {"engine": engine, "lang": lang, "low_conf_threshold": low_conf, "pages": rows}
     report.write_json(out_dir / "ocr.json", summary)
     _write_html(summary, out_dir / "index.html")
