@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from ectype.compare import cer, compare, normalize_text, parse_pages
+from ectype.compare import align, cer, compare, normalize_text, parse_pages
 from ectype.synth import Degrade, make_page
 
 
@@ -67,3 +67,20 @@ def test_compare_png_against_pdf(tmp_path):
     make_page(tmp_path, degrade=Degrade.none())
     s = compare(tmp_path / "clean.png", tmp_path / "scan.pdf", tmp_path / "r", dpi=300)
     assert s["pages"][0]["ssim"] > 0.999
+
+
+def test_align_finds_quarter_turn_and_skew(tmp_path):
+    import cv2
+
+    make_page(tmp_path, degrade=Degrade.none())
+    ref = cv2.resize(np.asarray(Image.open(tmp_path / "clean.png")), None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
+    h, w = ref.shape
+    skew = cv2.getRotationMatrix2D((w / 2, h / 2), 0.8, 1.0)
+    skew[:, 2] += (6, -4)
+    moved = cv2.warpAffine(ref, skew, (w, h), borderValue=255)
+    turned = np.ascontiguousarray(np.rot90(moved, -1))  # stored a quarter turn off, like the corpus scan
+
+    out, info = align(ref, turned)
+    assert info["aligned"] and info["turned_deg"] == 90
+    assert abs(abs(info["rotation_deg"]) - 0.8) < 0.1
+    assert np.abs(out.astype(int) - ref).mean() < np.abs(moved.astype(int) - ref).mean() / 3

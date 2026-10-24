@@ -34,7 +34,7 @@ The page has 2,432 connected components. Classification takes about 0.5 s.
 - **Low thresholds risk merging different letters.** Phase 3 should not rely on a single global threshold. The plan's approach still holds: cluster *within* each OCR character, using correlation as the shape distance, then merge or split by style.
 - **Touching pairs come out as single components.** "fi", "ty" and "ft" appear as their own classes, as obstacle 1 predicted. Ligature handling has to start at segmentation.
 - **Multi-part letters split apart.** The dot of "i" and "j", and the pieces of punctuation, are separate components (dotless "ı" stems and "." dots show up as classes). Component-to-character assignment (Phase 1) has to regroup them. Leptonica's `JB_CHARACTERS` mode (components merged by a small dilation) is an option, but it also merges touching letters, so assigning components by OCR box is still the plan.
-- **The corpus is stored sideways.** Each PDF page is a 300-dpi landscape scan of a two-page spread with `/Rotate 270`. Viewers display it as two stacked, sideways pages. Phase 1 preprocessing has to apply rotation per half after splitting the spread.
+- **The corpus is stored sideways.** Each PDF page is a 300-dpi landscape scan of a two-page spread, stored upside down with `/Rotate 270`. That flag is wrong by 90°, so viewers show the spread sideways. Phase 1 preprocessing has to detect orientation from the image itself rather than trust `/Rotate`. (The spike renders with `/Rotate` applied, which is why it needs `--rotate 90`.) See `docs/acrobat-baseline.md`.
 
 ## Next
 

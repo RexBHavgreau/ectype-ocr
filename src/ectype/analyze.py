@@ -198,6 +198,7 @@ class FontInfo:
     font_file: str | None = None
     font_file_subtype: str | None = None
     font_file_bytes: int = 0
+    program_id: str | None = None
     glyph_count: int | None = None
     units_per_em: float | None = None
     has_tounicode: bool = False
@@ -225,7 +226,13 @@ def _font_file(descriptor) -> tuple[str | None, pikepdf.Stream | None]:
     return None, None
 
 
-def describe_font(key: str, font: pikepdf.Dictionary, out_dir: Path | None) -> FontInfo:
+def describe_font(
+    key: str, font: pikepdf.Dictionary, out_dir: Path | None, seen_programs: dict[str, FontInfo] | None = None
+) -> FontInfo:
+    """Describe one font dictionary. Font programs shared between dictionaries
+    (Acrobat writes one Type0 dictionary per page around a shared program) are
+    parsed and written out once, via seen_programs."""
+    seen_programs = {} if seen_programs is None else seen_programs
     base = str(font.get("/BaseFont", font.get("/Name", "(unnamed)")))
     info = FontInfo(
         key=key,
@@ -252,11 +259,18 @@ def describe_font(key: str, font: pikepdf.Dictionary, out_dir: Path | None) -> F
 
     file_key, stream = _font_file(descriptor)
     program = None
+    shared = None
     if stream is not None:
         info.font_file = file_key
         sub = stream.get("/Subtype")
         info.font_file_subtype = str(sub)[1:] if sub is not None else None
         info.font_file_bytes = len(stream.read_raw_bytes())
+        info.program_id = f"{stream.objgen[0]}-{stream.objgen[1]}" if stream.is_indirect else key
+        shared = seen_programs.get(info.program_id)
+    if shared is not None:
+        info.glyph_count, info.units_per_em = shared.glyph_count, shared.units_per_em
+        info.files = dict(shared.files)
+    elif stream is not None:
         data = stream.read_bytes()
         kind = info.font_file_subtype if file_key == "FontFile3" else file_key
         try:
@@ -297,7 +311,43 @@ def describe_font(key: str, font: pikepdf.Dictionary, out_dir: Path | None) -> F
         sheet = out_dir / f"{_safe(key)}-glyphs.svg"
         sheet.write_text(svg, encoding="utf-8")
         info.files["glyph_sheet"] = sheet.name
+    if info.program_id is not None and shared is None:
+        seen_programs[info.program_id] = info
     return info
+
+
+def _filters(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, pikepdf.Array):
+        return " ".join(str(v).lstrip("/") for v in value)
+    return str(value).lstrip("/")
+
+
+def font_programs(fonts: list[FontInfo]) -> list[dict]:
+    """Group font dictionaries by the embedded program they share."""
+    groups: dict[str, list[FontInfo]] = {}
+    for f in fonts:
+        if f.program_id is not None:
+            groups.setdefault(f.program_id, []).append(f)
+    out = []
+    for pid, members in groups.items():
+        first = members[0]
+        out.append({
+            "id": pid,
+            "base_fonts": sorted({_SUBSET_PREFIX.sub("", m.base_font.lstrip("/")) for m in members}),
+            "kind": " ".join(x for x in (first.font_file, first.font_file_subtype) if x),
+            "bytes": first.font_file_bytes,
+            "glyph_count": first.glyph_count,
+            "font_dicts": [m.key for m in members],
+            "pages": sorted({p for m in members for p in m.pages}),
+            "glyphs_shown": sum(m.glyphs_shown for m in members),
+            "fffd_codes": first.fffd_codes,
+            "variants": dict(first.variants),
+            "ligature_glyphs": first.ligature_glyphs,
+            "files": first.files,
+        })
+    return sorted(out, key=lambda p: (-p["glyphs_shown"], p["id"]))
 
 
 def _safe(text: str) -> str:
@@ -400,7 +450,7 @@ def _walk(stream_owner, resources, ctm, stats: PageStats, font_lookup, depth=0) 
                     "height": h,
                     "bits": int(xobj.get("/BitsPerComponent", 0)) if "/BitsPerComponent" in xobj else None,
                     "colorspace": str(xobj.get("/ColorSpace")) if not isinstance(xobj.get("/ColorSpace"), pikepdf.Array) else "(array)",
-                    "filter": str(xobj.get("/Filter")),
+                    "filter": _filters(xobj.get("/Filter")),
                     "image_mask": bool(xobj.get("/ImageMask", False)),
                     "smask": "/SMask" in xobj,
                     "placed_pt": [round(width_pt, 2), round(height_pt, 2)],
@@ -445,6 +495,7 @@ def analyze_pdf(pdf_path: Path, out_dir: Path, images: bool = True, glyph_sheets
 
     pdf = pikepdf.open(pdf_path)
     fonts: dict[object, FontInfo] = {}
+    seen_programs: dict[str, FontInfo] = {}
     font_keys: dict[object, str] = {}
 
     def font_key_for(font, res_name: str) -> str:
@@ -471,7 +522,7 @@ def analyze_pdf(pdf_path: Path, out_dir: Path, images: bool = True, glyph_sheets
         for ident, (font, res_name) in found.items():
             key = font_key_for(font, str(res_name))
             if ident not in fonts:
-                fonts[ident] = describe_font(key, font, font_dir if glyph_sheets else None)
+                fonts[ident] = describe_font(key, font, font_dir if glyph_sheets else None, seen_programs)
             info = fonts[ident]
             if number not in info.pages:
                 info.pages.append(number)
@@ -507,7 +558,8 @@ def analyze_pdf(pdf_path: Path, out_dir: Path, images: bool = True, glyph_sheets
                 by_key[key].glyphs_shown += n
 
     file_size = pdf_path.stat().st_size
-    font_bytes = sum(f.font_file_bytes for f in fonts.values())
+    programs = font_programs(list(fonts.values()))
+    font_bytes = sum(p["bytes"] for p in programs)
     unique_images = {tuple(i["objgen"]): i["stream_bytes"] for p in pages for i in p.images}
     image_bytes = sum(unique_images.values())
     content_bytes = sum(p.content_bytes for p in pages)
@@ -527,6 +579,8 @@ def analyze_pdf(pdf_path: Path, out_dir: Path, images: bool = True, glyph_sheets
         },
         "font_count": len(fonts),
         "synthesized_font_count": sum(f.synthesized for f in fonts.values()),
+        "font_program_count": len(programs),
+        "font_programs": programs,
         "fonts": [vars(f) for f in sorted(fonts.values(), key=lambda f: f.key)],
         "pages": [
             {
@@ -580,8 +634,30 @@ def write_html(summary: dict, path: Path) -> None:
     ))
 
     fonts = summary["fonts"]
-    body.append(f"<h2>Fonts ({len(fonts)}, {summary['synthesized_font_count']} synthesized)</h2>")
+    programs = summary["font_programs"]
+    body.append(f"<h2>Fonts ({summary['font_program_count']} embedded programs, {len(fonts)} font dictionaries, "
+                f"{summary['synthesized_font_count']} synthesized)</h2>")
+    if programs:
+        body.append(report.table(
+            ["Program", "Name", "Kind", "Glyphs", "U+FFFD", "Most repeated", "Ligatures", "Pages", "Dicts",
+             "Glyphs shown", "Bytes"],
+            [[
+                p["id"],
+                ", ".join(p["base_fonts"]),
+                p["kind"],
+                p["glyph_count"] if p["glyph_count"] is not None else "",
+                p["fffd_codes"],
+                ", ".join(f"{u!r}×{n}" for u, n in list(p["variants"].items())[:4]),
+                " ".join(p["ligature_glyphs"][:8]),
+                _ranges(p["pages"]),
+                len(p["font_dicts"]),
+                p["glyphs_shown"],
+                p["bytes"],
+            ] for p in programs],
+            numeric={3, 4, 8, 9, 10},
+        ))
     if fonts:
+        body.append("<details><summary>Font dictionaries</summary>")
         body.append(report.table(
             ["Font", "Type", "Program", "Glyphs", "ToUnicode", "U+FFFD", "Most repeated", "Ligatures",
              "Private keys", "Pages", "Glyphs shown", "Bytes"],
@@ -601,12 +677,14 @@ def write_html(summary: dict, path: Path) -> None:
             ] for f in fonts],
             numeric={3, 4, 5, 10, 11},
         ))
-        sheets = [f for f in fonts if "glyph_sheet" in f["files"]]
-        if sheets:
-            body.append("<h3>Glyph sheets</h3><p class=\"muted\">Ordered by Unicode, so repeated variants of one character sit together. Labels: glyph id and mapped text.</p>")
-            for f in sheets:
-                body.append(f"<p><a href=\"fonts/{f['files']['glyph_sheet']}\">{report.esc(f['key'])}</a></p>")
-                body.append(f"<img class=\"sheet\" loading=\"lazy\" src=\"fonts/{f['files']['glyph_sheet']}\" alt=\"glyph sheet\">")
+        body.append("</details>")
+    sheets = [p for p in programs if "glyph_sheet" in p["files"]]
+    if sheets:
+        body.append("<h3>Glyph sheets</h3><p class=\"muted\">Ordered by Unicode, so repeated variants of one character sit together. Labels: glyph id and mapped text.</p>")
+        for p in sheets:
+            body.append(f"<p><a href=\"fonts/{p['files']['glyph_sheet']}\">{report.esc(', '.join(p['base_fonts']))}</a> "
+                        f"<span class=\"muted\">program {report.esc(p['id'])}</span></p>")
+            body.append(f"<img class=\"sheet\" loading=\"lazy\" src=\"fonts/{p['files']['glyph_sheet']}\" alt=\"glyph sheet\">")
 
     body.append("<h2>Pages</h2>")
     body.append(report.table(

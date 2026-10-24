@@ -29,8 +29,15 @@ def test_analyze_clearscan_like(clearscan_like_pdf, tmp_path):
     s = analyze_pdf(clearscan_like_pdf, out)
 
     assert s["page_count"] == 2
-    assert s["font_count"] == 1, "the font shared by both pages is counted once"
-    assert s["synthesized_font_count"] == 1
+    assert s["font_count"] == 2, "one font dictionary per page"
+    assert s["synthesized_font_count"] == 2
+    assert s["font_program_count"] == 1, "both dictionaries share one embedded program"
+    program = s["font_programs"][0]
+    assert program["pages"] == [1, 2]
+    assert program["glyphs_shown"] == 2 * (2 + 1 + 3)
+    assert len(program["font_dicts"]) == 2
+    assert s["size_breakdown"]["fonts"] == program["bytes"]
+    assert s["size_breakdown"]["other"] > 0
 
     f = s["fonts"][0]
     assert f["subtype"] == "/Type0"
@@ -42,8 +49,9 @@ def test_analyze_clearscan_like(clearscan_like_pdf, tmp_path):
     assert f["variants"] == {"i": 2}
     assert f["ligature_glyphs"] == ["fi"]
     assert f["private_keys"] == ["/Bezier"]
-    assert f["pages"] == [1, 2]
-    assert f["glyphs_shown"] == 2 * (2 + 1 + 3)
+    assert f["pages"] == [1]
+    assert f["glyphs_shown"] == 2 + 1 + 3
+    assert s["fonts"][1]["files"] == f["files"], "the shared program is written once"
 
     p = s["pages"][0]
     assert p["text_shows"] == 3
@@ -54,6 +62,7 @@ def test_analyze_clearscan_like(clearscan_like_pdf, tmp_path):
     assert p["marked_content"] == {"/Span +ActualText": 1}
     image = p["images"][0]
     assert image["dpi"] == [300.0, 300.0]
+    assert image["filter"] == "FlateDecode"
     assert image["file"] == "p001-Im0.png"
     assert s["pages"][1]["images"][0]["file"] == "p001-Im0.png", "shared image is extracted once"
 

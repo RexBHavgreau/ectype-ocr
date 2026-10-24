@@ -89,9 +89,11 @@ def clearscan_like_pdf(tmp_path: Path) -> Path:
     image.Width, image.Height, image.BitsPerComponent = 200, 300, 8
     image.ColorSpace, image.Filter = pikepdf.Name.DeviceGray, pikepdf.Name.FlateDecode
 
-    for _ in range(2):  # the same font on two pages
+    # Like Acrobat: page 2 gets its own Type0 dictionary around the same font program.
+    font2 = pdf.make_indirect(pikepdf.Dictionary({k: font[k] for k in font.keys()}))
+    for page_font in (font, font2):
         page = pdf.add_blank_page(page_size=(144, 216))
-        page.Resources.Font = pikepdf.Dictionary(T1_0=font)
+        page.Resources.Font = pikepdf.Dictionary(T1_0=page_font)
         page.Resources.XObject = pikepdf.Dictionary(Im0=image)
         page.Contents = pikepdf.Stream(pdf, (
             b"q 48 0 0 72 0 0 cm /Im0 Do Q\n"  # 200 px over 48 pt = 300 dpi

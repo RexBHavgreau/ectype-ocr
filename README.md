@@ -2,7 +2,7 @@
 
 Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. See [`PLAN.md`](PLAN.md) for the design and the phased build plan.
 
-**Status: Phase 0 (baseline and harness).** No OCR output yet. There are tools to take PDFs apart, make test pages with known ground truth, and compare results.
+**Status: Phase 0 (baseline and harness) is done.** No OCR output yet. There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
 
 ## Setup
 
@@ -20,7 +20,7 @@ All reports are written to `reports/`, which git ignores.
 ectype analyze "corpus/E J. Young Inspiration-1.pdf"
 ```
 
-This dumps a PDF's fonts (type, embedded program, glyph count, ToUnicode coverage, repeated variants, ligatures, U+FFFD glyphs, private keys), SVG glyph sheets, page structure (images and their dpi, text operators, render modes, per-word `Tc`, ActualText spans), a file-size breakdown and the extracted images. The output is an `index.html` plus `analysis.json`.
+This dumps a PDF's fonts, grouped by shared embedded program (type, embedded program, glyph count, ToUnicode coverage, repeated variants, ligatures, U+FFFD glyphs, private keys), SVG glyph sheets, page structure (images and their dpi, text operators, render modes, per-word `Tc`, ActualText spans), a file-size breakdown and the extracted images. The output is an `index.html` plus `analysis.json`.
 
 ```
 ectype synth -o reports/synth [--font "EB Garamond"] [--clean]
@@ -29,10 +29,10 @@ ectype synth -o reports/synth [--font "EB Garamond"] [--clean]
 This makes a synthetic test page: known text, set in a known font, then degraded like a scan (skew, blur, noise, specks, JPEG). It writes `scan.pdf`, `scan.png`, `clean.png`, `truth.txt` and `truth.json`. The JSON gives every line, word and character with its baseline origin and ink box.
 
 ```
-ectype compare A.pdf B.pdf [--truth reports/synth/truth.json] [--labels Acrobat,Ectype] [--pages 1-3]
+ectype compare A.pdf B.pdf [--truth reports/synth/truth.json] [--labels Acrobat,Ectype] [--pages 1-3] [--align]
 ```
 
-This compares two documents page by page. You get side-by-side renders, a difference overlay, SSIM and ink disagreement, file size per page, and the character error rate (CER) of extracted text when ground truth is given. Page images (PNG/TIFF/JPEG) are accepted as well as PDFs.
+This compares two documents page by page. You get side-by-side renders, a difference overlay, SSIM and ink disagreement, file size per page, and the character error rate (CER) of extracted text when ground truth is given. Page images (PNG/TIFF/JPEG) are accepted as well as PDFs. `--align` registers B onto A (best quarter turn, then an affine fit) for output that was turned, deskewed or rescaled, as Acrobat's is.
 
 `ectype --credits` prints [`CREDITS.md`](CREDITS.md).
 

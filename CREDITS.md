@@ -39,5 +39,6 @@ None yet.
 | Item | Use | Authors / source | License |
 | --- | --- | --- | --- |
 | E. J. Young, "Some Reflections upon Inspiration" (scan in `corpus/`) | Primary test case | Scanned by the project author | Test material only; not redistributed in releases |
+| The same chapter after Acrobat ClearScan (`corpus/E J. Young Inspiration-1 - Copy.pdf`) | Reference result (see `docs/acrobat-baseline.md`) | Produced by the project author with Adobe Acrobat 26 | Test material only; not redistributed in releases |
 
 Fonts used for synthetic test pages are taken from the local system at run time and are not bundled; each generated page records the font file and its hash in its `truth.json`.

@@ -132,6 +132,59 @@ def match_size(img: np.ndarray, shape: tuple[int, int]) -> tuple[np.ndarray, boo
     return cv2.resize(img, (shape[1], shape[0]), interpolation=cv2.INTER_AREA), True
 
 
+def align(reference: np.ndarray, moving: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Register moving onto reference: pick the quarter turn that matches best, resize,
+    then refine with an affine ECC fit on a downsampled copy.
+
+    For documents whose pages were turned, deskewed, cropped or rescaled (Acrobat's
+    output against a scan with a wrong /Rotate). Returns the warped image and the fit.
+    """
+    h, w = reference.shape
+    scale = min(1.0, 800 / max(h, w))
+    small = lambda img: 1 - cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA).astype(np.float32) / 255
+
+    best = None
+    for turns in range(4):
+        candidate = np.ascontiguousarray(np.rot90(moving, turns))
+        ch, cw = candidate.shape
+        if abs(np.log((cw / ch) / (w / h))) > 0.15:
+            continue
+        candidate = cv2.resize(candidate, (w, h), interpolation=cv2.INTER_AREA)
+        score = float(np.corrcoef(cv2.blur(small(reference), (9, 9)).ravel(), cv2.blur(small(candidate), (9, 9)).ravel())[0, 1])
+        if best is None or score > best[0]:
+            best = (score, turns, candidate)
+    if best is None:
+        return match_size(moving, reference.shape)[0], {"aligned": False, "error": "no orientation with a matching aspect ratio"}
+    _, turns, moving = best
+
+    warp = np.eye(2, 3, dtype=np.float32)
+    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 200, 1e-6)
+    try:
+        ecc, warp = cv2.findTransformECC(small(reference), small(moving), warp, cv2.MOTION_AFFINE, criteria, None, 5)
+    except cv2.error as exc:
+        return moving, {"aligned": False, "turned_deg": 90 * turns, "error": str(exc).strip().splitlines()[-1]}
+    warp[:, 2] /= scale
+    out = cv2.warpAffine(moving, warp, (reference.shape[1], reference.shape[0]),
+                         flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderValue=255)
+    return out, {
+        "aligned": True,
+        "turned_deg": 90 * turns,
+        "ecc": round(float(ecc), 4),
+        "shift_px": [round(float(warp[0, 2]), 1), round(float(warp[1, 2]), 1)],
+        "scale": round(float(np.sqrt(abs(np.linalg.det(warp[:, :2])))), 4),
+        "rotation_deg": round(float(np.degrees(np.arctan2(warp[1, 0], warp[0, 0]))), 3),
+    }
+
+
+def _tolerant_disagreement(ink_a: np.ndarray, ink_b: np.ndarray, union: np.ndarray) -> float:
+    if not union.any():
+        return 0.0
+    kernel = np.ones((3, 3), np.uint8)
+    near_a = cv2.dilate(ink_a.astype(np.uint8), kernel).astype(bool)
+    near_b = cv2.dilate(ink_b.astype(np.uint8), kernel).astype(bool)
+    return round(float(((ink_a & ~near_b) | (ink_b & ~near_a)).sum() / union.sum()), 4)
+
+
 def page_metrics(a: np.ndarray, b: np.ndarray) -> dict:
     ink_a, ink_b = ink_mask(a), ink_mask(b)
     union = ink_a | ink_b
@@ -140,6 +193,8 @@ def page_metrics(a: np.ndarray, b: np.ndarray) -> dict:
         "mean_abs_diff": round(float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()), 3),
         # Share of inked pixels (in either) that disagree: 0 = identical ink, 1 = no overlap.
         "ink_disagreement": round(float((ink_a ^ ink_b).sum() / union.sum()), 4) if union.any() else 0.0,
+        # The same, forgiving 1-pixel offsets: ink with no ink from the other within 1 px.
+        "ink_disagreement_1px": _tolerant_disagreement(ink_a, ink_b, union),
     }
 
 
@@ -166,6 +221,7 @@ def compare(
     pages: str | None = None,
     truth: Path | None = None,
     labels: tuple[str, str] = ("A", "B"),
+    register: bool = False,
 ) -> dict:
     a, b = Source(Path(a_path), labels[0]), Source(Path(b_path), labels[1])
     out_dir = Path(out_dir)
@@ -181,7 +237,12 @@ def compare(
     for i in indices:
         t0 = time.perf_counter()
         ra, rb = a.render(i, dpi), b.render(i, dpi)
-        rb, resized = match_size(rb, ra.shape)
+        alignment = None
+        if register:
+            resized = False
+            rb, alignment = align(ra, rb)
+        else:
+            rb, resized = match_size(rb, ra.shape)
         metrics = page_metrics(ra, rb)
         stem = f"p{i + 1:03d}"
         Image.fromarray(ra).save(img_dir / f"{stem}-a.png")
@@ -191,6 +252,7 @@ def compare(
             "page": i + 1,
             "size_px": [ra.shape[1], ra.shape[0]],
             "b_resized": resized,
+            "alignment": alignment,
             **metrics,
             "chars_a": len(normalize_text(texts_a[i])) if i < len(texts_a) else 0,
             "chars_b": len(normalize_text(texts_b[i])) if i < len(texts_b) else 0,
@@ -215,9 +277,10 @@ def compare(
         "a": doc_info(a, count_a),
         "b": doc_info(b, count_b),
         "truth": str(truth) if truth else None,
+        "aligned": register,
         "pages_compared": len(rows),
         "page_count_mismatch": count_a != count_b,
-        "mean": {k: mean(k) for k in ("ssim", "ink_disagreement", "mean_abs_diff", "cer_a", "cer_b")},
+        "mean": {k: mean(k) for k in ("ssim", "ink_disagreement", "ink_disagreement_1px", "mean_abs_diff", "cer_a", "cer_b")},
         "pages": rows,
     }
     report.write_json(out_dir / "compare.json", summary)
@@ -231,6 +294,18 @@ def _fmt(value) -> str:
     if isinstance(value, float):
         return f"{value:.4f}"
     return str(value)
+
+
+def _note(row: dict) -> str:
+    notes = ["B resized to A"] if row["b_resized"] else []
+    al = row.get("alignment")
+    if al:
+        turned = f"turned {al['turned_deg']}°, " if al.get("turned_deg") else ""
+        notes.append(
+            f"aligned: {turned}shift {al['shift_px'][0]:+.0f},{al['shift_px'][1]:+.0f} px, scale {al['scale']:.3f}, "
+            f"rotation {al['rotation_deg']:+.2f}°" if al["aligned"] else f"alignment failed: {al['error']}"
+        )
+    return "; ".join(notes)
 
 
 def _write_html(s: dict, path: Path) -> None:
@@ -254,15 +329,16 @@ def _write_html(s: dict, path: Path) -> None:
     if s["truth"] is None:
         body.append("<p class=\"muted\">No ground truth given, so text accuracy is not measured (pass --truth).</p>")
     body.append(
-        f"<p>Mean SSIM {_fmt(s['mean']['ssim'])} · mean ink disagreement {_fmt(s['mean']['ink_disagreement'])}. "
+        f"<p>Mean SSIM {_fmt(s['mean']['ssim'])} · mean ink disagreement {_fmt(s['mean']['ink_disagreement'])} "
+        f"({_fmt(s['mean']['ink_disagreement_1px'])} allowing 1 px). "
         "Position accuracy per word needs OCR word boxes and arrives with Phase 1.</p>"
     )
     body.append("<h2>Pages</h2>")
     body.append(report.table(
-        ["Page", "SSIM", "Ink disagreement", "Mean |diff|", f"Chars {la}", f"Chars {lb}", f"CER {la}", f"CER {lb}", "Note"],
-        [[r["page"], _fmt(r["ssim"]), _fmt(r["ink_disagreement"]), _fmt(r["mean_abs_diff"]), r["chars_a"], r["chars_b"],
-          _fmt(r.get("cer_a")), _fmt(r.get("cer_b")), "B resized to A" if r["b_resized"] else ""] for r in s["pages"]],
-        numeric={0, 1, 2, 3, 4, 5, 6, 7},
+        ["Page", "SSIM", "Ink disagreement", "Within 1 px", "Mean |diff|", f"Chars {la}", f"Chars {lb}", f"CER {la}", f"CER {lb}", "Note"],
+        [[r["page"], _fmt(r["ssim"]), _fmt(r["ink_disagreement"]), _fmt(r["ink_disagreement_1px"]), _fmt(r["mean_abs_diff"]), r["chars_a"], r["chars_b"],
+          _fmt(r.get("cer_a")), _fmt(r.get("cer_b")), _note(r)] for r in s["pages"]],
+        numeric={0, 1, 2, 3, 4, 5, 6, 7, 8},
     ))
     for r in s["pages"]:
         stem = f"pages/p{r['page']:03d}"
