@@ -238,7 +238,7 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
     rows = []
     for png in sorted(pages_dir.glob("*.png")):
         image = Image.open(png)
-        dpi = float(image.info.get("dpi", (300,))[0] or 300)
+        dpi = report.image_dpi(image)
         gray = np.asarray(image.convert("L"))
         page = drop_margin_noise(eng.recognize(gray, dpi=dpi, lang=lang))
         report.write_json(out_dir / f"{png.stem}.ocr.json", page.to_json())

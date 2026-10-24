@@ -53,7 +53,7 @@ def load_pages(path: Path, dpi: float = 300, pages: list[int] | None = None):
     path = Path(path)
     if path.suffix.lower() in IMAGE_SUFFIXES:
         image = Image.open(path)
-        yield SourcePage(1, np.asarray(image.convert("L")).copy(), float(image.info.get("dpi", (dpi,))[0] or dpi), "image file")
+        yield SourcePage(1, np.asarray(image.convert("L")).copy(), report.image_dpi(image, dpi), "image file")
         return
     pdf = pikepdf.open(path)
     doc = pdfium.PdfDocument(str(path))
@@ -68,7 +68,7 @@ def load_pages(path: Path, dpi: float = 300, pages: list[int] | None = None):
                 yield SourcePage(number, gray, gray.shape[1] / (width_pt / 72), "embedded image")
                 continue
             p = doc[index]
-            bitmap = p.render(scale=dpi / 72 * (1 - 1e-9), rotation=(360 - p.get_rotation()) % 360, grayscale=True)
+            bitmap = p.render(scale=dpi / 72 * (1 - 1e-6), rotation=(360 - p.get_rotation()) % 360, grayscale=True)
             yield SourcePage(number, np.asarray(bitmap.to_pil().convert("L")).copy(), dpi, "rendered")
     finally:
         doc.close()

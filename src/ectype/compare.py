@@ -50,7 +50,7 @@ class Source:
         """Grayscale render of one page (0-based), honouring /Rotate."""
         if not self.is_pdf:
             image = Image.open(self.path)
-            src_dpi = image.info.get("dpi", (dpi, dpi))[0] or dpi
+            src_dpi = report.image_dpi(image, dpi)
             gray = np.asarray(image.convert("L"))
             if abs(src_dpi - dpi) > 0.5:
                 scale = dpi / src_dpi
@@ -58,9 +58,10 @@ class Source:
             return gray
         doc = pdfium.PdfDocument(str(self.path))
         try:
-            # pdfium rounds the bitmap size up, so 432 pt at 300 dpi (1800.0000001 px) would
-            # become 1801 px and resample the page; a hair under the scale keeps it exact.
-            bitmap = doc[index].render(scale=dpi / 72 * (1 - 1e-9), grayscale=True)
+            # pdfium rounds the bitmap size up from page sizes held as 32-bit floats, so
+            # 367.2 pt at 300 dpi (1530.00005 px) would become 1531 px; a hair under the
+            # scale keeps whole-pixel pages exact.
+            bitmap = doc[index].render(scale=dpi / 72 * (1 - 1e-6), grayscale=True)
             return np.asarray(bitmap.to_pil().convert("L")).copy()
         finally:
             doc.close()
@@ -76,8 +77,9 @@ class Source:
 
 
 def normalize_text(text: str) -> str:
-    """Collapse whitespace only. No Unicode normalization (it breaks some Hebrew mark orders)."""
-    return re.sub(r"\s+", " ", text.replace("\r", "")).strip()
+    """Collapse whitespace only. No Unicode normalization (it breaks some Hebrew mark orders).
+    pdfium reports a hyphen at a line end as U+0002; it is read back as a hyphen."""
+    return re.sub(r"\s+", " ", text.replace("\r", "").replace("\x02", "-")).strip()
 
 
 def cer(hypothesis: str, reference: str) -> float | None:

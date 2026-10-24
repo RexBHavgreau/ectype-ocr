@@ -82,6 +82,19 @@ def cmd_segment(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_substitute(args: argparse.Namespace) -> int:
+    from .substitute import substitute_workspace
+    from .synth import find_font
+
+    ws = Path(args.workspace)
+    s = substitute_workspace(ws, find_font(args.font), out_name=args.name, background_dpi=args.background_dpi)
+    w = s["within_1px"] or {}
+    print(f"{ws / 'substitute' / s['pdf']}: {s['bytes']:,} bytes; word ends within 1 px of the scan: "
+          f"left {100 * w.get('left', 0):.1f}%, right {100 * w.get('right', 0):.1f}%")
+    print(f"Report: {ws / 'substitute' / 'index.html'}")
+    return 0
+
+
 def cmd_synth(args: argparse.Namespace) -> int:
     from .synth import DEFAULT_TEXT, Degrade, find_font, make_page, make_set
 
@@ -158,6 +171,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("workspace")
     p.add_argument("--truth", help="synthetic truth folder (default <workspace>/truth if present)")
     p.set_defaults(func=cmd_segment)
+
+    p = sub.add_parser("substitute", help="build the substitute-mode PDF: <workspace>/substitute")
+    p.add_argument("workspace")
+    p.add_argument("--font", help="font file or family name (default: EB Garamond, else a system serif)")
+    p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
+    p.add_argument("--background-dpi", type=float, default=150, help="resolution of the erased background image")
+    p.set_defaults(func=cmd_substitute)
 
     p = sub.add_parser("synth", help="make a synthetic test page with known text and font")
     p.add_argument("-o", "--output", help="output folder (default reports/synth)")

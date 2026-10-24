@@ -61,3 +61,11 @@ def human_bytes(n: float) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
     return f"{n:.1f} GB"
+
+
+def image_dpi(image, default: float = 300.0) -> float:
+    """An image's resolution. PNG stores pixels per metre, so 300 dpi reads back as
+    299.9994; values within 0.01 of a whole number are snapped to it."""
+    dpi = image.info.get("dpi", (default,))[0] or default
+    dpi = float(dpi)
+    return float(round(dpi)) if abs(dpi - round(dpi)) < 0.01 else dpi

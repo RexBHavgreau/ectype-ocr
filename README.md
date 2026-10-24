@@ -2,7 +2,7 @@
 
 Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. See [`PLAN.md`](PLAN.md) for the design and the phased build plan.
 
-**Status: Phases 0 and 1 are done** (baseline and harness; preprocessing, OCR, and tying each character to its ink). See [`docs/phase1.md`](docs/phase1.md) for results. There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
+**Status: Phases 0–2 are done**: baseline and harness; preprocessing, OCR and tying each character to its ink ([results](docs/phase1.md)); substitute mode ([results](docs/phase2.md)). There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
 
 ## Setup
 
@@ -36,6 +36,12 @@ ectype segment reports/work-young       # tie each character to its ink
 `ocr` writes `<workspace>/ocr/<page>.ocr.json` plus overlays. `segment` writes `<workspace>/segment/<page>.seg.json`: glyph units, each a Unicode string with its ink components (a multi-character unit where letters touch or a ligature was printed). It also writes a label image and an overlay that colours each letter's ink, which is the view for checking by eye.
 
 ```
+ectype substitute reports/work-young [--font "EB Garamond"]
+```
+
+This writes the substitute-mode PDF: each OCR word set in a real font at its scanned position (size and baseline per line, `Tz`/`Tc` per word so word ends land on the scanned ink), over the scan with the text erased. The report measures, word by word, how far the rendered text lands from the scan.
+
+```
 ectype synth -o reports/synth [--font "EB Garamond"] [--clean]
 ```
 
@@ -56,6 +62,7 @@ This compares two documents page by page. You get side-by-side renders, a differ
 - `src/ectype/`: the library and CLI.
   - `analyze`, `synth` and `compare` are the Phase 0 tools.
   - `preprocess`, `ocr` and `segment` are Phase 1.
+  - `background`, `pdfwrite` and `substitute` are Phase 2. `pdfwrite` is shared with traced mode.
   - `lept` holds ctypes bindings to Leptonica's symbol classifier.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).
 - `corpus/`: test scans. Never modified.

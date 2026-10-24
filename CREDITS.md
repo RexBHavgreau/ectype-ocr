@@ -42,4 +42,7 @@ None yet.
 | E. J. Young, "Some Reflections upon Inspiration" (scan in `corpus/`) | Primary test case | Scanned by the project author | Test material only; not redistributed in releases |
 | The same chapter after Acrobat ClearScan (`corpus/E J. Young Inspiration-1 - Copy.pdf`) | Reference result (see `docs/acrobat-baseline.md`) | Produced by the project author with Adobe Acrobat 26 | Test material only; not redistributed in releases |
 
-Fonts used for synthetic test pages are taken from the local system at run time and are not bundled; each generated page records the font file and its hash in its `truth.json`.
+| Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
+| DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
+
+Fonts are taken from the local system at run time and are not bundled. Each synthetic page records the font file and its hash in its `truth.json`; a substitute-mode PDF embeds a subset of the chosen font, which these licenses permit.
