@@ -2,7 +2,7 @@
 
 Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. See [`PLAN.md`](PLAN.md) for the design and the phased build plan.
 
-**Status: Phase 0 (baseline and harness) is done.** No OCR output yet. There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
+**Status: Phase 0 (baseline and harness) is done; Phase 1 (OCR and segmentation) is under way, starting with preprocessing.** No OCR output yet. There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
 
 ## Setup
 
@@ -23,6 +23,12 @@ ectype analyze "corpus/E J. Young Inspiration-1.pdf"
 This dumps a PDF's fonts, grouped by shared embedded program (type, embedded program, glyph count, ToUnicode coverage, repeated variants, ligatures, U+FFFD glyphs, private keys), SVG glyph sheets, page structure (images and their dpi, text operators, render modes, per-word `Tc`, ActualText spans), a file-size breakdown and the extracted images. The output is an `index.html` plus `analysis.json`.
 
 ```
+ectype preprocess "corpus/E J. Young Inspiration-1.pdf" [--keep-spreads] [--overrides fixes.json]
+```
+
+This turns a scan into one upright, deskewed grayscale PNG per book page. Orientation comes from the text itself (Tesseract), not from the PDF's `/Rotate`. Two-page spreads are split at the fold, which is found from the text-free gutter and the fold shadow. Each page gets a JSON sidecar with the transforms applied. The review report shows each split and flags pages to check. To correct a page, put it in an overrides file, e.g. `{"13": {"split": 1700}, "7": {"rotate": 180, "skew": 0.2}, "9": {"split": false}}`.
+
+```
 ectype synth -o reports/synth [--font "EB Garamond"] [--clean]
 ```
 
@@ -40,6 +46,7 @@ This compares two documents page by page. You get side-by-side renders, a differ
 
 - `src/ectype/`: the library and CLI.
   - `analyze`, `synth` and `compare` are the Phase 0 tools.
+  - `preprocess` is the first Phase 1 stage.
   - `lept` holds ctypes bindings to Leptonica's symbol classifier.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).
 - `corpus/`: test scans. Never modified.

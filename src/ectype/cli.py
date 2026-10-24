@@ -40,6 +40,22 @@ def cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_preprocess(args: argparse.Namespace) -> int:
+    from .compare import parse_pages
+    from .preprocess import load_overrides, preprocess
+
+    out = Path(args.output) if args.output else _default_out("preprocess", Path(args.input))
+    pages = [i + 1 for i in parse_pages(args.pages, 100000)] if args.pages else None
+    s = preprocess(Path(args.input), out, keep_spreads=args.keep_spreads,
+                   overrides=load_overrides(Path(args.overrides) if args.overrides else None),
+                   pages=pages, deskew=not args.no_deskew, dpi=args.dpi)
+    flagged = [str(src["page"]) for src in s["sources"] if src["flags"]]
+    print(f"{len(s['sources'])} source pages -> {len(s['pages'])} pages"
+          + (f"; check source pages {', '.join(flagged)}" if flagged else ""))
+    print(f"Report: {out / 'index.html'}")
+    return 0
+
+
 def cmd_synth(args: argparse.Namespace) -> int:
     from .synth import DEFAULT_TEXT, Degrade, find_font, make_page
 
@@ -89,6 +105,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--align", action="store_true",
                    help="register B onto A: best quarter turn, then affine fit (for turned, deskewed or rescaled output such as Acrobat's)")
     p.set_defaults(func=cmd_compare)
+
+    p = sub.add_parser("preprocess", help="orient, split spreads and deskew a scan into one image per book page")
+    p.add_argument("input", help="scanned PDF or page image")
+    p.add_argument("-o", "--output", help="output folder (default reports/preprocess-<name>)")
+    p.add_argument("--keep-spreads", action="store_true", help="don't split two-page spreads")
+    p.add_argument("--overrides", help="JSON of per-page corrections: rotate, split, skew")
+    p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
+    p.add_argument("--no-deskew", action="store_true")
+    p.add_argument("--dpi", type=float, default=300, help="render resolution for pages that aren't a single image")
+    p.set_defaults(func=cmd_preprocess)
 
     p = sub.add_parser("synth", help="make a synthetic test page with known text and font")
     p.add_argument("-o", "--output", help="output folder (default reports/synth)")

@@ -146,7 +146,7 @@ Build substitute mode first: it proves OCR, positioning, background erasing, and
 
 **Phase 1 — OCR and segmentation**
 
-- Preprocessing: page rotation detection, deskew and cleanup, and automatic splitting of two-page spreads (find the gutter, which is often off-center, rather than cutting at 50%), with a per-page override in the review report.
+- Preprocessing: page rotation detection from the image itself (never trust `/Rotate`; the Young scan's is wrong), deskew and cleanup, and automatic splitting of two-page spreads (find the gutter, which is often off-center, rather than cutting at 50%), with a per-page override in the review report. Output is one page per book page by default; `--keep-spreads` keeps each spread as one page, as Acrobat does.
 
 * Tesseract run producing word, line, and symbol boxes with baselines; connected-component extraction; component-to-character assignment.
 * Exit: on 10 test pages, at least 98% of characters own the right ink, checked through an overlay view.
@@ -180,7 +180,7 @@ Build substitute mode first: it proves OCR, positioning, background erasing, and
 **Phase 6 — Hardening**
 
 - Batch CLI, parallel extraction, caching, a review report listing low-confidence words, and an option to run as an OCRmyPDF plugin or after it.
-- GUI (PySide6/Qt): open a scan, run the pipeline, review pages side by side, correct OCR, and export. Later: dewarping.
+- GUI (PySide6/Qt): open a scan, run the pipeline, review pages side by side, correct OCR, and export. Spread handling in the GUI: a split-spreads switch for the document (on by default), and per page a draggable gutter line, a "don't split this page" toggle, and rotate buttons; these write the same overrides file the CLI reads. Later: dewarping.
 
 **Phase 7 — Contribute pathway (optional for users)**
 
