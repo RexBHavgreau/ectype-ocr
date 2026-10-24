@@ -95,6 +95,17 @@ def cmd_substitute(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cluster(args: argparse.Namespace) -> int:
+    from .cluster import cluster_workspace
+
+    ws = Path(args.workspace)
+    s = cluster_workspace(ws, threshold=args.threshold)
+    print(f"{s['instances']} glyph instances -> {len(s['glyphs'])} averaged glyphs in {len(s['styles'])} styles; "
+          f"{len(s['suspects'])} probable OCR misreadings listed")
+    print(f"Report: {ws / 'cluster' / 'index.html'}")
+    return 0
+
+
 def cmd_synth(args: argparse.Namespace) -> int:
     from .synth import DEFAULT_TEXT, Degrade, find_font, make_page, make_set
 
@@ -178,6 +189,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
     p.add_argument("--background-dpi", type=float, default=150, help="resolution of the erased background image")
     p.set_defaults(func=cmd_substitute)
+
+    p = sub.add_parser("cluster", help="group glyphs by style and average them: <workspace>/cluster")
+    p.add_argument("workspace")
+    p.add_argument("--threshold", type=float, default=0.25, help="shape distance (1 - correlation) that splits a group")
+    p.set_defaults(func=cmd_cluster)
 
     p = sub.add_parser("synth", help="make a synthetic test page with known text and font")
     p.add_argument("-o", "--output", help="output folder (default reports/synth)")

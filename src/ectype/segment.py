@@ -26,6 +26,9 @@ from . import report
 from .ocr import OcrPage
 from .preprocess import binarize
 
+X_LETTERS = set("acemnorsuvwxz")
+NO_DESCENDER = set("abcdefhiklmnorstuvwxzABCDEFGHIKLMNOPRSTUVWXYZ0123456789!?%&")
+
 
 @dataclass
 class Unit:
@@ -305,6 +308,45 @@ def _align(chars, clusters: list[dict], x_size: float, speck: int, expected: lis
 def _component_info(c: int, stats: np.ndarray, reason: str) -> dict:
     x, y, w, h, area = (int(v) for v in stats[c])
     return {"id": int(c), "box": [x, y, x + w, y + h], "area": area, "reason": reason}
+
+
+def fit_baselines(seg: Segmentation, ocr: OcrPage) -> dict[int, tuple[float, float]]:
+    """Per line, a baseline y = a + b * x fitted to the bottoms of letters without
+    descenders (outliers dropped); Tesseract's baseline where there are too few."""
+    by_line: dict[int, list] = {}
+    for u in seg.units:
+        if u.box:
+            by_line.setdefault(u.line, []).append(u)
+    base: dict[int, tuple[float, float]] = {}
+    for li, line in enumerate(ocr.lines):
+        units = by_line.get(li, [])
+        pts = [((u.box[0] + u.box[2]) / 2, u.box[3]) for u in units if u.text and set(u.text) <= NO_DESCENDER]
+        if len(pts) >= 3:
+            xs, ys = np.array(pts, float).T
+            for _ in range(2):  # fit, drop outliers, refit
+                b, a = np.polyfit(xs, ys, 1) if np.ptp(xs) > 0 else (0.0, float(np.median(ys)))
+                resid = ys - (a + b * xs)
+                keep = np.abs(resid - np.median(resid)) <= max(1.5, 2.5 * np.median(np.abs(resid - np.median(resid))))
+                if keep.sum() < 3 or keep.all():
+                    break
+                xs, ys = xs[keep], ys[keep]
+            base[li] = (float(a), float(b))
+        else:
+            slope, offset = line.baseline
+            base[li] = (line.box[3] + offset - slope * line.box[0], slope)
+    return base
+
+
+def line_x_heights(seg: Segmentation) -> tuple[dict[int, float], float]:
+    """Per line, the median ink height of x-height letters (px), and the page median.
+    Lines with fewer than five such letters take the page value."""
+    per: dict[int, list[int]] = {}
+    for u in seg.units:
+        if u.box and u.kind == "single" and u.text in X_LETTERS:
+            per.setdefault(u.line, []).append(u.box[3] - u.box[1])
+    every = [h for v in per.values() for h in v]
+    page = float(np.median(every)) if every else 20.0
+    return {li: (float(np.median(v)) if len(v) >= 5 else page) for li, v in per.items()}, page
 
 
 # ---------------------------------------------------------------------------

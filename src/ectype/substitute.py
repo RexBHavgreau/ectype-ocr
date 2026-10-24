@@ -26,10 +26,7 @@ from .background import erase_text
 from .ocr import OcrPage
 from .pdfwrite import FontMetrics, GlyphRun, PageSpec, subset_font, write_pdf
 from .preprocess import binarize
-from .segment import Segmentation
-
-X_LETTERS = set("acemnorsuvwxz")
-NO_DESCENDER = set("abcdefhiklmnorstuvwxzABCDEFGHIKLMNOPRSTUVWXYZ0123456789!?%&")
+from .segment import X_LETTERS, Segmentation, fit_baselines
 
 
 @dataclass
@@ -65,7 +62,6 @@ def _line_fits(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid: 
             font_h[ch] = metrics.ink[g][3] - metrics.ink[g][1]
     em: dict[int, float] = {}
     counts: dict[int, int] = {}
-    base: dict[int, tuple[float, float]] = {}
     all_em = []
     for li, units in by_line.items():
         ratios = [(u.box[3] - u.box[1] - 2 * growth) * metrics.units_per_em / font_h[u.text]
@@ -74,21 +70,7 @@ def _line_fits(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid: 
         if len(ratios) >= 3:
             em[li] = _trimmed_mean(ratios)
             all_em += ratios
-        pts = [((u.box[0] + u.box[2]) / 2, u.box[3]) for u in units if u.text and set(u.text) <= NO_DESCENDER]
-        if len(pts) >= 3:
-            xs, ys = np.array(pts).T
-            for _ in range(2):  # fit, drop outliers, refit
-                b, a = np.polyfit(xs, ys, 1) if np.ptp(xs) > 0 else (0.0, float(np.median(ys)))
-                resid = ys - (a + b * xs)
-                keep = np.abs(resid - np.median(resid)) <= max(1.5, 2.5 * np.median(np.abs(resid - np.median(resid))))
-                if keep.sum() < 3 or keep.all():
-                    break
-                xs, ys = xs[keep], ys[keep]
-            base[li] = (float(a), float(b))
-        else:
-            line = ocr.lines[li]
-            slope, offset = line.baseline
-            base[li] = (line.box[3] + offset - slope * line.box[0], slope)
+    base = fit_baselines(seg, ocr)
     page_em = _trimmed_mean(all_em) if all_em else 40.0
     for li in by_line:
         # Lines take the page's size unless clearly set in another (footnotes, headings):
