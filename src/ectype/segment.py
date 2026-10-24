@@ -164,8 +164,9 @@ def _clusters(comps: list[int], stats: np.ndarray, x_size: float, speck: int) ->
 
     A smaller piece stacked above or below a larger one (the dot of an i or j, a colon,
     an accent) joins the one partner it overlaps most horizontally, so a dot can't chain
-    an i to a neighbouring t. Tiny fragments within a pixel or two of a letter (thin
-    serifs broken off by binarization) join that letter.
+    an i to a neighbouring t. A small piece inside a letter's box (a broken-off s
+    terminal) joins that letter, and slivers smaller than any punctuation mark within
+    two pixels of one join it too; a hyphen or period beside a letter does not.
     """
     comps = sorted(comps, key=lambda c: stats[c][0])
     ds = _DisjointSet(len(comps))
@@ -184,21 +185,28 @@ def _clusters(comps: list[int], stats: np.ndarray, x_size: float, speck: int) ->
                 best, best_ov = b, ov
         if best is not None:
             ds.union(a, best)
-    reach = max(2, round(0.06 * x_size))
+    reach = 2  # a broken serif sits within a pixel or two of its letter
     group_size: dict[int, int] = {}
     for i in range(len(comps)):
         group_size[ds.find(i)] = group_size.get(ds.find(i), 0) + 1
     for a in range(len(comps)):
         if area[a] >= 3 * speck or group_size[ds.find(a)] > 1:
-            continue  # only lone fragments; a stacked i-dot is already placed
+            continue  # lone small pieces only; a stacked i-dot is already placed
         xa, ya, wa, ha, _ = stats[comps[a]]
-        best, best_gap = None, reach + 1
+        best, best_gap = None, None
         for b in range(len(comps)):
             if b == a or area[b] < 3 * speck:
                 continue
             xb, yb, wb, hb, _ = stats[comps[b]]
-            gap = max(max(xb - (xa + wa), xa - (xb + wb), 0), max(yb - (ya + ha), ya - (yb + hb), 0))
-            if gap < best_gap:
+            dx = max(xb - (xa + wa), xa - (xb + wb))
+            dy = max(yb - (ya + ha), ya - (yb + hb))
+            if dx < 0 and dy < 0:
+                gap = -1  # inside the letter's box: part of it (the tail of an s)
+            elif area[a] < 1.6 * speck:
+                gap = max(dx, dy, 0)  # beside it: only slivers smaller than any punctuation
+            else:
+                continue
+            if gap <= reach and (best_gap is None or gap < best_gap):
                 best, best_gap = b, gap
         if best is not None:
             ds.union(a, best)
@@ -339,15 +347,32 @@ def fit_baselines(seg: Segmentation, ocr: OcrPage) -> dict[int, tuple[float, flo
 
 def line_x_heights(seg: Segmentation) -> tuple[dict[int, float], float]:
     """Per line, the median ink height of x-height letters (px), and the page median.
-    Lines with fewer than five such letters take the page value."""
+
+    A line with fewer than five x-height letters (a footnote of figures, "Ibid.") is
+    measured from whatever single characters it has, each against that character's
+    usual height on the page; only a line with nothing to compare takes the page value.
+    """
     per: dict[int, list[int]] = {}
+    by_text: dict[str, list[int]] = {}
+    by_line: dict[int, list] = {}
     for u in seg.units:
-        if u.box and u.kind == "single" and u.text in X_LETTERS:
-            per.setdefault(u.line, []).append(u.box[3] - u.box[1])
+        if u.box and u.kind == "single":
+            h = u.box[3] - u.box[1]
+            by_text.setdefault(u.text, []).append(h)
+            by_line.setdefault(u.line, []).append(u)
+            if u.text in X_LETTERS:
+                per.setdefault(u.line, []).append(h)
     every = [h for v in per.values() for h in v]
     page = float(np.median(every)) if every else 20.0
-    return {li: (float(np.median(v)) if len(v) >= 5 else page) for li, v in per.items()}, page
-
+    typical = {t: float(np.median(v)) for t, v in by_text.items() if len(v) >= 10}
+    out = {}
+    for li, units in by_line.items():
+        if len(per.get(li, [])) >= 5:
+            out[li] = float(np.median(per[li]))
+            continue
+        ratios = [(u.box[3] - u.box[1]) / typical[u.text] for u in units if u.text in typical and typical[u.text] > 0]
+        out[li] = page * float(np.median(ratios)) if len(ratios) >= 2 else page
+    return out, page
 
 # ---------------------------------------------------------------------------
 # Review overlay
@@ -397,7 +422,8 @@ def evaluate(seg: Segmentation, ocr: OcrPage, labels: np.ndarray, gray: np.ndarr
     OCR characters are matched to truth characters by aligning the two character
     sequences. A truth character owns the right ink when it was matched and the glyph
     unit holding it covers at least `min_recall` of the (binarized) ink of its truth
-    characters, with at most 1 - `min_precision` of its labelled ink belonging to others.
+    characters, with at most 1 - `min_precision` of its labelled ink belonging to others,
+    and, for a unit of several characters, their ink really touches.
     """
     truth_chars = [c for line in truth["lines"] for w in line["words"] for c in w["chars"]]
     ocr_chars = []  # (unit id, text)
@@ -453,8 +479,16 @@ def evaluate(seg: Segmentation, ocr: OcrPage, labels: np.ndarray, gray: np.ndarr
         wrong = (labelled & ~np.isin(tl, list(tids))).sum()
         precision = 1 - wrong / max(1, labelled.sum())
         ok = recall >= min_recall and precision >= min_precision
+        outcome = "ok" if ok else ("missing ink" if recall < min_recall else "takes other ink")
+        if ok and len(tids) > 1:
+            # One unit for several characters is right only if their ink really touches:
+            # some component must hold ink of more than one of them.
+            cl = labels[y0:y1, x0:x1]
+            joined = any(len(set(np.unique(tl[(cl == c) & (tl > 0)])) & tids) > 1 for c in u.components)
+            if not joined:
+                outcome = "separate glyphs merged"
         for t in tids:
-            verdict[t] = "ok" if ok else ("missing ink" if recall < min_recall else "takes other ink")
+            verdict[t] = outcome
 
     counts: dict[str, int] = {}
     for c in truth_chars:

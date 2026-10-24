@@ -106,6 +106,55 @@ def cmd_cluster(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fonts(args: argparse.Namespace) -> int:
+    from .fontbuild import build_workspace_fonts
+
+    ws = Path(args.workspace)
+    s = build_workspace_fonts(ws, family=args.family, threshold=args.threshold)
+    bad = [st["style"] for st in s["styles"] if st["validation"]["ots"] != "pass" or st["validation"]["fonttools"] != "pass"]
+    print(f"{len(s['styles'])} fonts, {sum(st['glyphs'] for st in s['styles'])} glyphs; "
+          + ("all pass OTS and fontTools" if not bad else f"validation problems in styles {bad}"))
+    print(f"Report: {ws / 'fonts' / 'index.html'}")
+    return 0 if not bad else 1
+
+
+def cmd_traced(args: argparse.Namespace) -> int:
+    from .traced import traced_workspace
+
+    ws = Path(args.workspace)
+    s = traced_workspace(ws, out_name=args.name, background_dpi=args.background_dpi, min_word_conf=args.min_conf)
+    w = s["within_1px"] or {}
+    print(f"{ws / 'traced' / s['pdf']}: {s['bytes']:,} bytes ({s['bytes_per_page']:,} per page); "
+          f"{s['words']} words as text, {s['fallback_words']} left to the image")
+    print(f"Word ends within 1 px of the scan: left {100 * w.get('left', 0):.1f}%, right {100 * w.get('right', 0):.1f}%")
+    print(f"Report: {ws / 'traced' / 'index.html'}")
+    return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Every stage, scan to PDF, in one workspace."""
+    ws = Path(args.output) if args.output else _default_out("work", Path(args.input))
+    steps = [
+        ("preprocess", cmd_preprocess, argparse.Namespace(input=args.input, output=str(ws), keep_spreads=args.keep_spreads,
+                                                          overrides=args.overrides, pages=args.pages, no_deskew=False, dpi=300)),
+        ("ocr", cmd_ocr, argparse.Namespace(workspace=str(ws), engine="tesseract", lang=args.lang)),
+        ("segment", cmd_segment, argparse.Namespace(workspace=str(ws), truth=None)),
+    ]
+    if args.mode == "substitute":
+        steps.append(("substitute", cmd_substitute, argparse.Namespace(workspace=str(ws), font=args.font, name=args.name,
+                                                                       background_dpi=150)))
+    else:
+        steps += [
+            ("cluster", cmd_cluster, argparse.Namespace(workspace=str(ws), threshold=0.25)),
+            ("fonts", cmd_fonts, argparse.Namespace(workspace=str(ws), family=None, threshold=0.45)),
+            ("traced", cmd_traced, argparse.Namespace(workspace=str(ws), name=args.name, background_dpi=150, min_conf=60.0)),
+        ]
+    for name, fn, ns in steps:
+        print(f"== {name}")
+        fn(ns)
+    return 0
+
+
 def cmd_synth(args: argparse.Namespace) -> int:
     from .synth import DEFAULT_TEXT, Degrade, find_font, make_page, make_set
 
@@ -194,6 +243,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("workspace")
     p.add_argument("--threshold", type=float, default=0.25, help="shape distance (1 - correlation) that splits a group")
     p.set_defaults(func=cmd_cluster)
+
+    p = sub.add_parser("fonts", help="trace composites and build one font per style: <workspace>/fonts")
+    p.add_argument("workspace")
+    p.add_argument("--family", help="font family name (default: Ectype <workspace>)")
+    p.add_argument("--threshold", type=float, default=0.45, help="coverage at which a composite pixel counts as ink")
+    p.set_defaults(func=cmd_fonts)
+
+    p = sub.add_parser("traced", help="build the traced-mode PDF: <workspace>/traced")
+    p.add_argument("workspace")
+    p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
+    p.add_argument("--background-dpi", type=float, default=150)
+    p.add_argument("--min-conf", type=float, default=60.0, help="words below this OCR confidence stay as image")
+    p.set_defaults(func=cmd_traced)
+
+    p = sub.add_parser("run", help="every stage, scan to PDF")
+    p.add_argument("input", help="scanned PDF or page image")
+    p.add_argument("-o", "--output", help="workspace folder (default reports/work-<name>)")
+    p.add_argument("--mode", choices=["traced", "substitute"], default="traced")
+    p.add_argument("--font", help="substitute mode: font file or family name")
+    p.add_argument("--name", help="output file name without .pdf")
+    p.add_argument("--lang", default="eng")
+    p.add_argument("--keep-spreads", action="store_true")
+    p.add_argument("--overrides", help="JSON of per-page preprocessing corrections")
+    p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
+    p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("synth", help="make a synthetic test page with known text and font")
     p.add_argument("-o", "--output", help="output folder (default reports/synth)")

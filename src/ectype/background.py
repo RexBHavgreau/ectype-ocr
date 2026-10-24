@@ -41,3 +41,15 @@ def erase_text(gray: np.ndarray, seg: Segmentation, labels: np.ndarray, x_size: 
     out = gray.copy()
     out[mask] = np.maximum(gray[mask], paper[mask])  # never darker than the scan
     return out, mask
+
+
+def smooth_paper(background: np.ndarray, size: int = 5, keep_px: int = 3) -> np.ndarray:
+    """Median-filter the paper grain (it costs JPEG bytes and carries nothing), leaving
+    alone any ink still in the background (image-fallback words, figures) and a few
+    pixels around it, so no stroke is eroded."""
+    from .preprocess import binarize
+
+    smoothed = cv2.medianBlur(background, size)
+    ink = binarize(background) if background.min() < 128 else np.zeros(background.shape, bool)
+    keep = cv2.dilate(ink.astype(np.uint8), np.ones((2 * keep_px + 1,) * 2, np.uint8)).astype(bool)
+    return np.where(keep, background, smoothed)

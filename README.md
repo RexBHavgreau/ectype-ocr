@@ -2,7 +2,13 @@
 
 Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. See [`PLAN.md`](PLAN.md) for the design and the phased build plan.
 
-**Status: Phases 0–3 are done**: baseline and harness; preprocessing, OCR and tying each character to its ink ([results](docs/phase1.md)); substitute mode ([results](docs/phase2.md)); glyph grouping and averaging ([results](docs/phase3.md)). There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
+**Status: Phases 0–5 are done.** `ectype run scan.pdf` goes from a scan to a PDF whose visible text is set in fonts traced from the scan itself. Results by phase:
+- preprocessing, OCR and tying each character to its ink ([results](docs/phase1.md))
+- substitute mode ([results](docs/phase2.md))
+- glyph grouping and averaging ([results](docs/phase3.md))
+- font synthesis and traced mode ([results](docs/phase4-5.md))
+
+On the Young chapter, the traced PDF is 619 KB against Acrobat ClearScan's 914 KB, and its text is searchable and copies out. There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
 
 ## Setup
 
@@ -15,6 +21,12 @@ pytest
 ## Commands
 
 All reports are written to `reports/`, which git ignores.
+
+```
+ectype run scan.pdf [-o workspace] [--mode traced|substitute] [--font …]
+```
+
+This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute.
 
 ```
 ectype analyze "corpus/E J. Young Inspiration-1.pdf"
@@ -48,6 +60,11 @@ ectype cluster reports/work-young
 This groups every glyph instance by size, slant and shape, joins groups into styles, and averages each group into a 4× composite. It writes glyph sheets per style and a list of probable OCR misreadings.
 
 ```
+ectype fonts reports/work-young     # trace composites, one CID-keyed CFF font per style (validated with OTS)
+ectype traced reports/work-young    # the traced-mode PDF: every glyph drawn from its own cluster
+```
+
+```
 ectype synth -o reports/synth [--font "EB Garamond"] [--clean]
 ```
 
@@ -70,6 +87,8 @@ This compares two documents page by page. You get side-by-side renders, a differ
   - `preprocess`, `ocr` and `segment` are Phase 1.
   - `background`, `pdfwrite` and `substitute` are Phase 2. `pdfwrite` is shared with traced mode.
   - `cluster` is Phase 3.
+  - `trace` and `fontbuild` are Phase 4.
+  - `traced` is Phase 5.
   - `lept` holds ctypes bindings to Leptonica's symbol classifier.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).
 - `corpus/`: test scans. Never modified.

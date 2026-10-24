@@ -22,7 +22,7 @@ import pypdfium2 as pdfium
 from PIL import Image
 
 from . import report
-from .background import erase_text
+from .background import erase_text, smooth_paper
 from .ocr import OcrPage
 from .pdfwrite import FontMetrics, GlyphRun, PageSpec, subset_font, write_pdf
 from .preprocess import binarize
@@ -223,6 +223,7 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
         sizes = [line.x_size for line in ocr.lines if line.x_size]
         x_size = float(np.median(sizes)) if sizes else 30.0
         background, mask = erase_text(gray, seg, labels, x_size)
+        background = smooth_paper(background)
         placed = place_words(seg, ocr, metrics, char_cid, embedded.key)
         ink_gray = float(np.median(gray[mask & (gray < 128)])) / 255 if (mask & (gray < 128)).any() else 0.1
         runs = [p.run for p in placed]

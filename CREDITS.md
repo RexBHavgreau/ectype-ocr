@@ -29,11 +29,12 @@ None yet.
 | Pillow | Image I/O; drawing synthetic pages | MIT-CMU (HPND) |
 | scikit-image | SSIM for visual fidelity | BSD-3-Clause |
 | RapidFuzz | Edit distance for character error rate | MIT |
-| vtracer | Glyph tracing (from Phase 4) | MIT |
+| vtracer | Tracing averaged glyph composites into Bézier outlines | MIT |
 | pytesseract | Tesseract wrapper (from Phase 1) | Apache-2.0 |
 | Tesseract OCR | OCR engine (command-line tool, installed separately) | Apache-2.0 |
 | Leptonica | Symbol classification and composites, through ctypes (system library, installed separately) | BSD-2-Clause |
 | pytest | Test runner (development only) | MIT |
+| opentype-sanitizer (OTS) | Validating synthesized fonts (development) | BSD-3-Clause |
 
 ## Models, datasets, and fonts
 

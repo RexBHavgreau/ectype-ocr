@@ -204,8 +204,12 @@ def _corr_dist(a: np.ndarray, b: np.ndarray) -> float:
 def assign_styles(instances: list[Instance], min_links: int = 2) -> dict[int, int]:
     """Join letter clusters that occur together in words into styles, only within one
     size class and slant (so a stray link can't merge italic into roman). Clusters of
-    punctuation and digits join the style they most often share a word or line with."""
+    punctuation and digits, and letters that never share a word with another (the J of
+    "J."), join the style they most often share a word or line with."""
     info = {inst.cluster: (inst.size_class, inst.italic, inst.text.isalpha()) for inst in instances}
+    count: dict[int, int] = defaultdict(int)
+    for inst in instances:
+        count[inst.cluster] += 1
     parent = {c: c for c in info}
 
     def find(c):
@@ -225,21 +229,25 @@ def assign_styles(instances: list[Instance], min_links: int = 2) -> dict[int, in
         for i in range(len(cs)):
             for j in range(i + 1, len(cs)):
                 links[(cs[i], cs[j])] += 1
+    linked = set()
     for (a, b), n in links.items():
-        if n >= min_links and info[a][:2] == info[b][:2]:
+        # Rare letters (a chapter title's) can't co-occur twice; they need only as many
+        # shared words as they have instances.
+        if n >= min(min_links, count[a], count[b]) and info[a][:2] == info[b][:2]:
             parent[find(a)] = find(b)
+            linked.update((a, b))
 
     # Punctuation and digits: the letter style they share words with most, else lines.
     for c, (sc, it, alpha) in info.items():
-        if alpha:
-            continue
+        if alpha and c in linked:
+            continue  # letters linked through words already have a style; the rest vote
         votes: dict[int, int] = defaultdict(int)
         for same_slant in (True, False):
             for scope in (by_word, by_line):
                 for clusters in scope.values():
                     if c in clusters:
                         for o in clusters:
-                            if info[o][2] and info[o][0] == sc and (info[o][1] == it or not same_slant):
+                            if o != c and o in linked and info[o][0] == sc and (info[o][1] == it or not same_slant):
                                 votes[find(o)] += 1
                 if votes:
                     break

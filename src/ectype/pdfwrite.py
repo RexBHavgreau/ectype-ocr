@@ -51,6 +51,8 @@ class GlyphRun:
     char_spacing_px: float = 0.0  # Tc, before horizontal scaling (as PDF applies it)
     horizontal_scale: float = 1.0  # Tz / 100
     actual_text: str | None = None
+    adjust: list[float] | None = None  # TJ numbers (1/1000 em) before glyphs 1..n-1, to place each glyph exactly
+    invisible: bool = False  # render mode 3: searchable text over an image fallback
 
 
 @dataclass
@@ -177,7 +179,8 @@ def write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], prod
         used = sorted({r.font for r in page.runs})
         if used:
             resources.Font = pikepdf.Dictionary({f"/{key}": font_objs[key] for key in used})
-            ops += ["BT", f"{_fmt(page.fill_gray)} g", "3 Tr" if page.invisible else "0 Tr"]
+            ops += ["BT", f"{_fmt(page.fill_gray)} g"]
+            last_tr = None
             current = (None, None)
             last_tc = 0.0
             last_tz = 1.0
@@ -194,15 +197,27 @@ def write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], prod
                 if abs(tc - last_tc) > 1e-4:
                     ops.append(f"{_fmt(tc)} Tc")
                     last_tc = tc
+                tr = 3 if (run.invisible or page.invisible) else 0
+                if tr != last_tr:
+                    ops.append(f"{tr} Tr")
+                    last_tr = tr
                 x, y = run.x * k, hpt - run.y * k
                 ops.append(f"{_fmt(x - x0)} {_fmt(y - y0)} Td")
                 x0, y0 = x, y
-                hexes = "".join(f"{cid:04X}" for cid in run.cids)
+                if run.adjust:
+                    parts = [f"<{run.cids[0]:04X}>"]
+                    for cid, a in zip(run.cids[1:], run.adjust):
+                        if abs(a) >= 0.05:
+                            parts.append(_fmt(a))
+                        parts.append(f"<{cid:04X}>")
+                    show = "[" + " ".join(parts) + "] TJ"
+                else:
+                    show = "<" + "".join(f"{cid:04X}" for cid in run.cids) + "> Tj"
                 if run.actual_text is not None:
                     actual = run.actual_text.encode("utf-16-be").hex().upper()
-                    ops.append(f"/Span << /ActualText <FEFF{actual}> >> BDC <{hexes}> Tj EMC")
+                    ops.append(f"/Span << /ActualText <FEFF{actual}> >> BDC {show} EMC")
                 else:
-                    ops.append(f"<{hexes}> Tj")
+                    ops.append(show)
             ops.append("ET")
         pdf_page.Resources = resources
         pdf_page.Contents = pikepdf.Stream(pdf, zlib.compress("\n".join(ops).encode("latin-1")))
@@ -285,3 +300,27 @@ def subset_font(path: Path, text: str, key: str = "F1") -> tuple[EmbeddedFont, d
         flags=32,  # nonsymbolic
     )
     return embedded, char_cid, FontMetrics(upem, float(x_height or 0.5 * upem), advance, ink)
+
+
+def save_font(font: EmbeddedFont, path: Path) -> None:
+    """Write an EmbeddedFont as <path>.cff (the program) and <path>.font.json (the rest)."""
+    from dataclasses import asdict
+    import json
+
+    path = Path(path)
+    path.with_suffix(".cff").write_bytes(font.program)
+    meta = {k: v for k, v in asdict(font).items() if k != "program"}
+    meta["widths"] = {str(k): v for k, v in font.widths.items()}
+    meta["to_unicode"] = {str(k): v for k, v in font.to_unicode.items()}
+    path.with_suffix(".font.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def load_font(path: Path) -> EmbeddedFont:
+    import json
+
+    path = Path(path)
+    meta = json.loads(path.with_suffix(".font.json").read_text(encoding="utf-8"))
+    meta["widths"] = {int(k): v for k, v in meta["widths"].items()}
+    meta["to_unicode"] = {int(k): v for k, v in meta["to_unicode"].items()}
+    meta["bbox"] = tuple(meta["bbox"])
+    return EmbeddedFont(program=path.with_suffix(".cff").read_bytes(), **meta)
