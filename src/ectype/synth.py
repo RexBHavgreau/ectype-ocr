@@ -136,6 +136,8 @@ def make_page(
 
     image = Image.new("L", (page_w, page_h), 255)
     draw = ImageDraw.Draw(image)
+    labels = np.zeros((page_h, page_w), np.uint16)  # which character drew each pixel (1-based id)
+    next_id = 1
     ascent, _ = font.getmetrics()
     baseline = margin + ascent
     lines = []
@@ -150,12 +152,16 @@ def make_page(
             for i, ch in enumerate(word):
                 cx = ox + font.getlength(word[:i])
                 l, t, r, b = font.getbbox(ch, anchor="ls")
+                if not ch.isspace():
+                    _stamp(labels, font, ch, cx, baseline, next_id)
                 chars.append({
+                    "id": next_id,
                     "text": ch,
                     "origin": [round(cx, 2), round(baseline, 2)],
                     "advance": round(font.getlength(ch), 2),
                     "box": [round(cx + l, 1), round(baseline + t, 1), round(cx + r, 1), round(baseline + b, 1)],
                 })
+                next_id += 1
             l, t, r, b = font.getbbox(word, anchor="ls")
             line_words.append({
                 "text": word,
@@ -172,8 +178,10 @@ def make_page(
         baseline += line_step * (1.5 if last else 1.0)
 
     clean = np.asarray(image)
+    labels[clean > 160] = 0  # label only pixels that actually carry ink
     scan, transform = _degrade(clean, degrade, seed)
     Image.fromarray(clean).save(out_dir / "clean.png", dpi=(dpi, dpi))
+    cv2.imwrite(str(out_dir / "labels.png"), labels)
     Image.fromarray(scan).save(out_dir / "scan.png", dpi=(dpi, dpi))
     _write_image_pdf(out_dir / "scan.pdf", scan, dpi, degrade.jpeg_quality)
 
@@ -201,6 +209,30 @@ def make_page(
     }
     report.write_json(out_dir / "truth.json", truth)
     return truth
+
+
+def _stamp(labels: np.ndarray, font: ImageFont.FreeTypeFont, ch: str, x: float, y: float, value: int) -> None:
+    """Mark the pixels a single character covers, at the same subpixel origin as draw.text."""
+    ix, iy = int(np.floor(x)), int(np.floor(y))
+    mask, (dx, dy) = font.getmask2(ch, mode="L", anchor="ls", start=(x - ix, y - iy))
+    if mask.size[0] == 0 or mask.size[1] == 0:
+        return
+    m = np.asarray(mask, dtype=np.uint8).reshape(mask.size[1], mask.size[0]) > 64
+    x0, y0 = ix + dx, iy + dy
+    h, w = labels.shape
+    sx0, sy0 = max(0, -x0), max(0, -y0)
+    ex, ey = min(m.shape[1], w - x0), min(m.shape[0], h - y0)
+    if ex <= sx0 or ey <= sy0:
+        return
+    region = labels[y0 + sy0:y0 + ey, x0 + sx0:x0 + ex]
+    region[m[sy0:ey, sx0:ex]] = value
+
+
+def scan_labels(out_dir: Path, truth: dict) -> np.ndarray:
+    """The character label map carried onto scan.png with the page's degradation transform."""
+    labels = cv2.imread(str(Path(out_dir) / "labels.png"), cv2.IMREAD_UNCHANGED)
+    w, h = truth["size_px"]
+    return cv2.warpAffine(labels, np.array(truth["transform"], np.float64), (w, h), flags=cv2.INTER_NEAREST, borderValue=0)
 
 
 def _truth_text(lines: list[dict]) -> str:
@@ -261,3 +293,45 @@ def _write_image_pdf(path: Path, gray: np.ndarray, dpi: int, jpeg_quality: int |
     page.Contents = pikepdf.Stream(pdf, f"q {wp:.4f} 0 0 {hp:.4f} 0 0 cm /Im0 Do Q".encode())
     pdf.docinfo["/Producer"] = "ectype synth"
     pdf.save(path)
+
+
+def make_set(workspace: Path, count: int = 10, seed: int = 0) -> list[dict]:
+    """A varied set of synthetic pages laid out as a workspace: <workspace>/pages/sNN.png
+    (the degraded scans) and <workspace>/truth/sNN/ (ground truth), for scoring later stages."""
+    workspace = Path(workspace)
+    rng = np.random.default_rng(seed)
+    fonts = []
+    for family in FONT_CANDIDATES:
+        try:
+            path = find_font(family)
+        except FileNotFoundError:
+            continue
+        if path not in fonts:
+            fonts.append(path)
+    paragraphs = DEFAULT_TEXT.strip().split("\n\n")
+    (workspace / "pages").mkdir(parents=True, exist_ok=True)
+    made = []
+    for i in range(count):
+        name = f"s{i + 1:02d}"
+        order = rng.permutation(len(paragraphs))
+        degrade = Degrade(
+            skew_degrees=float(rng.uniform(-0.8, 0.8)),
+            ink_spread_px=int(i % 4 == 3),  # every fourth page has thickened ink: touching letters
+            blur_sigma=float(rng.uniform(0.3, 1.0)),
+            noise_sigma=float(rng.uniform(3, 10)),
+            speckles=int(rng.integers(10, 80)),
+            jpeg_quality=int(rng.integers(70, 95)),
+        )
+        truth = make_page(
+            workspace / "truth" / name,
+            text="\n\n".join(paragraphs[k] for k in order),
+            font_path=fonts[i % len(fonts)],
+            point_size=float(rng.choice([9.5, 10.0, 10.5, 11.0, 12.0])),
+            degrade=degrade,
+            seed=seed * 1000 + i,
+        )
+        shutil.copy(workspace / "truth" / name / "scan.png", workspace / "pages" / f"{name}.png")
+        made.append({"name": name, "font": truth["font"]["family"], "point_size": truth["point_size"],
+                     "degradation": truth["degradation"]})
+    report.write_json(workspace / "truth" / "set.json", made)
+    return made

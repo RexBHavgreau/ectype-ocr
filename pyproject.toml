@@ -15,6 +15,7 @@ dependencies = [
     "pypdfium2>=4.30",
     "fonttools>=4.50",
     "numpy>=1.26",
+    "scipy>=1.11",
     "opencv-python-headless>=4.9",
     "pillow>=10",
     "scikit-image>=0.22",

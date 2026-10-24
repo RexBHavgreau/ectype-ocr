@@ -270,7 +270,8 @@ def preprocess(
 ) -> dict:
     out_dir = Path(out_dir)
     page_dir = out_dir / "pages"
-    view_dir = out_dir / "review"
+    report_dir = out_dir / "preprocess"
+    view_dir = report_dir / "review"
     page_dir.mkdir(parents=True, exist_ok=True)
     view_dir.mkdir(parents=True, exist_ok=True)
     overrides = {str(k): v for k, v in (overrides or {}).items()}
@@ -367,8 +368,8 @@ def preprocess(
         "sources": sources,
         "pages": [vars(p) for p in outputs],
     }
-    report.write_json(out_dir / "preprocess.json", summary)
-    _write_html(summary, out_dir / "index.html")
+    report.write_json(report_dir / "preprocess.json", summary)
+    _write_html(summary, report_dir / "index.html")
     return summary
 
 
@@ -424,7 +425,7 @@ def _write_html(s: dict, path: Path) -> None:
         body.append(f"<h3>Source page {src['page']}</h3><div class=\"row\">")
         body.append(f"<figure><img loading=\"lazy\" src=\"{src['view']}\" alt=\"\"><figcaption>oriented source</figcaption></figure>")
         for p in by_source.get(src["page"], []):
-            body.append(f"<figure><a href=\"{p['file']}\"><img loading=\"lazy\" src=\"{p['file']}\" alt=\"\" style=\"max-height:420px\"></a>"
+            body.append(f"<figure><a href=\"../{p['file']}\"><img loading=\"lazy\" src=\"../{p['file']}\" alt=\"\" style=\"max-height:420px\"></a>"
                         f"<figcaption>{p['name']} · {p['size_px'][0]}×{p['size_px'][1]} · skew {p['skew_degrees']:+.2f}°</figcaption></figure>")
         body.append("</div>")
     report.write_page(path, "Preprocess", "\n".join(body))

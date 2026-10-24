@@ -24,6 +24,7 @@ None yet.
 | pypdfium2 (and PDFium) | Rendering PDF pages; text extraction | Apache-2.0 or BSD-3-Clause (PDFium: Apache-2.0 / BSD-3-Clause) |
 | fontTools | Reading embedded fonts; later, building CFF fonts | MIT |
 | NumPy | Image arrays | BSD-3-Clause |
+| SciPy | Component bounding boxes (`ndimage`) | BSD-3-Clause |
 | OpenCV (opencv-python-headless) | Image processing | Apache-2.0 (wheels: MIT) |
 | Pillow | Image I/O; drawing synthetic pages | MIT-CMU (HPND) |
 | scikit-image | SSIM for visual fidelity | BSD-3-Clause |

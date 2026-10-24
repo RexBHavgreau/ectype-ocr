@@ -109,7 +109,7 @@ def test_preprocess_spread(spread, tmp_path):
 
     sidecar = json.loads((tmp_path / "pages" / "p001R.json").read_text())
     assert sidecar["transform"] == right["transform"]
-    assert (tmp_path / "index.html").is_file()
+    assert (tmp_path / "preprocess" / "index.html").is_file()
 
 
 def test_overrides_and_keep_spreads(spread, tmp_path):

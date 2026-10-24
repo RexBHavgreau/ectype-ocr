@@ -44,7 +44,7 @@ def cmd_preprocess(args: argparse.Namespace) -> int:
     from .compare import parse_pages
     from .preprocess import load_overrides, preprocess
 
-    out = Path(args.output) if args.output else _default_out("preprocess", Path(args.input))
+    out = Path(args.output) if args.output else _default_out("work", Path(args.input))
     pages = [i + 1 for i in parse_pages(args.pages, 100000)] if args.pages else None
     s = preprocess(Path(args.input), out, keep_spreads=args.keep_spreads,
                    overrides=load_overrides(Path(args.overrides) if args.overrides else None),
@@ -52,12 +52,44 @@ def cmd_preprocess(args: argparse.Namespace) -> int:
     flagged = [str(src["page"]) for src in s["sources"] if src["flags"]]
     print(f"{len(s['sources'])} source pages -> {len(s['pages'])} pages"
           + (f"; check source pages {', '.join(flagged)}" if flagged else ""))
-    print(f"Report: {out / 'index.html'}")
+    print(f"Pages: {out / 'pages'} · report: {out / 'preprocess' / 'index.html'}")
+    return 0
+
+
+def cmd_ocr(args: argparse.Namespace) -> int:
+    from .ocr import ocr_pages
+
+    ws = Path(args.workspace)
+    s = ocr_pages(ws / "pages", ws / "ocr", engine=args.engine, lang=args.lang)
+    words = sum(r["words"] for r in s["pages"])
+    print(f"{len(s['pages'])} pages, {words} words. Report: {ws / 'ocr' / 'index.html'}")
+    return 0
+
+
+def cmd_segment(args: argparse.Namespace) -> int:
+    from .segment import segment_workspace
+
+    ws = Path(args.workspace)
+    truth = Path(args.truth) if args.truth else (ws / "truth" if (ws / "truth").is_dir() else None)
+    s = segment_workspace(ws, truth_root=truth)
+    units = sum(r["units"] for r in s["pages"])
+    multi = sum(len(r["multi"]) for r in s["pages"])
+    print(f"{len(s['pages'])} pages, {units} glyph units ({multi} multi-character)")
+    if "eval" in s:
+        e = s["eval"]
+        print(f"Synthetic truth: {e['owned']} of {e['truth_chars']} characters own the right ink ({100 * e['owned_share']:.2f}%)")
+    print(f"Report: {ws / 'segment' / 'index.html'}")
     return 0
 
 
 def cmd_synth(args: argparse.Namespace) -> int:
-    from .synth import DEFAULT_TEXT, Degrade, find_font, make_page
+    from .synth import DEFAULT_TEXT, Degrade, find_font, make_page, make_set
+
+    if args.set:
+        out = Path(args.output) if args.output else Path("reports") / "work-synth"
+        made = make_set(out, count=args.set, seed=args.seed)
+        print(f"{len(made)} synthetic pages -> {out / 'pages'} (truth in {out / 'truth'})")
+        return 0
 
     degrade = Degrade.none() if args.clean else Degrade(
         skew_degrees=args.skew, ink_spread_px=args.ink_spread, blur_sigma=args.blur,
@@ -108,13 +140,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("preprocess", help="orient, split spreads and deskew a scan into one image per book page")
     p.add_argument("input", help="scanned PDF or page image")
-    p.add_argument("-o", "--output", help="output folder (default reports/preprocess-<name>)")
+    p.add_argument("-o", "--output", help="workspace folder (default reports/work-<name>); pages go to <workspace>/pages")
     p.add_argument("--keep-spreads", action="store_true", help="don't split two-page spreads")
     p.add_argument("--overrides", help="JSON of per-page corrections: rotate, split, skew")
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
     p.add_argument("--no-deskew", action="store_true")
     p.add_argument("--dpi", type=float, default=300, help="render resolution for pages that aren't a single image")
     p.set_defaults(func=cmd_preprocess)
+
+    p = sub.add_parser("ocr", help="OCR <workspace>/pages into <workspace>/ocr")
+    p.add_argument("workspace")
+    p.add_argument("--engine", default="tesseract", help="tesseract (default) or kraken")
+    p.add_argument("--lang", default="eng", help="engine language(s), e.g. eng or eng+grc")
+    p.set_defaults(func=cmd_ocr)
+
+    p = sub.add_parser("segment", help="tie OCR characters to their ink: <workspace>/segment")
+    p.add_argument("workspace")
+    p.add_argument("--truth", help="synthetic truth folder (default <workspace>/truth if present)")
+    p.set_defaults(func=cmd_segment)
 
     p = sub.add_parser("synth", help="make a synthetic test page with known text and font")
     p.add_argument("-o", "--output", help="output folder (default reports/synth)")
@@ -130,6 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--noise", type=float, default=6.0, help="Gaussian noise sigma in gray levels")
     p.add_argument("--speckles", type=int, default=40)
     p.add_argument("--jpeg", type=int, default=85, help="JPEG quality; 0 for lossless")
+    p.add_argument("--set", type=int, metavar="N",
+                   help="instead, make a workspace of N varied pages (fonts, sizes, damage) with truth")
     p.set_defaults(func=cmd_synth)
     return parser
 
