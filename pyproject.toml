@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ectype-ocr"
+version = "0.0.1"
+description = "Turn scanned book pages into PDFs with real, visible, searchable vector type traced from the scan."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+dependencies = [
+    "pikepdf>=9",
+    "pypdfium2>=4.30",
+    "fonttools>=4.50",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "pillow>=10",
+    "scikit-image>=0.22",
+    "rapidfuzz>=3",
+    "vtracer>=0.6",
+    "pytesseract>=0.3.10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ectype = "ectype.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
