@@ -139,7 +139,7 @@ class TesseractEngine:
         with tempfile.TemporaryDirectory(prefix="ectype-tess-") as tmp:
             src = Path(tmp) / "page.png"
             Image.fromarray(gray).save(src)
-            subprocess.run(
+            result = subprocess.run(
                 [self.cmd, str(src), str(Path(tmp) / "out"), "-l", lang, "--dpi", str(round(dpi)),
                  "--psm", str(self.psm), "--oem", str(self.oem),
                  "-c", "hocr_char_boxes=1", "-c", "hocr_font_info=1", "hocr"],
@@ -147,7 +147,11 @@ class TesseractEngine:
                 env=self._env(),
                 **subprocess_flags(),
             )
-            hocr = (Path(tmp) / "out.hocr").read_text(encoding="utf-8")
+            out = Path(tmp) / "out.hocr"
+            if not out.is_file():  # e.g. its tessdata lacks the hocr config or the language
+                message = result.stderr.decode(errors="replace").strip()
+                raise EngineUnavailable(f"Tesseract produced no output: {message or 'no message'}")
+            hocr = out.read_text(encoding="utf-8")
         page = parse_hocr(hocr, engine=self.name, lang=lang, dpi=dpi)
         page.size_px = [gray.shape[1], gray.shape[0]]
         return page

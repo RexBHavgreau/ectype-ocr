@@ -24,7 +24,8 @@ for dist in ("PySide6_Essentials", "shiboken6"):
         pass
 for env, target in (("ECTYPE_TESSERACT_DIR", "tesseract"), ("ECTYPE_FONTS_DIR", "fonts")):
     if os.environ.get(env):
-        datas.append((os.environ[env], target))
+        # Relative to where pyinstaller runs, not to this file (PyInstaller's default).
+        datas.append((str(Path(os.environ[env]).resolve()), target))
 
 hidden = collect_submodules("ectype")
 excludes = ["tkinter", "matplotlib", "IPython", "pytest", "ots", "pandas", "PySide6.QtWebEngineCore", "PySide6.Qt3DCore"]

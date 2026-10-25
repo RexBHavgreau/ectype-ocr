@@ -41,7 +41,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install . "PySide6-Essentials>=6.6" "pyinstaller>=6.10"
 
-      - name: Bundle Tesseract (program, libraries, licences, English and orientation data)
+      - name: Bundle Tesseract (program, libraries, licences, English and orientation data, output configs)
         shell: pwsh
         run: |
           $src = "C:\Program Files\Tesseract-OCR"
@@ -50,6 +50,7 @@ jobs:
           if ($LASTEXITCODE -ge 8) { exit 1 }
           New-Item -ItemType Directory -Force "$dst\tessdata" | Out-Null
           Copy-Item "$src\tessdata\eng.traineddata", "$src\tessdata\osd.traineddata" "$dst\tessdata"
+          Copy-Item "$src\tessdata\configs", "$src\tessdata\tessconfigs" "$dst\tessdata" -Recurse  # hocr lives here
           & "$dst\tesseract.exe" --version
           exit 0
 
