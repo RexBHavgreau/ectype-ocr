@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+import math
+import shutil
+
+import cv2
+import numpy as np
+import pytest
+from PIL import Image, ImageDraw, ImageFont
+
+from ectype.cluster import UPSAMPLE, cluster_workspace, word_slant
+from ectype.ocr import ocr_pages
+from ectype.segment import segment_workspace
+from ectype.synth import Degrade, make_page
+
+
+def _word_mask(shear: float) -> np.ndarray:
+    from ectype.synth import find_font
+
+    font = ImageFont.truetype(str(find_font()), 60)
+    im = Image.new("L", (520, 100), 0)
+    ImageDraw.Draw(im).text((10, 80), "questions", font=font, fill=255, anchor="ls")
+    a = (np.asarray(im) > 128).astype(np.uint8)
+    return cv2.warpAffine(a, np.float32([[1, -shear, shear * 80], [0, 1, 0]]), (520, 100)) > 0
+
+
+def test_word_slant():
+    assert word_slant(_word_mask(0.0), 80) == 0
+    assert abs(word_slant(_word_mask(math.tan(math.radians(12))), 80) - 12) <= 2
+
+
+@pytest.fixture(scope="module")
+def clustered(tmp_path_factory):
+    root = tmp_path_factory.mktemp("cluster")
+    truths = []
+    (root / "pages").mkdir()
+    for i, seed in enumerate((1, 2)):
+        name = f"s{i + 1:02d}"
+        truths.append(make_page(root / "truth" / name, seed=seed,
+                                degrade=Degrade(skew_degrees=0.3 * (i + 1), blur_sigma=0.6, noise_sigma=6, speckles=60, jpeg_quality=85)))
+        shutil.copy(root / "truth" / name / "scan.png", root / "pages" / f"{name}.png")
+    ocr_pages(root / "pages", root / "ocr")
+    segment_workspace(root)
+    return root, truths, cluster_workspace(root)
+
+
+def test_one_glyph_per_common_character(clustered):
+    _, _, s = clustered
+    main_style = s["styles"][0]
+    assert main_style["instances"] > 0.95 * s["instances"]
+    counts = {}
+    for g in s["glyphs"]:
+        if g["style"] == 0 and g["count"] >= 10:
+            counts[g["text"]] = counts.get(g["text"], 0) + 1
+    assert len(counts) > 20
+    assert sum(n == 1 for n in counts.values()) / len(counts) >= 0.9, counts
+
+
+def test_composite_matches_the_font(clustered):
+    """The averaged 'e' should be the font's 'e': specks gone, edges where they belong."""
+    root, truths, s = clustered
+    g = max((g for g in s["glyphs"] if g["text"] == "e"), key=lambda g: g["count"])
+    composite = 1 - np.asarray(Image.open(root / "cluster" / "composites" / g["composite"]), np.float32) / 255
+    ours = composite >= 0.5
+    t = truths[0]
+    font = ImageFont.truetype(t["font"]["path"], size=round(t["point_size"] * t["dpi"] / 72) * UPSAMPLE)
+    ref = Image.new("L", (ours.shape[1] * 2, ours.shape[0] * 2), 0)
+    ImageDraw.Draw(ref).text((ours.shape[1], ours.shape[0]), "e", font=font, fill=255, anchor="ls")
+    ref = np.asarray(ref) > 128
+    # Align by ink bounding boxes, then compare.
+    def crop(m):
+        ys, xs = np.nonzero(m)
+        return m[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    a, b = crop(ours), crop(ref)
+    assert abs(a.shape[0] - b.shape[0]) <= 1.5 * UPSAMPLE and abs(a.shape[1] - b.shape[1]) <= 1.5 * UPSAMPLE
+    h, w = min(a.shape[0], b.shape[0]), min(a.shape[1], b.shape[1])
+    a, b = a[:h, :w], b[:h, :w]
+    iou = (a & b).sum() / (a | b).sum()
+    # At 4x, half a scan pixel of edge disagreement already costs about 0.2 of IoU;
+    # thin curves averaged from blurred instances also come out slightly short.
+    assert iou > 0.75, iou
+    assert abs(ours.sum() / ref.sum() - 1) < 0.08, "same amount of ink as the font's glyph"
+    assert g["count"] > 100
