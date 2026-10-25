@@ -182,7 +182,7 @@ class Project:
                 from .fontbuild import build_workspace_fonts
 
                 out = build_workspace_fonts(ws, family=f"Ectype {s.name or ws.name}")
-                bad = [st["style"] for st in out["styles"] if st["validation"]["ots"] != "pass"]
+                bad = [st["style"] for st in out["styles"] if st["validation"]["ots"] not in ("pass", "not installed")]
                 msg = f"{len(out['styles'])} fonts" + (f"; validation problems in styles {bad}" if bad else ", all valid")
             elif stage == "traced":
                 from .traced import traced_workspace

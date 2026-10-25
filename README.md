@@ -10,7 +10,11 @@ Ectype OCR is an experimental OCR application. It turns a scanned book page into
 
 On the Young chapter, the traced PDF is 619 KB against Acrobat ClearScan's 914 KB, and its text is searchable and copies out. There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
 
-## Setup
+## Install
+
+On Windows, download `Ectype-OCR-<version>-Setup.exe` from the [releases page](https://github.com/RexBHavgreau/ectype-ocr/releases) and run it. Tesseract and a default font come with it. How releases are built: [`docs/releasing.md`](docs/releasing.md).
+
+## Setup from source
 
 ```
 sudo apt install tesseract-ocr libleptonica-dev   # system tools (Leptonica is used through ctypes)

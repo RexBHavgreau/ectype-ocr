@@ -34,6 +34,8 @@ None yet.
 | Tesseract OCR | OCR engine (command-line tool, installed separately) | Apache-2.0 |
 | Leptonica | Symbol classification and composites, through ctypes (system library, installed separately) | BSD-2-Clause |
 | PySide6 (Qt for Python) | The desktop app (optional `gui` extra), used as an unmodified library | LGPL-3.0 |
+| PyInstaller | Packaging the Windows app (build only; its bootloader is GPL-2.0 with an exception allowing distribution of packaged programs) | GPL-2.0 with bootloader exception |
+| Inno Setup | Building the Windows installer (build only) | Inno Setup licence (free, including commercial use) |
 | pytest | Test runner (development only) | MIT |
 | opentype-sanitizer (OTS) | Validating synthesized fonts (development) | BSD-3-Clause |
 
@@ -44,7 +46,9 @@ None yet.
 | E. J. Young, "Some Reflections upon Inspiration" (scan in `corpus/`) | Primary test case | Scanned by the project author | Test material only; not redistributed in releases |
 | The same chapter after Acrobat ClearScan (`corpus/E J. Young Inspiration-1 - Copy.pdf`) | Reference result (see `docs/acrobat-baseline.md`) | Produced by the project author with Adobe Acrobat 26 | Test material only; not redistributed in releases |
 
+| EB Garamond (bundled with the Windows app; the default substitute font) | Substitute mode | Georg Duffner, Octavio Pardo | SIL OFL 1.1 (`fonts/EBGaramond-OFL.txt` in the app) |
+| Tesseract and its libraries, with `eng` and `osd` data (bundled with the Windows app, UB Mannheim build) | OCR | Tesseract contributors; Leptonica, libpng, libjpeg, libtiff, zlib and others | Apache-2.0 (Tesseract); each library's licence is in the app's `tesseract` folder |
 | Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
 | DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
 
-Fonts are taken from the local system at run time and are not bundled. Each synthetic page records the font file and its hash in its `truth.json`; a substitute-mode PDF embeds a subset of the chosen font, which these licenses permit.
+From source, fonts are taken from the local system at run time; only the Windows app bundles one (EB Garamond). Each synthetic page records the font file and its hash in its `truth.json`; a substitute-mode PDF embeds a subset of the chosen font, which these licenses permit.

@@ -9,3 +9,7 @@ dist/
 # Generated reports; keep the folder
 reports/*
 !reports/.gitkeep
+
+# Packaging
+packaging/build/
+packaging/Output/

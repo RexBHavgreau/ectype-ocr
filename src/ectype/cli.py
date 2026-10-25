@@ -111,9 +111,11 @@ def cmd_fonts(args: argparse.Namespace) -> int:
 
     ws = Path(args.workspace)
     s = build_workspace_fonts(ws, family=args.family, threshold=args.threshold)
-    bad = [st["style"] for st in s["styles"] if st["validation"]["ots"] != "pass" or st["validation"]["fonttools"] != "pass"]
+    bad = [st["style"] for st in s["styles"]
+           if st["validation"]["ots"] not in ("pass", "not installed") or st["validation"]["fonttools"] != "pass"]
+    checks = "OTS and fontTools" if all(st["validation"]["ots"] == "pass" for st in s["styles"]) else "fontTools"
     print(f"{len(s['styles'])} fonts, {sum(st['glyphs'] for st in s['styles'])} glyphs; "
-          + ("all pass OTS and fontTools" if not bad else f"validation problems in styles {bad}"))
+          + (f"all pass {checks}" if not bad else f"validation problems in styles {bad}"))
     print(f"Report: {ws / 'fonts' / 'index.html'}")
     return 0 if not bad else 1
 
@@ -210,7 +212,12 @@ def cmd_synth(args: argparse.Namespace) -> int:
 
 
 def cmd_credits() -> int:
-    for candidate in (Path(__file__).resolve().parents[2] / "CREDITS.md", Path("CREDITS.md")):
+    from .resources import bundle_dir
+
+    places = [Path(__file__).resolve().parents[2] / "CREDITS.md", Path("CREDITS.md")]
+    if bundle_dir():
+        places.insert(0, bundle_dir() / "CREDITS.md")
+    for candidate in places:
         if candidate.is_file():
             print(candidate.read_text(encoding="utf-8"))
             return 0
@@ -338,6 +345,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import multiprocessing
+
+    multiprocessing.freeze_support()  # the packaged app's worker processes start through here
+    for stream in (sys.stdout, sys.stderr):  # a Windows console may not have every character we print
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.credits:

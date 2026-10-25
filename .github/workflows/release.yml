@@ -1,0 +1,93 @@
+name: Windows installer
+
+# Builds Ectype-OCR-<version>-Setup.exe. Pushing a tag like v0.1.0 builds it and
+# attaches it to a GitHub release. A push that changes the packaging, or running
+# the workflow by hand, builds a test installer (under the run's artifacts) and
+# releases nothing.
+on:
+  push:
+    tags: ["v*"]  # tag pushes ignore the path filter below: every v* tag builds
+    branches: ["**"]
+    paths: ["packaging/**", ".github/workflows/release.yml", "src/ectype/resources.py"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version from the tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          sed -i "s/^__version__ = .*/__version__ = \"$v\"/" src/ectype/__init__.py
+          cat src/ectype/__init__.py
+
+      - name: Tesseract and Inno Setup
+        run: choco install tesseract innosetup -y --no-progress
+
+      - name: Python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install . "PySide6-Essentials>=6.6" "pyinstaller>=6.10"
+
+      - name: Bundle Tesseract (program, libraries, licences, English and orientation data)
+        shell: pwsh
+        run: |
+          $src = "C:\Program Files\Tesseract-OCR"
+          $dst = "packaging\build\tesseract"
+          robocopy $src $dst /E /XD tessdata /XF tesseract-uninstall.exe /NFL /NDL /NJH /NJS
+          if ($LASTEXITCODE -ge 8) { exit 1 }
+          New-Item -ItemType Directory -Force "$dst\tessdata" | Out-Null
+          Copy-Item "$src\tessdata\eng.traineddata", "$src\tessdata\osd.traineddata" "$dst\tessdata"
+          & "$dst\tesseract.exe" --version
+          exit 0
+
+      - name: Bundle EB Garamond
+        run: python packaging/fetch_fonts.py packaging/build/fonts
+
+      - name: Build the program folder (PyInstaller)
+        env:
+          ECTYPE_TESSERACT_DIR: packaging/build/tesseract
+          ECTYPE_FONTS_DIR: packaging/build/fonts
+        run: pyinstaller packaging/ectype.spec --noconfirm --distpath dist --workpath build/pyi
+
+      - name: Smoke test the packaged app (synthetic page, both modes)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true  # a failing ectype.exe fails the step
+          $ectype = "dist\Ectype OCR\ectype.exe"
+          & $ectype --version
+          & $ectype synth -o smoke\synth --clean
+          & $ectype run smoke\synth\scan.pdf -o smoke\work --name smoke
+          & $ectype run smoke\synth\scan.pdf -o smoke\work2 --mode substitute --name sub
+          if (-not (Test-Path smoke\work\traced\smoke.pdf)) { throw "traced PDF missing" }
+          if (-not (Test-Path smoke\work2\substitute\sub.pdf)) { throw "substitute PDF missing" }
+
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.version }}" packaging\installer.iss'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ectype-OCR-${{ steps.version.outputs.version }}-Setup
+          path: packaging/Output/*.exe
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packaging/Output/*.exe
+          generate_release_notes: true

@@ -197,7 +197,7 @@ def validate_otf(path: Path) -> dict:
         with tempfile.TemporaryDirectory() as tmp:
             r = ots.sanitize(str(path), str(Path(tmp) / "out.otf"), capture_output=True)
         result["ots"] = "pass" if r.returncode == 0 else (r.stderr.decode(errors="replace").strip()[-300:] or f"exit {r.returncode}")
-    except ImportError:
+    except (ImportError, OSError):  # a development check; the packaged app goes without it
         result["ots"] = "not installed"
     try:
         from fontTools.pens.boundsPen import BoundsPen

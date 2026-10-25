@@ -104,6 +104,9 @@ def detect_orientation(gray: np.ndarray, max_side: int = 1700) -> tuple[int, flo
     """Clockwise rotation (0/90/180/270) that makes the text upright, and Tesseract's confidence."""
     scale = min(1.0, max_side / max(gray.shape))
     small = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else gray
+    from .resources import configure_pytesseract
+
+    configure_pytesseract()
     try:
         osd = pytesseract.image_to_osd(Image.fromarray(small), config="--psm 0 -c min_characters_to_try=30",
                                        output_type=pytesseract.Output.DICT)

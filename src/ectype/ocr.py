@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -23,6 +22,7 @@ import numpy as np
 from PIL import Image
 
 from . import report
+from .resources import subprocess_flags
 
 
 @dataclass
@@ -119,20 +119,33 @@ class TesseractEngine:
     name = "tesseract"
 
     def __init__(self, psm: int = 3, oem: int = 1, threads: int = 0):
-        if not shutil.which("tesseract"):
-            raise EngineUnavailable("tesseract not found; install it (e.g. apt install tesseract-ocr)")
+        from .resources import tesseract_cmd
+
+        self.cmd = tesseract_cmd()
+        if not self.cmd:
+            raise EngineUnavailable("Tesseract not found; install it (e.g. apt install tesseract-ocr), "
+                                    "or set ECTYPE_TESSERACT to its path")
         self.psm, self.oem, self.threads = psm, oem, threads  # threads 0: Tesseract's own default
+
+    def _env(self) -> dict | None:
+        from .resources import tesseract_env
+
+        env = tesseract_env()
+        if self.threads:
+            env = {**(env or os.environ), "OMP_THREAD_LIMIT": str(self.threads)}
+        return env
 
     def recognize(self, gray: np.ndarray, dpi: float = 300, lang: str = "eng") -> OcrPage:
         with tempfile.TemporaryDirectory(prefix="ectype-tess-") as tmp:
             src = Path(tmp) / "page.png"
             Image.fromarray(gray).save(src)
             subprocess.run(
-                ["tesseract", str(src), str(Path(tmp) / "out"), "-l", lang, "--dpi", str(round(dpi)),
+                [self.cmd, str(src), str(Path(tmp) / "out"), "-l", lang, "--dpi", str(round(dpi)),
                  "--psm", str(self.psm), "--oem", str(self.oem),
                  "-c", "hocr_char_boxes=1", "-c", "hocr_font_info=1", "hocr"],
                 check=True, capture_output=True,
-                env={**os.environ, "OMP_THREAD_LIMIT": str(self.threads)} if self.threads else None,
+                env=self._env(),
+                **subprocess_flags(),
             )
             hocr = (Path(tmp) / "out.hocr").read_text(encoding="utf-8")
         page = parse_hocr(hocr, engine=self.name, lang=lang, dpi=dpi)

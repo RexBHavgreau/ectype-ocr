@@ -36,10 +36,13 @@ Sixty-two pages later, the same reader may find that the fourth chapter quotes t
 """
 
 FONT_CANDIDATES = [
-    "EB Garamond",
+    "EB Garamond",  # bundled with the Windows app
+
     "Liberation Serif",
     "DejaVu Serif",
     "FreeSerif",
+    "Times New Roman",  # Windows and macOS
+    "Georgia",
 ]
 
 
@@ -62,18 +65,24 @@ class Degrade:
 
 
 def find_font(family: str | None = None) -> Path:
-    """Resolve a font family name or file path to a font file on this system."""
+    """Resolve a font family name or file path to a font file. For each candidate
+    family: the copy bundled with the app, else fontconfig (Linux), else a direct
+    search of the system's and the user's font folders (Windows, macOS)."""
     if family and Path(family).is_file():
         return Path(family)
-    candidates = [family] if family else FONT_CANDIDATES
-    if shutil.which("fc-match"):
-        for name in candidates:
+    from .resources import bundle_dir, find_font_file
+
+    for name in [family] if family else FONT_CANDIDATES:
+        found = find_font_file(name) if bundle_dir() or not shutil.which("fc-match") else None
+        if found is None and shutil.which("fc-match"):
             out = subprocess.run(
                 ["fc-match", "-f", "%{family}\n%{file}", f"{name}:style=Regular"],
                 capture_output=True, text=True, check=False,
             ).stdout.splitlines()
             if len(out) == 2 and name.lower() in out[0].lower():
-                return Path(out[1])
+                found = Path(out[1])
+        if found is not None:
+            return found
     raise FileNotFoundError(
         f"No font found for {family or ' / '.join(FONT_CANDIDATES)}; pass a font file with --font"
     )
