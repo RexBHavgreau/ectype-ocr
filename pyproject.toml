@@ -26,9 +26,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "opentype-sanitizer>=9"]
+gui = ["PySide6-Essentials>=6.6"]
 
 [project.scripts]
 ectype = "ectype.cli:main"
+
+[project.gui-scripts]
+ectype-gui = "ectype.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

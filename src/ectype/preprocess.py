@@ -351,7 +351,7 @@ def preprocess(
                 page_flags.append("blank")
             suffix = {"full": "", "left": "L", "right": "R"}[side]
             name = f"p{src.number:03d}{suffix}"
-            Image.fromarray(piece).save(page_dir / f"{name}.png", dpi=(src.dpi, src.dpi))
+            _save_if_changed(page_dir / f"{name}.png", piece, src.dpi)
             page = OutputPage(
                 name=name, source_page=src.number, side=side, file=f"pages/{name}.png",
                 size_px=[pw, ph], dpi=round(src.dpi, 1), rotate=rotate, orientation_confidence=round(conf, 2),
@@ -362,6 +362,15 @@ def preprocess(
             report.write_json(page_dir / f"{name}.json", vars(page))
             outputs.append(page)
 
+    # Pages a source page no longer produces (a spread now kept whole, or the reverse) go.
+    produced = {p.name for p in outputs}
+    redone = {p.source_page for p in outputs}
+    for stale in page_dir.glob("p*.png"):
+        num = stale.stem[1:4]
+        if stale.stem not in produced and num.isdigit() and int(num) in redone:
+            stale.unlink()
+            stale.with_suffix(".json").unlink(missing_ok=True)
+
     summary = {
         "input": str(input_path),
         "keep_spreads": keep_spreads,
@@ -371,6 +380,19 @@ def preprocess(
     report.write_json(report_dir / "preprocess.json", summary)
     _write_html(summary, report_dir / "index.html")
     return summary
+
+
+def _save_if_changed(path: Path, image: np.ndarray, dpi: float) -> None:
+    """Write a page image unless an identical one is already there, so later stages'
+    caches (keyed on file times) stay valid when only some pages were redone."""
+    if path.is_file():
+        try:
+            old = np.asarray(Image.open(path).convert("L"))
+            if old.shape == image.shape and np.array_equal(old, image):
+                return
+        except OSError:
+            pass
+    Image.fromarray(image).save(path, dpi=(dpi, dpi))
 
 
 def load_overrides(path: Path | None) -> dict:

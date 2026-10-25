@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+import json
+import os
+
+import numpy as np
+import pikepdf
+import pytest
+from PIL import Image
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+qt = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+
+from ectype.project import Project  # noqa: E402
+from ectype.synth import Degrade, make_page  # noqa: E402
+
+
+def _spread_pdf(root):
+    """Two synthetic pages side by side as one scanned spread."""
+    halves = []
+    for i, seed in enumerate((5, 6)):
+        make_page(root / f"half{i}", seed=seed, point_size=10, page_size_pt=(396, 612),
+                  degrade=Degrade(skew_degrees=0.2, blur_sigma=0.5, noise_sigma=4, speckles=10, jpeg_quality=None))
+        halves.append(np.asarray(Image.open(root / f"half{i}" / "scan.png")))
+    image = np.hstack([halves[0], np.full((halves[0].shape[0], 60), 230, np.uint8), halves[1]])
+    pdf = pikepdf.new()
+    xobj = pikepdf.Stream(pdf, image.tobytes())
+    xobj.Type, xobj.Subtype = pikepdf.Name.XObject, pikepdf.Name.Image
+    xobj.Width, xobj.Height, xobj.BitsPerComponent = image.shape[1], image.shape[0], 8
+    xobj.ColorSpace = pikepdf.Name.DeviceGray
+    w, h = image.shape[1] * 72 / 300, image.shape[0] * 72 / 300
+    page = pdf.add_blank_page(page_size=(w, h))
+    page.Resources.XObject = pikepdf.Dictionary(Im0=xobj)
+    page.Contents = pikepdf.Stream(pdf, f"q {w} 0 0 {h} 0 0 cm /Im0 Do Q".encode())
+    path = root / "book.pdf"
+    pdf.save(path)
+    return path
+
+
+@pytest.fixture(scope="module")
+def project(tmp_path_factory):
+    root = tmp_path_factory.mktemp("gui")
+    p = Project.for_scan(_spread_pdf(root))
+    stages = []
+    p.run(progress=lambda stage, msg: stages.append(stage))
+    assert stages[::2] == ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
+    return p
+
+
+def test_project_runs_and_splits(project):
+    assert project.workspace.name == "book.ectype"
+    assert project.pages() == ["p001L", "p001R"]
+    assert project.output_pdf() is not None and project.output_pdf().is_file()
+
+
+def test_overrides_and_rerun(project):
+    project.set_split(1, False)
+    assert project.overrides() == {"1": {"split": False}}
+    project.run("preprocess")
+    assert project.pages() == ["p001"], "stale halves are removed"
+    project.reset_page(1)
+    project.run("preprocess")
+    assert project.pages() == ["p001L", "p001R"]
+
+
+def test_window_review_and_correction(project, tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    w.resize(1200, 800)
+    app.processEvents()
+    assert w.review.list.count() == 2 and w.review.items
+    item = w.review.items[0]
+    w.review.select(item)
+    w.review.edit.setText("Corrected")
+    w.review.save()
+    assert item.status == "fixed"
+    ocr = json.loads((project.workspace / "ocr" / "p001L.ocr.json").read_text())
+    assert ocr["lines"][item.line]["words"][item.word]["text"] == "Corrected"
+    assert (project.workspace / "training").is_dir()
+
+    w.tabs.setCurrentWidget(w.spreads)
+    app.processEvents()
+    assert w.spreads.list.count() == 1
+    w.spreads.drop_gutter(w.spreads.scale * 1700)
+    assert project.overrides()["1"]["split"] == 1700
+    w.spreads.rotate(90)
+    assert project.overrides()["1"]["rotate"] == 90
+    w.spreads.reset()
+    assert project.overrides() == {}
+    assert not w.grab().isNull()
+
+    out = project.export(tmp_path / "book-ectype.pdf")
+    assert out.is_file() and out.stat().st_size > 0
+    w.close()

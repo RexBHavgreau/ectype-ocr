@@ -2,7 +2,7 @@
 
 Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. See [`PLAN.md`](PLAN.md) for the design and the phased build plan.
 
-**Status: Phases 0–5 are done, and Phase 6 is under way** (parallel processing, caching, and a review tool that saves corrections as training data; the Qt GUI is still to come). `ectype run scan.pdf` goes from a scan to a PDF whose visible text is set in fonts traced from the scan itself. Results by phase:
+**Status: Phases 0–5 are done, and Phase 6 is under way:** the desktop app, parallel processing, caching, and corrections saved as training data. `ectype run scan.pdf` goes from a scan to a PDF whose visible text is set in fonts traced from the scan itself. Results by phase:
 - preprocessing, OCR and tying each character to its ink ([results](docs/phase1.md))
 - substitute mode ([results](docs/phase2.md))
 - glyph grouping and averaging ([results](docs/phase3.md))
@@ -14,9 +14,23 @@ On the Young chapter, the traced PDF is 619 KB against Acrobat ClearScan's 914 K
 
 ```
 sudo apt install tesseract-ocr libleptonica-dev   # system tools (Leptonica is used through ctypes)
-pip install -e ".[dev]"
+pip install -e ".[dev,gui]"
 pytest
 ```
+
+## The desktop app
+
+```
+ectype gui [scan.pdf | project folder]       # or: ectype-gui
+```
+
+Open a scan and press **Run**. The project folder is created beside the scan (`<scan>.ectype/`). The app has four tabs:
+- **Spreads:** each scan page, upright, with its split line. Drag the red line to where the pages meet, untick "Split this spread" to keep a page whole, or rotate a page. "Split two-page spreads" in the toolbar sets the default for the whole document. Changes apply on the next Run.
+- **Review:** the scan and the output side by side, scrolling and zooming together (Ctrl+wheel). Words are boxed in red for low OCR confidence and orange where a glyph looks like another character. Click a word, type the fix, press Enter. Then press **Update after corrections**, which reruns only segmentation through the PDF.
+- **Glyphs:** the averaged glyph sheets per style, and the probable misreadings. Double-click one to correct it.
+- **Log:** stage-by-stage progress.
+
+**Export PDF…** saves the result. Everything the app does is also available on the command line.
 
 ## Commands
 
@@ -98,7 +112,7 @@ This compares two documents page by page. You get side-by-side renders, a differ
   - `cluster` is Phase 3.
   - `trace` and `fontbuild` are Phase 4.
   - `traced` is Phase 5.
-  - `review` is the start of Phase 6.
+  - `project` (a book project: settings, overrides, running stages, corrections, export), `gui` (the desktop app) and `review` (the browser review) are Phase 6.
   - `lept` holds ctypes bindings to Leptonica's symbol classifier.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).
 - `corpus/`: test scans. Never modified.

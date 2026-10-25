@@ -178,6 +178,15 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
     return cmd_traced(argparse.Namespace(workspace=ws, name=args.name, background_dpi=150, min_conf=60.0))
 
 
+def cmd_gui(args: argparse.Namespace) -> int:
+    try:
+        from .gui import main as gui_main
+    except ImportError as exc:
+        print(f"The desktop app needs PySide6: pip install 'ectype-ocr[gui]' ({exc})")
+        return 1
+    return gui_main([args.target] if args.target else [])
+
+
 def cmd_synth(args: argparse.Namespace) -> int:
     from .synth import DEFAULT_TEXT, Degrade, find_font, make_page, make_set
 
@@ -303,6 +312,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
     p.set_defaults(func=cmd_rebuild)
+
+    p = sub.add_parser("gui", help="open the desktop app")
+    p.add_argument("target", nargs="?", help="a scan to open, or a project folder")
+    p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser("synth", help="make a synthetic test page with known text and font")
     p.add_argument("-o", "--output", help="output folder (default reports/synth)")

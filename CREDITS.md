@@ -33,6 +33,7 @@ None yet.
 | pytesseract | Tesseract wrapper (from Phase 1) | Apache-2.0 |
 | Tesseract OCR | OCR engine (command-line tool, installed separately) | Apache-2.0 |
 | Leptonica | Symbol classification and composites, through ctypes (system library, installed separately) | BSD-2-Clause |
+| PySide6 (Qt for Python) | The desktop app (optional `gui` extra), used as an unmodified library | LGPL-3.0 |
 | pytest | Test runner (development only) | MIT |
 | opentype-sanitizer (OTS) | Validating synthesized fonts (development) | BSD-3-Clause |
 
