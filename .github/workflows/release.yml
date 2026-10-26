@@ -63,7 +63,7 @@ jobs:
           ECTYPE_FONTS_DIR: packaging/build/fonts
         run: pyinstaller packaging/ectype.spec --noconfirm --distpath dist --workpath build/pyi
 
-      - name: Smoke test the packaged app (synthetic page, both modes)
+      - name: Smoke test the packaged app (synthetic page, every mode, IDML)
         shell: pwsh
         env:
           PYTHONIOENCODING: utf-8
@@ -76,6 +76,11 @@ jobs:
           & $ectype run smoke\synth\scan.pdf -o smoke\work2 --mode substitute --name sub
           if (-not (Test-Path smoke\work\traced\smoke.pdf)) { throw "traced PDF missing" }
           if (-not (Test-Path smoke\work2\substitute\sub.pdf)) { throw "substitute PDF missing" }
+          & $ectype run smoke\synth\scan.pdf -o smoke\work3 --mode text --page-image bw --name text
+          if (-not (Test-Path smoke\work3\textlayer\text.pdf)) { throw "text-layer PDF missing" }
+          & $ectype idml smoke\work -o smoke\reflow.idml --mode reflow
+          & $ectype idml smoke\work3 -o smoke\facsimile.idml --mode facsimile
+          if (-not (Test-Path smoke\reflow.idml) -or -not (Test-Path smoke\facsimile.idml)) { throw "IDML missing" }
 
       - name: Installer (Inno Setup)
         shell: pwsh

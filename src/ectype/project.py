@@ -20,15 +20,19 @@ Progress = Callable[[str, str], None]  # (stage, message)
 
 STAGES_TRACED = ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
 STAGES_SUBSTITUTE = ["preprocess", "ocr", "segment", "substitute"]
+STAGES_TEXT = ["preprocess", "ocr", "textlayer"]
+STAGES = {"traced": STAGES_TRACED, "substitute": STAGES_SUBSTITUTE, "text": STAGES_TEXT}
+OUTPUT_FOLDER = {"traced": "traced", "substitute": "substitute", "text": "textlayer"}
 
 
 @dataclass
 class Settings:
     source: str = ""
-    mode: str = "traced"  # or "substitute"
+    mode: str = "traced"  # "traced", "substitute" or "text" (the scan with an invisible text layer)
     split_spreads: bool = True
     font: str = ""  # substitute mode; empty = default serif
-    lang: str = "eng"
+    lang: str = "eng"  # Tesseract languages, e.g. "eng+grc"
+    page_image: str = "gray"  # text mode: "gray" or "bw" (black and white, smallest)
     name: str = ""  # output file name without .pdf
 
 
@@ -113,7 +117,7 @@ class Project:
         return OcrPage.from_json(json.loads(path.read_text(encoding="utf-8"))) if path.is_file() else None
 
     def output_pdf(self) -> Path | None:
-        folder = "traced" if self.settings.mode == "traced" else "substitute"
+        folder = OUTPUT_FOLDER.get(self.settings.mode, "traced")
         name = (self.settings.name or self.workspace.name) + ".pdf"
         path = self.workspace / folder / name
         return path if path.is_file() else None
@@ -144,7 +148,28 @@ class Project:
         return correct(self.workspace, page, line, word, text)
 
     def stages(self) -> list[str]:
-        return STAGES_TRACED if self.settings.mode == "traced" else STAGES_SUBSTITUTE
+        return STAGES.get(self.settings.mode, STAGES_TRACED)
+
+    def update_stage(self) -> str:
+        """Where to start again after OCR corrections: the stage after OCR."""
+        stages = self.stages()
+        return stages[stages.index("ocr") + 1]
+
+    def languages(self) -> list[str]:
+        from .languages import split
+
+        return split(self.settings.lang)
+
+    def set_languages(self, codes: list[str]) -> None:
+        """OCR languages, in order (the first is the main one). Pages are read again on
+        the next run."""
+        from .languages import join
+
+        self.settings.lang = join(codes)
+        self.save_settings()
+
+    def has_corrections(self) -> bool:
+        return any((self.workspace / "corrections").glob("*.json"))
 
     def run(self, start: str = "preprocess", progress: Progress | None = None) -> Path | None:
         """Run the pipeline from `start` to the output PDF. Stages before it keep their results."""
@@ -184,6 +209,11 @@ class Project:
                 out = build_workspace_fonts(ws, family=f"Ectype {s.name or ws.name}")
                 bad = [st["style"] for st in out["styles"] if st["validation"]["ots"] not in ("pass", "not installed")]
                 msg = f"{len(out['styles'])} fonts" + (f"; validation problems in styles {bad}" if bad else ", all valid")
+            elif stage == "textlayer":
+                from .textlayer import textlayer_workspace
+
+                out = textlayer_workspace(ws, out_name=s.name or None, image=s.page_image)
+                msg = f"{out['bytes']:,} bytes; {out['words']} words as an invisible text layer"
             elif stage == "traced":
                 from .traced import traced_workspace
 
@@ -197,6 +227,64 @@ class Project:
                 msg = f"{out['bytes']:,} bytes"
             progress(stage, msg)
         return self.output_pdf()
+
+    # -- IDML ---------------------------------------------------------------------
+
+    def _stale(self, stage: str) -> bool:
+        """True when a stage's results are missing or older than the OCR they come from."""
+        ocr = [p.stat().st_mtime for p in (self.workspace / "ocr").glob("*.ocr.json")]
+        if stage == "segment":
+            outs = list((self.workspace / "segment").glob("*.seg.json"))
+            if len(outs) < len(ocr):
+                return True
+        else:
+            outs = [self.workspace / "cluster" / "clusters.json"]
+            seg = [p.stat().st_mtime for p in (self.workspace / "segment").glob("*.seg.json")]
+            ocr = ocr + seg
+            if not outs[0].is_file():
+                return True
+        return bool(ocr) and min(p.stat().st_mtime for p in outs) < max(ocr)
+
+    def prepare_idml(self, progress: Progress | None = None) -> dict:
+        """What an IDML export needs beyond the OCR: segmentation and glyph styles (for
+        slant, running heads and font matching), then the page layout and the fonts most
+        like the scan's. No glyph tracing. Returns {"layout", "matches"}."""
+        progress = progress or (lambda stage, msg: None)
+        if not self.pages() or not any((self.workspace / "ocr").glob("*.ocr.json")):
+            raise FileNotFoundError("no OCR yet; run the pipeline first")
+        ws = self.workspace
+        if self._stale("segment"):
+            from .segment import segment_workspace
+
+            progress("segment", "running")
+            out = segment_workspace(ws)
+            progress("segment", f"{sum(r['units'] for r in out['pages'])} glyph units")
+        if self._stale("cluster"):
+            from .cluster import cluster_workspace
+
+            progress("cluster", "running")
+            out = cluster_workspace(ws)
+            progress("cluster", f"{len(out['glyphs'])} glyphs in {len(out['styles'])} styles")
+        from .fontmatch import match_styles, write_matches
+        from .layout import build_layout
+
+        progress("layout", "running")
+        layout = build_layout(ws)
+        progress("layout", f"{sum(len(p.blocks) for p in layout.pages)} text blocks on {len(layout.pages)} pages")
+        progress("fonts", "comparing the scan's letters with the installed fonts")
+        matches = match_styles(ws, layout, progress=lambda msg: progress("fonts", msg))
+        write_matches(ws / "cluster" / "font-matches.json", matches)
+        return {"layout": layout, "matches": matches}
+
+    def export_idml(self, dest: Path, options=None, prepared: dict | None = None,
+                    progress: Progress | None = None) -> dict:
+        from .idml import export_idml
+
+        prepared = prepared or self.prepare_idml(progress)
+        out = export_idml(self.workspace, Path(dest), options, prepared["layout"], prepared["matches"])
+        if progress:
+            progress("idml", f"{out['pages']} pages -> {dest}")
+        return out
 
     def export(self, dest: Path) -> Path:
         pdf = self.output_pdf()

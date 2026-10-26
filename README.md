@@ -28,13 +28,26 @@ pytest
 ectype gui [scan.pdf | project folder]       # or: ectype-gui
 ```
 
-Open a scan and press **Run**. The project folder is created beside the scan (`<scan>.ectype/`). The app has four tabs:
+Open a scan and press **Run**. The project folder is created beside the scan (`<scan>.ectype/`). The toolbar chooses what Run makes:
+- **Traced:** fonts traced from the scan.
+- **Substitute:** a real font in place of the scan's type.
+- **Text layer only:** the scan with invisible, searchable OCR text over it. This is the fastest, with no glyph tracing. Its page image can be grayscale, or black and white for the smallest file.
+
+**Languages** lists the installed OCR languages; tick as many as the book uses. **Add languages…** at the bottom of that list downloads more from the Tesseract project's language data. They are stored in your user folder and shared by every project. Changing the languages reads the pages again on the next Run.
+
+The app has four tabs:
 - **Spreads:** each scan page, upright, with its split line. Drag the red line to where the pages meet, untick "Split this spread" to keep a page whole, or rotate a page. "Split two-page spreads" in the toolbar sets the default for the whole document. Changes apply on the next Run.
 - **Review:** the scan and the output side by side, scrolling and zooming together (Ctrl+wheel). Words are boxed in red for low OCR confidence and orange where a glyph looks like another character. Click a word, type the fix, press Enter. Then press **Update after corrections**, which reruns only segmentation through the PDF.
 - **Glyphs:** the averaged glyph sheets per style, and the probable misreadings. Double-click one to correct it.
 - **Log:** stage-by-stage progress.
 
-**Export PDF…** saves the result. Everything the app does is also available on the command line.
+**Export PDF…** saves the result. **Export IDML…** lays the OCR text out as an InDesign document, in one of two ways ([details](docs/idml.md)):
+- **Reflow:** the text flows onto a fresh layout in the fonts you choose. Running heads are dropped, paragraphs split by a page break are joined, and notes are gathered at the end.
+- **Facsimile:** each text block sits where it stands on the scan, line for line, in the installed fonts most like the scan's. They are chosen automatically and shown before the export, and you can change them. The scan goes on a locked layer underneath that doesn't print.
+
+IDML export needs only the OCR, plus the analysis that finds italics, running heads and the fonts (segmentation and glyph grouping, run if needed). It doesn't need glyph tracing, so text-layer mode is enough. Edits made in InDesign don't come back to Ectype, so they don't add training data; corrections made in the Review tab still do.
+
+Everything the app does is also available on the command line.
 
 ## Commands
 
@@ -44,7 +57,14 @@ All reports are written to `reports/`, which git ignores.
 ectype run scan.pdf [-o workspace] [--mode traced|substitute] [--font …]
 ```
 
-This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute.
+This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute. `--mode text` runs just preprocess, ocr and the text layer (`--page-image gray|bw`). `--lang eng+grc` sets the OCR languages.
+
+```
+ectype languages [--all]              # installed OCR languages (--all: and those that can be added)
+ectype languages --add grc lat heb    # download languages
+ectype textlayer reports/work-young   # the scan with an invisible OCR text layer
+ectype idml reports/work-young --mode reflow|facsimile [-o book.idml] [--font "EB Garamond"] [--size 11]
+```
 
 ```
 ectype analyze "corpus/E J. Young Inspiration-1.pdf"
@@ -117,6 +137,7 @@ This compares two documents page by page. You get side-by-side renders, a differ
   - `trace` and `fontbuild` are Phase 4.
   - `traced` is Phase 5.
   - `project` (a book project: settings, overrides, running stages, corrections, export), `gui` (the desktop app) and `review` (the browser review) are Phase 6.
+  - `textlayer` (the scan with an invisible OCR text layer), `languages` (OCR languages and their download), `layout` (text blocks and paragraphs), `fontmatch` (installed fonts most like the scan's) and `idml` (the InDesign export).
   - `lept` holds ctypes bindings to Leptonica's symbol classifier.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).
 - `corpus/`: test scans. Never modified.

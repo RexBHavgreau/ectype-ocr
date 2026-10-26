@@ -6,7 +6,9 @@ Tabs: Spreads (where each scan page splits, with a draggable gutter line, a
 "split this spread" switch and rotate buttons), Review (the scan and the output
 side by side; click a word to correct it), Glyphs (the averaged glyph sheets and
 the probable misreadings), Log. Run builds the PDF; "Update after corrections"
-reruns only the stages corrections affect; Export saves the PDF elsewhere.
+reruns only the stages corrections affect; Export saves the PDF elsewhere, and
+Export IDML lays the text out as an InDesign document (reflowed, or in facsimile).
+The Languages menu chooses the OCR languages and downloads more.
 """
 
 from __future__ import annotations
@@ -18,13 +20,18 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem,
-    QGraphicsRectItem, QGraphicsScene, QGraphicsView, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTableWidget,
-    QTableWidgetItem, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
+    QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
+    QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSplitter, QTableWidget,
+    QTableWidgetItem, QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
+from . import languages
 from .project import Project
+
+MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
+         ("text", "Text layer only (the scan + OCR)")]
 
 LOW_CONF = 70.0
 COLOURS = {"low": QColor(220, 40, 40), "suspect": QColor(232, 137, 12), "fixed": QColor(26, 152, 80),
@@ -46,6 +53,24 @@ class Worker(QThread):
         try:
             pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg))
             self.done.emit(str(pdf or ""))
+        except Exception:
+            self.failed.emit(traceback.format_exc())
+
+
+class Task(QThread):
+    """Runs any function off the interface thread; the function gets a progress callback."""
+
+    progress = Signal(str, str)
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def run(self) -> None:
+        try:
+            self.done.emit(self.fn(lambda stage, msg: self.progress.emit(stage, msg)))
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -487,6 +512,278 @@ class GlyphsTab(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Languages
+
+
+class LanguageButton(QToolButton):
+    """The OCR languages: a checkable list of the installed ones, and "Add languages…"."""
+
+    changed = Signal(list)
+    add_requested = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.menu_ = QMenu(self)
+        self.setMenu(self.menu_)
+        self.boxes: dict[str, QCheckBox] = {}
+        self.selected: list[str] = ["eng"]
+
+    def set_languages(self, selected: list[str]) -> None:
+        self.selected = list(selected) or ["eng"]
+        self.menu_.clear()
+        self.boxes = {}
+        codes = languages.installed()
+        for code in self.selected:  # chosen but not installed (yet): listed, so they can be unticked
+            if code not in codes:
+                codes.append(code)
+        for code in codes:
+            box = QCheckBox(languages.name(code) + ("" if code in languages.installed() else " (not installed)"))
+            box.setChecked(code in self.selected)
+            box.setContentsMargins(6, 2, 6, 2)
+            box.toggled.connect(lambda on, c=code: self._toggled(c, on))
+            action = QWidgetAction(self.menu_)
+            action.setDefaultWidget(box)  # a checkbox keeps the menu open while choosing several
+            self.menu_.addAction(action)
+            self.boxes[code] = box
+        self.menu_.addSeparator()
+        self.menu_.addAction("Add languages…", self.add_requested.emit)
+        self._label()
+
+    def _toggled(self, code: str, on: bool) -> None:
+        if on and code not in self.selected:
+            self.selected.append(code)
+        elif not on and code in self.selected:
+            if len(self.selected) == 1:  # at least one language
+                self.boxes[code].blockSignals(True)
+                self.boxes[code].setChecked(True)
+                self.boxes[code].blockSignals(False)
+                return
+            self.selected.remove(code)
+        self._label()
+        self.changed.emit(list(self.selected))
+
+    def _label(self) -> None:
+        names = [languages.name(c) for c in self.selected]
+        text = ", ".join(names) if len(names) <= 2 else f"{names[0]} + {len(names) - 1} more"
+        self.setText(f"Languages: {text}")
+        self.setToolTip("OCR languages: " + ", ".join(names))
+
+
+class AddLanguagesDialog(QDialog):
+    """Pick languages to download; they are added to the OCR languages afterwards."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add languages")
+        self.resize(420, 520)
+        self.downloaded: list[str] = []
+        self.task: Task | None = None
+        layout = QVBoxLayout(self)
+        intro = QLabel("Choose languages to download (from the Tesseract project's language data, "
+                       "a few megabytes each). They become available to every project.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search")
+        self.search.textChanged.connect(self._filter)
+        layout.addWidget(self.search)
+        self.list = QListWidget()
+        installed = set(languages.installed())
+        for code in languages.available():
+            item = QListWidgetItem(f"{languages.name(code)}  ({code})")
+            item.setData(Qt.UserRole, code)
+            if code in installed:
+                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                item.setText(item.text() + " — installed")
+            else:
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked)
+            self.list.addItem(item)
+        layout.addWidget(self.list)
+        self.bar = QProgressBar()
+        self.bar.hide()
+        layout.addWidget(self.bar)
+        self.status = QLabel("")
+        layout.addWidget(self.status)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.download_button = self.buttons.addButton("Download", QDialogButtonBox.AcceptRole)
+        self.buttons.accepted.connect(self.download)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+
+    def _filter(self, text: str) -> None:
+        for k in range(self.list.count()):
+            item = self.list.item(k)
+            item.setHidden(text.lower() not in item.text().lower())
+
+    def chosen(self) -> list[str]:
+        return [self.list.item(k).data(Qt.UserRole) for k in range(self.list.count())
+                if self.list.item(k).flags() & Qt.ItemIsEnabled and self.list.item(k).checkState() == Qt.Checked]
+
+    def download(self) -> None:
+        codes = self.chosen()
+        if not codes:
+            self.status.setText("Tick the languages to download.")
+            return
+        self.download_button.setEnabled(False)
+        self.bar.show()
+        self.bar.setRange(0, 0)
+
+        def work(progress):
+            return languages.download(codes, lambda code, got, total: progress(code, f"{got} {total}"))
+
+        self.task = Task(work)
+        self.task.progress.connect(self._progress)
+        self.task.done.connect(self._done)
+        self.task.failed.connect(self._failed)
+        self.task.start()
+
+    def _progress(self, code: str, msg: str) -> None:
+        got, total = (int(v) for v in msg.split())
+        self.status.setText(f"Downloading {languages.name(code)}: {got / 1e6:.1f} MB" + (f" of {total / 1e6:.1f} MB" if total else ""))
+        if total:
+            self.bar.setRange(0, total)
+            self.bar.setValue(got)
+
+    def _done(self, codes) -> None:
+        self.downloaded = list(codes)
+        self.accept()
+
+    def _failed(self, error: str) -> None:
+        self.bar.hide()
+        self.download_button.setEnabled(True)
+        self.status.setText("Download failed: " + error.strip().splitlines()[-1])
+
+
+# ---------------------------------------------------------------------------
+# IDML export
+
+
+class IdmlDialog(QDialog):
+    """Reflow or facsimile, and the fonts, before the IDML is written."""
+
+    def __init__(self, prepared: dict, parent=None):
+        from .fontmatch import installed_faces
+
+        super().__init__(parent)
+        self.setWindowTitle("Export IDML")
+        self.resize(640, 560)
+        self.matches = prepared["matches"]
+        faces = installed_faces()
+        self.faces_by_family: dict[str, list] = {}
+        for f in faces:
+            self.faces_by_family.setdefault(f.family, []).append(f)
+        layout = QVBoxLayout(self)
+
+        self.reflow = QRadioButton("Reflow: the text flows onto a fresh layout, in the fonts you choose")
+        self.facsimile = QRadioButton("Facsimile: the text where it stands on the scan, line for line, "
+                                      "in the installed fonts most like the scan's")
+        group = QButtonGroup(self)
+        group.addButton(self.reflow)
+        group.addButton(self.facsimile)
+        self.reflow.setChecked(True)
+        layout.addWidget(self.reflow)
+
+        self.reflow_box = QGroupBox()
+        form = QFormLayout(self.reflow_box)
+        body = self._body_match()
+        self.family = QComboBox()
+        self.family.setEditable(True)  # a font installed only where the IDML will be opened
+        self.family.addItems(sorted(self.faces_by_family, key=str.lower))
+        default = body.face.family if body and body.face else ("EB Garamond" if "EB Garamond" in self.faces_by_family else "")
+        self.family.setCurrentText(default)
+        self.family.currentTextChanged.connect(self._family_changed)
+        form.addRow("Body font", self.family)
+        self.regular = QComboBox()
+        self.italic = QComboBox()
+        for box in (self.regular, self.italic):
+            box.setEditable(True)
+        form.addRow("Regular style", self.regular)
+        form.addRow("Italic style", self.italic)
+        self.size = QDoubleSpinBox()
+        self.size.setRange(5, 36)
+        self.size.setSingleStep(0.5)
+        self.size.setSuffix(" pt")
+        self.size.setValue(body.point_size if body and body.point_size else 11.0)
+        form.addRow("Size", self.size)
+        note = QLabel("Running heads and page numbers are left out; notes are gathered at the end.")
+        note.setWordWrap(True)
+        form.addRow(note)
+        layout.addWidget(self.reflow_box)
+        self._family_changed(self.family.currentText())
+
+        layout.addWidget(self.facsimile)
+        self.fac_box = QGroupBox()
+        fl = QVBoxLayout(self.fac_box)
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Type on the scan", "Font", "Size"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.verticalHeader().hide()
+        self.style_boxes: dict[int, QComboBox] = {}
+        rows = [m for m in sorted(self.matches.values(), key=lambda m: -m.instances) if m.face is not None]
+        self.table.setRowCount(len(rows))
+        for r, m in enumerate(rows):
+            what = {"head": "Running head", "foot": "Running foot"}.get(m.zone, "Text" if m.size_class == 1.0 else
+                                                                         "Notes" if m.size_class < 1 else "Headings")
+            what += ", italic" if m.italic else ""
+            what += ", bold" if m.bold else ""
+            self.table.setItem(r, 0, QTableWidgetItem(f"{what} ({m.instances:,} letters)"))
+            box = QComboBox()
+            box.setEditable(True)
+            labels = [m.face.label] + [label for label, _ in m.runners_up]
+            labels += sorted({f.label for f in faces if f.italic == m.italic} - set(labels), key=str.lower)
+            box.addItems(labels)
+            self.table.setCellWidget(r, 1, box)
+            self.table.setItem(r, 2, QTableWidgetItem(f"{m.point_size:g} pt" if m.point_size else ""))
+            self.style_boxes[m.style] = box
+        fl.addWidget(self.table)
+        self.scan_layer = QCheckBox("Place the scan under the text, on a locked layer that doesn't print")
+        self.scan_layer.setChecked(True)
+        fl.addWidget(self.scan_layer)
+        layout.addWidget(self.fac_box)
+
+        self.reflow.toggled.connect(self._mode_changed)
+        self._mode_changed()
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        buttons.addButton("Export…", QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _body_match(self):
+        text = [m for m in self.matches.values() if m.zone == "" and not m.italic and m.face]
+        return max(text, key=lambda m: m.instances) if text else None
+
+    def _family_changed(self, family: str) -> None:
+        styles = self.faces_by_family.get(family, [])
+        for box, italic, default in ((self.regular, False, "Regular"), (self.italic, True, "Italic")):
+            box.clear()
+            names = sorted({f.style for f in styles if f.italic == italic}, key=lambda s: (s != default, s))
+            box.addItems(names or [default])
+
+    def _mode_changed(self) -> None:
+        self.reflow_box.setEnabled(self.reflow.isChecked())
+        self.fac_box.setEnabled(self.facsimile.isChecked())
+
+    def options(self):
+        from .idml import Face, IdmlOptions
+
+        if self.reflow.isChecked():
+            return IdmlOptions(mode="reflow", body=Face(self.family.currentText(), self.regular.currentText() or "Regular"),
+                               italic_style=self.italic.currentText() or "Italic", body_size=self.size.value())
+        faces = {}
+        for sid, box in self.style_boxes.items():
+            m = self.matches[sid]
+            label = box.currentText()
+            if label != m.face.label:
+                face = next((f for fs in self.faces_by_family.values() for f in fs if f.label == label), None)
+                faces[sid] = Face(face.family, face.style) if face else Face(label, "Regular")
+        return IdmlOptions(mode="facsimile", faces=faces, include_scan=self.scan_layer.isChecked())
+
+
+# ---------------------------------------------------------------------------
 # Main window
 
 
@@ -497,6 +794,7 @@ class MainWindow(QMainWindow):
         self.resize(1400, 900)
         self.project = project or Project(Path.home() / ".ectype" / "scratch")
         self.worker: Worker | None = None
+        self.task: Task | None = None
         self._build()
         self.load(self.project)
 
@@ -508,16 +806,26 @@ class MainWindow(QMainWindow):
             self.actions[key] = bar.addAction(text, slot)
         bar.addSeparator()
         self.mode = QComboBox()
-        self.mode.addItems(["Traced (fonts from the scan)", "Substitute (a real font)"])
+        self.mode.addItems([label for _, label in MODES])
         self.mode.currentIndexChanged.connect(self._mode_changed)
         bar.addWidget(self.mode)
+        self.page_image = QComboBox()
+        self.page_image.addItems(["Page image: grayscale", "Page image: black and white (smallest)"])
+        self.page_image.setToolTip("Text-layer mode: how the scanned page is kept under the text")
+        self.page_image.currentIndexChanged.connect(self._page_image_changed)
+        self.page_image_action = bar.addWidget(self.page_image)
+        self.langs = LanguageButton()
+        self.langs.changed.connect(self._languages_changed)
+        self.langs.add_requested.connect(self.add_languages)
+        bar.addWidget(self.langs)
         self.split = QCheckBox("Split two-page spreads")
         self.split.toggled.connect(self._split_changed)
         bar.addWidget(self.split)
         bar.addSeparator()
         for key, text, slot in (("run", "Run", lambda: self.run("preprocess")),
-                                ("update", "Update after corrections", lambda: self.run("segment")),
-                                ("export", "Export PDF…", self.export)):
+                                ("update", "Update after corrections", lambda: self.run(self.project.update_stage())),
+                                ("export", "Export PDF…", self.export),
+                                ("export_idml", "Export IDML…", self.export_idml)):
             self.actions[key] = bar.addAction(text, slot)
         self.tabs = QTabWidget()
         self.spreads = SpreadsTab(self.project)
@@ -539,8 +847,13 @@ class MainWindow(QMainWindow):
         for tab in (self.spreads, self.review, self.glyphs):
             tab.project = project
         self.mode.blockSignals(True)
-        self.mode.setCurrentIndex(0 if project.settings.mode == "traced" else 1)
+        self.mode.setCurrentIndex(next((k for k, (m, _) in enumerate(MODES) if m == project.settings.mode), 0))
         self.mode.blockSignals(False)
+        self.page_image.blockSignals(True)
+        self.page_image.setCurrentIndex(1 if project.settings.page_image == "bw" else 0)
+        self.page_image.blockSignals(False)
+        self.page_image_action.setVisible(project.settings.mode == "text")
+        self.langs.set_languages(project.languages())
         self.split.blockSignals(True)
         self.split.setChecked(project.settings.split_spreads)
         self.split.blockSignals(False)
@@ -556,13 +869,70 @@ class MainWindow(QMainWindow):
         self.glyphs.refresh()
         has_pdf = self.project.output_pdf() is not None
         self.actions["export"].setEnabled(has_pdf)
+        self.actions["export_idml"].setEnabled(any((self.project.workspace / "ocr").glob("*.ocr.json")))
         self.actions["update"].setEnabled(bool(self.project.pages()))
         self.actions["run"].setEnabled(bool(self.project.settings.source))
 
     def _mode_changed(self, index: int) -> None:
-        self.project.settings.mode = "traced" if index == 0 else "substitute"
+        self.project.settings.mode = MODES[index][0]
         self.project.save_settings()
+        self.page_image_action.setVisible(self.project.settings.mode == "text")
         self.refresh()
+
+    def _page_image_changed(self, index: int) -> None:
+        self.project.settings.page_image = "bw" if index == 1 else "gray"
+        self.project.save_settings()
+
+    def _languages_changed(self, codes: list[str]) -> None:
+        self.project.set_languages(codes)
+        msg = "OCR languages: " + ", ".join(languages.name(c) for c in codes) + ". Run to read the pages again."
+        if self.project.has_corrections():
+            msg += " Corrections made so far are lost when the pages are read again."
+        self.statusBar().showMessage(msg)
+
+    def add_languages(self) -> None:
+        dialog = AddLanguagesDialog(self)
+        if dialog.exec() and dialog.downloaded:
+            codes = self.project.languages() + [c for c in dialog.downloaded if c not in self.project.languages()]
+            self.project.set_languages(codes)
+            self.langs.set_languages(codes)
+            self._languages_changed(codes)
+
+    def _start(self, fn, on_done, title: str) -> None:
+        """Run fn off the interface thread with the toolbar disabled and progress in the Log."""
+        if (self.worker is not None and self.worker.isRunning()) or (self.task is not None and self.task.isRunning()):
+            return
+        for a in self.actions.values():
+            a.setEnabled(False)
+        self.tabs.setCurrentWidget(self.log)
+        self.log.appendPlainText(f"— {title} —")
+        self.task = Task(fn)
+        self.task.progress.connect(lambda stage, msg: (self.log.appendPlainText(f"{stage}: {msg}"),
+                                                      self.statusBar().showMessage(f"{stage}: {msg}")))
+        self.task.done.connect(lambda result: (self._enable(), on_done(result)))
+        self.task.failed.connect(self._failed)
+        self.task.start()
+
+    def _enable(self) -> None:
+        for a in self.actions.values():
+            a.setEnabled(True)
+        self.refresh()
+
+    def export_idml(self) -> None:
+        self._start(lambda progress: self.project.prepare_idml(progress), self._idml_prepared, "Preparing the IDML export")
+
+    def _idml_prepared(self, prepared: dict) -> None:
+        dialog = IdmlDialog(prepared, self)
+        if not dialog.exec():
+            return
+        options = dialog.options()
+        default = str(Path(self.project.settings.source or self.project.workspace).with_name(
+            (self.project.settings.name or "output") + f"-{options.mode}.idml"))
+        path, _ = QFileDialog.getSaveFileName(self, "Export IDML", default, "InDesign Markup (*.idml)")
+        if not path:
+            return
+        self._start(lambda progress: self.project.export_idml(Path(path), options, prepared, progress),
+                    lambda out: self.statusBar().showMessage(f"Saved {out['idml']} ({out['pages']} pages)"), "Exporting IDML")
 
     def _split_changed(self, on: bool) -> None:
         self.project.settings.split_spreads = on

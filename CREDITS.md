@@ -14,6 +14,8 @@ None yet.
 | Scribe OCR (AGPL-3.0) | A per-document overlay font fitted to OCR measurements; per-word `Tc`/`TJ` placement. Read for ideas only, no code copied (see `docs/spikes/scribe-ocr.md`) | https://github.com/scribeocr/scribeocr |
 | smoothscan (GPL-3.0) | Grouping repeated symbols, vectorizing them and embedding them as a font | https://github.com/ncraun/smoothscan |
 | Leptonica jbclass and jbig2enc | Symbol classification by correlation; averaging every instance of a class into one composite template | http://www.leptonica.org/ , https://github.com/agl/jbig2enc |
+| Adobe IDML (InDesign Markup Language) specification; SimpleIDML's test documents (BSD) | The IDML package structure, compared with documents InDesign wrote. Read for reference only; no code or files copied | https://github.com/Starou/SimpleIDML |
+| OCRmyPDF and Tesseract's PDF renderer ("GlyphLessFont") | An invisible text layer set in a font of empty glyphs, mapped to Unicode | https://github.com/ocrmypdf/OCRmyPDF |
 | Ocular OCR; DeepVecFont, Im2Vec | Learned font models and vector-font reconstruction, for later work on damaged or rare glyphs | — |
 
 ## Dependencies
@@ -34,6 +36,7 @@ None yet.
 | Tesseract OCR | OCR engine (command-line tool, installed separately) | Apache-2.0 |
 | Leptonica | Symbol classification and composites, through ctypes (system library, installed separately) | BSD-2-Clause |
 | PySide6 (Qt for Python) | The desktop app (optional `gui` extra), used as an unmodified library | LGPL-3.0 |
+| Scribus | Checking IDML exports by opening and rendering them (development only, not shipped) | GPL-2.0-or-later |
 | PyInstaller | Packaging the Windows app (build only; its bootloader is GPL-2.0 with an exception allowing distribution of packaged programs) | GPL-2.0 with bootloader exception |
 | Inno Setup | Building the Windows installer (build only) | Inno Setup licence (free, including commercial use) |
 | pytest | Test runner (development only) | MIT |
@@ -48,6 +51,7 @@ None yet.
 
 | EB Garamond (bundled with the Windows app; the default substitute font) | Substitute mode | Georg Duffner, Octavio Pardo | SIL OFL 1.1 (`fonts/EBGaramond-OFL.txt` in the app) |
 | Tesseract and its libraries, with `eng` and `osd` data (bundled with the Windows app, UB Mannheim build) | OCR | Tesseract contributors; Leptonica, libpng, libjpeg, libtiff, zlib and others | Apache-2.0 (Tesseract); each library's licence is in the app's `tesseract` folder |
+| Tesseract language data (tessdata), downloaded on request | OCR in further languages | Tesseract contributors | Apache-2.0 |
 | Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
 | DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
 
