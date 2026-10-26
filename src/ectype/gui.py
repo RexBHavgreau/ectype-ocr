@@ -20,7 +20,7 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
     QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSplitter, QTableWidget,
@@ -661,14 +661,15 @@ class AddLanguagesDialog(QDialog):
 
 
 class IdmlDialog(QDialog):
-    """Reflow or facsimile, and the fonts, before the IDML is written."""
+    """Reflow or facsimile, and their options, before the IDML is written."""
 
     def __init__(self, prepared: dict, parent=None):
+        from . import converter
         from .fontmatch import installed_faces
 
         super().__init__(parent)
         self.setWindowTitle("Export IDML")
-        self.resize(640, 560)
+        self.resize(640, 600)
         self.matches = prepared["matches"]
         faces = installed_faces()
         self.faces_by_family: dict[str, list] = {}
@@ -676,42 +677,40 @@ class IdmlDialog(QDialog):
             self.faces_by_family.setdefault(f.family, []).append(f)
         layout = QVBoxLayout(self)
 
-        self.reflow = QRadioButton("Reflow: the text flows onto a fresh layout, in the fonts you choose")
+        self.reflow = QRadioButton("Reflow: the text laid out as a book by docx-to-idml (masters, running heads, "
+                                   "footnotes), in the fonts of its layout profile")
         self.facsimile = QRadioButton("Facsimile: the text where it stands on the scan, line for line, "
                                       "in the installed fonts most like the scan's")
         group = QButtonGroup(self)
         group.addButton(self.reflow)
         group.addButton(self.facsimile)
-        self.reflow.setChecked(True)
         layout.addWidget(self.reflow)
 
         self.reflow_box = QGroupBox()
         form = QFormLayout(self.reflow_box)
-        body = self._body_match()
-        self.family = QComboBox()
-        self.family.setEditable(True)  # a font installed only where the IDML will be opened
-        self.family.addItems(sorted(self.faces_by_family, key=str.lower))
-        default = body.face.family if body and body.face else ("EB Garamond" if "EB Garamond" in self.faces_by_family else "")
-        self.family.setCurrentText(default)
-        self.family.currentTextChanged.connect(self._family_changed)
-        form.addRow("Body font", self.family)
-        self.regular = QComboBox()
-        self.italic = QComboBox()
-        for box in (self.regular, self.italic):
-            box.setEditable(True)
-        form.addRow("Regular style", self.regular)
-        form.addRow("Italic style", self.italic)
-        self.size = QDoubleSpinBox()
-        self.size.setRange(5, 36)
-        self.size.setSingleStep(0.5)
-        self.size.setSuffix(" pt")
-        self.size.setValue(body.point_size if body and body.point_size else 11.0)
-        form.addRow("Size", self.size)
-        note = QLabel("Running heads and page numbers are left out; notes are gathered at the end.")
+        program = converter.find_program()
+        status = QLabel(f"docx-to-idml {program.version} is installed." if program else
+                        "docx-to-idml isn't installed (or hasn't been opened since it was installed). "
+                        f'<a href="{converter.DOWNLOAD}">Download it</a>, open it once, then export again.')
+        status.setOpenExternalLinks(True)
+        status.setWordWrap(True)
+        form.addRow(status)
+        self.profile = QComboBox()
+        self.profile.addItem("docx-to-idml's defaults", None)
+        for path in sorted((converter.settings_dir() / "profiles").glob("*.json")):
+            self.profile.addItem(path.stem, str(path))
+        form.addRow("Layout profile", self.profile)
+        self.markers = QCheckBox("Mark where each page of the scan begins, as {p. 172} (\"Page Marker\" style)")
+        self.check = QCheckBox("Mark words the OCR was unsure of (\"Check OCR\" style)")
+        self.check.setChecked(True)
+        form.addRow(self.markers)
+        form.addRow(self.check)
+        note = QLabel("Running heads and page numbers are left out. Notes become footnotes where their reference "
+                      "figure was read; the rest are gathered at the end. The Word manuscript is kept beside the IDML.")
         note.setWordWrap(True)
         form.addRow(note)
         layout.addWidget(self.reflow_box)
-        self._family_changed(self.family.currentText())
+        (self.reflow if program else self.facsimile).setChecked(True)
 
         layout.addWidget(self.facsimile)
         self.fac_box = QGroupBox()
@@ -752,17 +751,6 @@ class IdmlDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _body_match(self):
-        text = [m for m in self.matches.values() if m.zone == "" and not m.italic and m.face]
-        return max(text, key=lambda m: m.instances) if text else None
-
-    def _family_changed(self, family: str) -> None:
-        styles = self.faces_by_family.get(family, [])
-        for box, italic, default in ((self.regular, False, "Regular"), (self.italic, True, "Italic")):
-            box.clear()
-            names = sorted({f.style for f in styles if f.italic == italic}, key=lambda s: (s != default, s))
-            box.addItems(names or [default])
-
     def _mode_changed(self) -> None:
         self.reflow_box.setEnabled(self.reflow.isChecked())
         self.fac_box.setEnabled(self.facsimile.isChecked())
@@ -771,8 +759,8 @@ class IdmlDialog(QDialog):
         from .idml import Face, IdmlOptions
 
         if self.reflow.isChecked():
-            return IdmlOptions(mode="reflow", body=Face(self.family.currentText(), self.regular.currentText() or "Regular"),
-                               italic_style=self.italic.currentText() or "Italic", body_size=self.size.value())
+            return IdmlOptions(mode="reflow", page_markers=self.markers.isChecked(),
+                               check_below=70.0 if self.check.isChecked() else 0.0, profile=self.profile.currentData())
         faces = {}
         for sid, box in self.style_boxes.items():
             m = self.matches[sid]
@@ -928,11 +916,17 @@ class MainWindow(QMainWindow):
         options = dialog.options()
         default = str(Path(self.project.settings.source or self.project.workspace).with_name(
             (self.project.settings.name or "output") + f"-{options.mode}.idml"))
-        path, _ = QFileDialog.getSaveFileName(self, "Export IDML", default, "InDesign Markup (*.idml)")
+        path, _ = QFileDialog.getSaveFileName(self, "Export IDML (saved in a folder of its own, with its Links)",
+                                              default, "InDesign Markup (*.idml)")
         if not path:
             return
         self._start(lambda progress: self.project.export_idml(Path(path), options, prepared, progress),
-                    lambda out: self.statusBar().showMessage(f"Saved {out['idml']} ({out['pages']} pages)"), "Exporting IDML")
+                    self._idml_done, "Exporting IDML")
+
+    def _idml_done(self, out: dict) -> None:
+        self.statusBar().showMessage(f"Saved {out['idml']}")
+        if out.get("alerts"):
+            QMessageBox.information(self, "Export IDML", "\n\n".join(out["alerts"]))
 
     def _split_changed(self, on: bool) -> None:
         self.project.settings.split_spreads = on

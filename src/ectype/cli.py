@@ -166,28 +166,25 @@ def cmd_languages(args: argparse.Namespace) -> int:
 
 
 def cmd_idml(args: argparse.Namespace) -> int:
-    from .idml import Face, IdmlOptions
+    from .converter import ConverterMissing
+    from .idml import IdmlOptions
     from .project import Project
 
     ws = Path(args.workspace)
     project = Project(ws)
     dest = Path(args.output) if args.output else ws / f"{project.settings.name or ws.name}-{args.mode}.idml"
-    options = IdmlOptions(mode=args.mode, include_scan=not args.no_scan, body_size=args.size)
-    if args.font:
-        options.body = Face(args.font, args.style)
-        options.italic_style = args.italic_style
-    prepared = project.prepare_idml(lambda stage, msg: print(f"{stage}: {msg}"))
-    if args.mode == "reflow" and not args.font:
-        body = [m for m in prepared["matches"].values() if m.zone == "" and not m.italic and m.face]
-        if body:
-            options.body = Face(max(body, key=lambda m: m.instances).face.family, "Regular")
-    out = project.export_idml(dest, options, prepared)
-    print(f"{out['idml']}: {out['pages']} pages ({args.mode})")
+    options = IdmlOptions(mode=args.mode, include_scan=not args.no_scan, page_markers=args.page_markers,
+                          check_below=0.0 if args.no_check_ocr else 70.0, profile=args.profile)
+    try:
+        out = project.export_idml(dest, options, progress=lambda stage, msg: print(f"{stage}: {msg}"))
+    except ConverterMissing as exc:
+        print(exc)
+        return 1
+    for alert in out.get("alerts", []):
+        print(f"Note: {alert}")
     if args.mode == "facsimile":
-        for m in sorted(prepared["matches"].values(), key=lambda m: -m.instances):
-            if m.face:
-                print(f"  style {m.style:3} ({m.instances:6} letters{', italic' if m.italic else ''}{', ' + m.zone if m.zone else ''}): "
-                      f"{m.face.label} {m.point_size:g} pt, scale {100 * m.horizontal_scale:.0f}%")
+        for name, face in out["styles"].items():
+            print(f"  {name}: {face}")
     return 0
 
 
@@ -384,15 +381,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="also list the languages that can be added")
     p.set_defaults(func=cmd_languages)
 
-    p = sub.add_parser("idml", help="export the OCR text as an InDesign document (IDML)")
+    p = sub.add_parser("idml", help="export the OCR text as an InDesign document (IDML), in a folder with its links")
     p.add_argument("workspace")
-    p.add_argument("-o", "--output", help="the .idml file (default <workspace>/<name>-<mode>.idml)")
+    p.add_argument("-o", "--output", help="the .idml path; the export folder takes its name (default <workspace>/<name>-<mode>.idml)")
     p.add_argument("--mode", choices=["reflow", "facsimile"], default="reflow",
-                   help="reflow: a fresh layout in your font; facsimile: line for line where the scan has it")
-    p.add_argument("--font", help="reflow: body font family (default: the installed font most like the scan's)")
-    p.add_argument("--style", default="Regular", help="reflow: the body font's regular style name")
-    p.add_argument("--italic-style", default="Italic", help="reflow: its italic style name")
-    p.add_argument("--size", type=float, help="reflow: body size in points (default: the scan's)")
+                   help="reflow: laid out as a book by docx-to-idml; facsimile: line for line where the scan has it")
+    p.add_argument("--profile", help="reflow: a docx-to-idml layout profile (name or .json)")
+    p.add_argument("--page-markers", action="store_true", help="reflow: mark where each scanned page begins, {p. 172}")
+    p.add_argument("--no-check-ocr", action="store_true", help="reflow: don't mark words the OCR was unsure of")
     p.add_argument("--no-scan", action="store_true", help="facsimile: don't place the scan on a hidden layer")
     p.set_defaults(func=cmd_idml)
 

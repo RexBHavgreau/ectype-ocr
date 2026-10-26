@@ -129,17 +129,18 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     assert project.output_pdf() is not None and project.output_pdf().parent.name == "textlayer"
     w.mode.setCurrentIndex(0)
 
-    # IDML: the dialog offers both layouts and the matched fonts, and gives the options.
+    # IDML: the dialog offers both layouts, Reflow's options and the matched fonts.
     prepared = project.prepare_idml()
     d = IdmlDialog(prepared, w)
-    assert d.reflow.isChecked() and d.reflow_box.isEnabled() and not d.fac_box.isEnabled()
-    assert d.family.currentText()
+    d.reflow.setChecked(True)
+    assert d.reflow_box.isEnabled() and not d.fac_box.isEnabled()
+    d.markers.setChecked(True)
     options = d.options()
-    assert options.mode == "reflow" and options.body.family == d.family.currentText()
+    assert options.mode == "reflow" and options.page_markers and options.check_below > 0
     d.facsimile.setChecked(True)
     assert d.fac_box.isEnabled() and d.table.rowCount() >= 1
     options = d.options()
     assert options.mode == "facsimile" and options.faces == {} and options.include_scan
     out = project.export_idml(tmp_path / "book.idml", options, prepared)
-    assert (tmp_path / "book.idml").is_file() and out["pages"] == 2
+    assert (tmp_path / "book" / "book.idml").is_file() and out["pages"] == 2
     w.close()

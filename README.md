@@ -42,10 +42,10 @@ The app has four tabs:
 - **Log:** stage-by-stage progress.
 
 **Export PDF…** saves the result. **Export IDML…** lays the OCR text out as an InDesign document, in one of two ways ([details](docs/idml.md)):
-- **Reflow:** the text flows onto a fresh layout in the fonts you choose. Running heads are dropped, paragraphs split by a page break are joined, and notes are gathered at the end.
+- **Reflow:** the text laid out as a book by [docx-to-idml](https://github.com/RexBHavgreau/docx-to-idml), with masters, running heads, footnotes and the fonts of its layout profile. Ectype writes the reading text as a Word manuscript (kept beside the IDML) and runs the installed converter. Running heads are dropped, paragraphs split by a page break are joined, words the OCR was unsure of are marked "Check OCR", and optionally the scan's page numbers are marked as {p. 172}.
 - **Facsimile:** each text block sits where it stands on the scan, line for line, in the installed fonts most like the scan's. They are chosen automatically and shown before the export, and you can change them. The scan goes on a locked layer underneath that doesn't print.
 
-IDML export needs only the OCR, plus the analysis that finds italics, running heads and the fonts (segmentation and glyph grouping, run if needed). It doesn't need glyph tracing, so text-layer mode is enough. Edits made in InDesign don't come back to Ectype, so they don't add training data; corrections made in the Review tab still do.
+Each export is a folder of its own, holding the IDML and its `Links`. IDML export needs only the OCR, plus the analysis that finds italics, running heads and the fonts (segmentation and glyph grouping, run if needed). It doesn't need glyph tracing, so text-layer mode is enough. Edits made in InDesign don't come back to Ectype, so they don't add training data; corrections made in the Review tab still do.
 
 Everything the app does is also available on the command line.
 
@@ -63,7 +63,7 @@ This runs every stage below in one workspace: preprocess, ocr, segment, then eit
 ectype languages [--all]              # installed OCR languages (--all: and those that can be added)
 ectype languages --add grc lat heb    # download languages
 ectype textlayer reports/work-young   # the scan with an invisible OCR text layer
-ectype idml reports/work-young --mode reflow|facsimile [-o book.idml] [--font "EB Garamond"] [--size 11]
+ectype idml reports/work-young --mode reflow|facsimile [-o out/book.idml] [--page-markers] [--profile NAME]
 ```
 
 ```
@@ -137,7 +137,7 @@ This compares two documents page by page. You get side-by-side renders, a differ
   - `trace` and `fontbuild` are Phase 4.
   - `traced` is Phase 5.
   - `project` (a book project: settings, overrides, running stages, corrections, export), `gui` (the desktop app) and `review` (the browser review) are Phase 6.
-  - `textlayer` (the scan with an invisible OCR text layer), `languages` (OCR languages and their download), `layout` (text blocks and paragraphs), `fontmatch` (installed fonts most like the scan's) and `idml` (the InDesign export).
+  - `textlayer` (the scan with an invisible OCR text layer), `languages` (OCR languages and their download), `layout` (text blocks and paragraphs), `fontmatch` (installed fonts most like the scan's), `idml` (the InDesign export), `docx` and `converter` (Reflow's Word manuscript and running docx-to-idml), and `idmlkit` (docx-to-idml's IDML writer, copied, used by Facsimile).
   - `lept` holds ctypes bindings to Leptonica's symbol classifier.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).
 - `corpus/`: test scans. Never modified.

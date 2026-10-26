@@ -341,3 +341,23 @@ def vocabulary(layout: Layout) -> set[str]:
                 for w in line.words[:-1]:
                     vocab.update(t.lower() for t in re.findall(r"\w+(?:-\w+)*", w.text))
     return vocab
+
+
+def folios(layout: Layout) -> list[int | None]:
+    """Each page's printed page number: read from its running head or foot where it has one,
+    and inferred for the others (an opening page has none) from the pages that do, when they
+    agree on one numbering. None where nothing can be said."""
+    read: dict[int, int] = {}
+    for k, page in enumerate(layout.pages):
+        for block in page.blocks:
+            if block.kind in ("head", "foot"):
+                numbers = [w.text.strip(".,") for line in block.lines for w in line.words if w.text.strip(".,").isdigit()]
+                if numbers:
+                    read[k] = int(numbers[0])
+    if not read:
+        return [None] * len(layout.pages)
+    offsets = [n - k for k, n in read.items()]
+    offset = max(set(offsets), key=offsets.count)
+    if offsets.count(offset) < max(2, len(offsets) // 2):
+        return [read.get(k) for k in range(len(layout.pages))]
+    return [k + offset if k + offset > 0 else None for k in range(len(layout.pages))]

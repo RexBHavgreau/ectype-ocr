@@ -278,12 +278,21 @@ class Project:
 
     def export_idml(self, dest: Path, options=None, prepared: dict | None = None,
                     progress: Progress | None = None) -> dict:
+        """Export to dest (an .idml path): the export folder is dest's name beside it,
+        holding the IDML and its Links, as docx-to-idml writes them."""
         from .idml import export_idml
 
+        dest = Path(dest)
         prepared = prepared or self.prepare_idml(progress)
-        out = export_idml(self.workspace, Path(dest), options, prepared["layout"], prepared["matches"])
         if progress:
-            progress("idml", f"{out['pages']} pages -> {dest}")
+            progress("idml", "reflow: writing the manuscript and running docx-to-idml" if options is None or
+                     options.mode == "reflow" else "facsimile: laying out the pages")
+        out = export_idml(self.workspace, dest.parent, dest.stem, options, prepared["layout"], prepared["matches"],
+                          lang=self.settings.lang)
+        if progress:
+            progress("idml", out["idml"])
+            for line in out.get("report", []):
+                progress("idml", line)
         return out
 
     def export(self, dest: Path) -> Path:

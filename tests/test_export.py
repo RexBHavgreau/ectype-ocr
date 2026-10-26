@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import zipfile
+from pathlib import Path
 from xml.dom import minidom
 
 import pypdfium2 as pdfium
@@ -10,7 +12,7 @@ import pytest
 
 from ectype import languages
 from ectype.cluster import cluster_workspace
-from ectype.idml import Face, IdmlOptions, export_idml
+from ectype.idml import IdmlOptions, export_idml
 from ectype.layout import build_layout, join_lines
 from ectype.ocr import ocr_pages
 from ectype.project import Project
@@ -107,32 +109,93 @@ def _check_package(path):
         if name.endswith(".xml"):
             minidom.parseString(z.read(name))
     design = z.read("designmap.xml").decode()
+    assert '<?aid style="50" type="document"' in design, "InDesign recognises a package by this line"
     for src in re.findall(r'src="([^"]+)"', design):
         assert src in z.namelist(), src
     stories = "".join(z.read(n).decode() for n in z.namelist() if n.startswith("Stories/"))
     return z, design, re.sub(r"<[^>]+>", " ", stories)
 
 
-def test_idml_reflow_and_facsimile(analysed, tmp_path):
+def _validate(path):
+    """docx-to-idml's checker: package structure, links between parts, and Adobe's schema
+    (jing). Runs where docx-to-idml's source is present (ECTYPE_DOCX2IDML_SOURCE), as in CI."""
+    import os
+    import subprocess
+    import sys
+
+    source = os.environ.get("ECTYPE_DOCX2IDML_SOURCE")
+    if not source or not Path(source, "tools", "idml_check.py").is_file():
+        return
+    out = subprocess.run([sys.executable, str(Path(source, "tools", "idml_check.py")), str(path)],
+                         capture_output=True, text=True)
+    assert out.returncode == 0 and ": OK" in out.stdout, out.stdout + out.stderr
+
+
+def test_facsimile(analysed, tmp_path):
     ws, layout = analysed
     ocr_words = [w.text for p in layout.pages for b in p.blocks for l in b.lines for w in l.words]
-
-    out = export_idml(ws, tmp_path / "book-reflow.idml", IdmlOptions(mode="reflow", body=Face("Liberation Serif")), layout)
+    out = export_idml(ws, tmp_path, "book", IdmlOptions(mode="facsimile"), layout)
+    assert Path(out["idml"]) == tmp_path / "book" / "book.idml"
     z, design, text = _check_package(out["idml"])
-    assert out["pages"] >= 2
-    body = [w.rstrip("-") for w in ocr_words]
-    found = sum(1 for w in body if w in text)
-    assert found >= 0.9 * len(body)
-    assert design.count("idPkg:Spread") == out["pages"]
-
-    out = export_idml(ws, tmp_path / "book-facsimile.idml", IdmlOptions(mode="facsimile"), layout)
-    z, design, text = _check_package(out["idml"])
-    assert out["pages"] == 2 and out["stories"] >= 2
+    assert out["pages"] == 2 and out["frames"] >= 2
     assert all(w in text for w in ocr_words[:50])
-    assert " " in text, "lines kept as forced line breaks"
-    assert (tmp_path / "book-facsimile Links" / "p001.jpg").is_file()
+    assert "\u2028" in text, "lines kept as forced line breaks"
+    assert (tmp_path / "book" / "Links" / "p001.jpg").is_file()
+    assert 'Name="Scan"' in design and 'Printable="false"' in design
     spread = z.read(next(n for n in z.namelist() if n.startswith("Spreads/"))).decode()
-    assert 'Name="Scan"' in spread and "LinkResourceURI" in spread
+    assert 'LinkResourceURI="file:Links/p001.jpg"' in spread, "linked relative to the IDML"
+    assert 'PagesPerDocument="1"' in z.read("Resources/Preferences.xml").decode()
+    styles = z.read("Resources/Styles.xml").decode()
+    assert 'CharacterStyle/Text"' in styles, "a character style per type style of the scan"
+    _validate(out["idml"])
+
+
+def test_reflow_manuscript(analysed, tmp_path):
+    from ectype.docx import DocxOptions, write_docx
+
+    ws, layout = analysed
+    made = write_docx(ws, layout, tmp_path / "book.docx", DocxOptions(page_markers=True))
+    z = zipfile.ZipFile(made["docx"])
+    assert {"[Content_Types].xml", "word/document.xml", "word/styles.xml", "word/footnotes.xml"} <= set(z.namelist())
+    document = z.read("word/document.xml").decode()
+    text = re.sub(r"<[^>]+>", "", document)
+    words = [w.text.rstrip("-") for p in layout.pages for b in p.blocks if b.kind == "text" for l in b.lines for w in l.words]
+    assert sum(w in text for w in words) >= 0.95 * len(words)
+    assert "{p. " in text or "{page " in text, "page markers"
+    assert 'w:rStyle w:val="PageMarker"' in document
+    styles = z.read("word/styles.xml").decode()
+    assert 'w:name w:val="Check OCR"' in styles and 'w:name w:val="Page Marker"' in styles
+
+
+def test_reflow_through_docx_to_idml(analysed, tmp_path):
+    from ectype import converter
+
+    if converter.find_program() is None:
+        pytest.skip("docx-to-idml isn't installed (CI runs it from source)")
+    ws, layout = analysed
+    out = export_idml(ws, tmp_path, "book", IdmlOptions(mode="reflow"), layout)
+    assert Path(out["idml"]).is_file() and Path(out["docx"]).is_file()
+    assert Path(out["idml"]).parent == Path(out["folder"])
+    _check_package(out["idml"])
+    _validate(out["idml"])
+    assert out["report"], "docx-to-idml's report is passed on"
+
+
+def test_converter_missing(tmp_path, monkeypatch):
+    from ectype import converter
+
+    monkeypatch.delenv("ECTYPE_DOCX2IDML", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert converter.find_program() is None
+    with pytest.raises(converter.ConverterMissing, match="docx-to-idml"):
+        converter.convert(tmp_path / "x.docx", tmp_path, "x")
+    (tmp_path / "docx-to-idml").mkdir()
+    exe = tmp_path / "docx-to-idml-0.8.0.exe"
+    exe.write_text("")
+    (tmp_path / "docx-to-idml" / "program.json").write_text(json.dumps({"exe": str(exe), "version": "0.8.0", "api": 1}))
+    program = converter.find_program()
+    assert program.command == [str(exe)] and program.version == "0.8.0"
 
 
 def test_project_prepares_idml_once(analysed):

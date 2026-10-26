@@ -4,7 +4,9 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 
 ## Code copied or adapted
 
-None yet.
+| Source | What | License |
+| --- | --- | --- |
+| docx-to-idml (https://github.com/RexBHavgreau/docx-to-idml), commit dff3874 | `src/ectype/idmlkit/`: its IDML writer (`writer.py`, `model.py`, `images.py`) and `base/` (InDesign's own preferences, colours, fonts and root styles), copied unchanged; Ectype's facsimile export subclasses the writer. The .docx it writes for Reflow follows docx-to-idml's `docs/ENGINE.md` and its test helper's WordprocessingML | MIT (`src/ectype/idmlkit/LICENSE-docx-to-idml`) |
 
 ## Ideas and methods
 
@@ -14,7 +16,6 @@ None yet.
 | Scribe OCR (AGPL-3.0) | A per-document overlay font fitted to OCR measurements; per-word `Tc`/`TJ` placement. Read for ideas only, no code copied (see `docs/spikes/scribe-ocr.md`) | https://github.com/scribeocr/scribeocr |
 | smoothscan (GPL-3.0) | Grouping repeated symbols, vectorizing them and embedding them as a font | https://github.com/ncraun/smoothscan |
 | Leptonica jbclass and jbig2enc | Symbol classification by correlation; averaging every instance of a class into one composite template | http://www.leptonica.org/ , https://github.com/agl/jbig2enc |
-| Adobe IDML (InDesign Markup Language) specification; SimpleIDML's test documents (BSD) | The IDML package structure, compared with documents InDesign wrote. Read for reference only; no code or files copied | https://github.com/Starou/SimpleIDML |
 | OCRmyPDF and Tesseract's PDF renderer ("GlyphLessFont") | An invisible text layer set in a font of empty glyphs, mapped to Unicode | https://github.com/ocrmypdf/OCRmyPDF |
 | Ocular OCR; DeepVecFont, Im2Vec | Learned font models and vector-font reconstruction, for later work on damaged or rare glyphs | — |
 
@@ -36,7 +37,8 @@ None yet.
 | Tesseract OCR | OCR engine (command-line tool, installed separately) | Apache-2.0 |
 | Leptonica | Symbol classification and composites, through ctypes (system library, installed separately) | BSD-2-Clause |
 | PySide6 (Qt for Python) | The desktop app (optional `gui` extra), used as an unmodified library | LGPL-3.0 |
-| Scribus | Checking IDML exports by opening and rendering them (development only, not shipped) | GPL-2.0-or-later |
+| docx-to-idml | Reflow's layout: run as a separate installed program, not shipped; in the tests, run from source, and its checker validates every IDML export against Adobe's IDML schema (jing) | MIT |
+| lxml | Writing IDML (docx-to-idml's writer) | BSD-3-Clause |
 | PyInstaller | Packaging the Windows app (build only; its bootloader is GPL-2.0 with an exception allowing distribution of packaged programs) | GPL-2.0 with bootloader exception |
 | Inno Setup | Building the Windows installer (build only) | Inno Setup licence (free, including commercial use) |
 | pytest | Test runner (development only) | MIT |
