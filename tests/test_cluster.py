@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
-from ectype.cluster import UPSAMPLE, cluster_workspace, word_slant
-from ectype.ocr import ocr_pages
+from ectype.cluster import UPSAMPLE, cluster_workspace, running_lines, word_slant
+from ectype.ocr import Line, OcrPage, Word, ocr_pages
 from ectype.segment import segment_workspace
 from ectype.synth import Degrade, make_page
 
@@ -81,3 +81,32 @@ def test_composite_matches_the_font(clustered):
     assert iou > 0.75, iou
     assert abs(ours.sum() / ref.sum() - 1) < 0.08, "same amount of ink as the font's glyph"
     assert g["count"] > 100
+
+
+def _page(*lines: tuple[int, str]) -> OcrPage:
+    """An OCR page from (top y, text) lines, each 40 px tall."""
+    out = []
+    for y, text in lines:
+        words, x = [], 150
+        for t in text.split():
+            words.append(Word(text=t, box=[x, y, x + 20 * len(t), y + 40], conf=95.0))
+            x += 20 * len(t) + 15
+        out.append(Line(box=[150, y, x, y + 40], baseline=[0.0, -9.0], x_size=21.0, ascenders=None, descenders=None, words=words))
+    return OcrPage(engine="test", lang="eng", size_px=[1600, 2550], dpi=300.0, lines=out)
+
+
+def test_running_lines():
+    body = "told, because the Bible does not claim such a place for itself"
+    text = [(350 + 53 * k, body) for k in range(6)]
+    pages = [_page((300, "“Some Reflections"), (500, "upon Inspiration”"), (2400, "thinking. They may agree"))]
+    for folio in range(170, 176):
+        head = f"{folio} Inspiration" if folio % 2 == 0 else f"Edward J. Young, “Some Reflections upon Inspiration” {folio}"
+        if folio == 173:
+            head = head.replace("Young", "Yonng")  # an OCR slip still matches
+        pages.append(_page((230, head), *text, (2400, body), (2453, "Ibid., 31.")))
+    pages.append(_page(*text, (2400, "the end of a chapter"), (2500, "176")))
+    zones = running_lines(pages)
+    assert zones[0] == {}  # a chapter title is not a running head
+    for z in zones[1:7]:
+        assert z == {0: "head"}  # a footnote on many pages is not a running foot
+    assert zones[7] == {7: "foot"}  # a lone folio

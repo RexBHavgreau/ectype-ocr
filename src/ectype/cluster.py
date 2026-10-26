@@ -3,8 +3,11 @@
 1. Collect: every glyph unit with ink becomes an instance, its ink cut out of the
    page (neighbours masked off) as coverage (0 = paper, 1 = ink), positioned by its
    line's fitted baseline and its own ink centroid, and scaled by the line's
-   x-height, so size classes (body, footnotes, headings) are kept apart.
-2. Cluster: within each (text, size class), instances are grouped by shape with
+   x-height, so size classes (body, footnotes, headings) are kept apart. Running
+   heads and folios (the top or bottom line when its words recur on other pages)
+   are kept apart too: books often set them in another typeface, which at the same
+   size can be too close in shape to the body's to split off by shape alone.
+2. Cluster: within each (text, size class, slant, zone), instances are grouped by shape with
    average-linkage clustering on correlation distance; tiny groups join their
    nearest large one when close enough, else stay as rare glyphs.
 3. Styles: clusters whose letters occur together in words are joined, so the
@@ -30,6 +33,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import pdist
+from rapidfuzz import fuzz
 
 from . import report
 from .ocr import OcrPage
@@ -38,6 +42,7 @@ from .segment import Segmentation, fit_baselines, line_x_heights
 UPSAMPLE = 4
 FEATURE_ROWS = 24
 ABOVE, BELOW = 1.9, 0.75  # canvas extent above/below the baseline, in x-heights
+ZONES = ("", "head", "foot")  # body text, running head, running foot
 
 
 @dataclass
@@ -57,6 +62,8 @@ class Instance:
     crop: np.ndarray = field(repr=False)  # coverage, float32, 0..1
     crop_origin: tuple[int, int] = (0, 0)  # page x, y of crop[0, 0]
     cluster: int = -1
+    zone: str = ""  # "head" or "foot" for running heads and folios
+    slant_unsure: bool = False  # its word's slant fell between upright and italic
 
 
 @dataclass
@@ -67,6 +74,7 @@ class Glyph:
     italic: bool
     style: int
     count: int
+    zone: str
     xh: float  # median line x-height of its instances, px
     composite: str  # file name under composites/
     canvas: dict  # composite geometry at UPSAMPLE: baseline_row, centroid_col, width, height
@@ -96,9 +104,10 @@ def collect(workspace: Path) -> list[Instance]:
     if not page_data:
         return instances
     doc_xh = float(np.median([line_x_heights(seg)[1] for _, seg, _ in page_data]))
+    zones = running_lines([ocr for _, _, ocr in page_data])
 
     kernel = np.ones((3, 3), np.uint8)
-    for png, seg, ocr in page_data:
+    for k, (png, seg, ocr) in enumerate(page_data):
         gray = np.asarray(Image.open(png).convert("L"))
         labels = cv2.imread(str(workspace / "segment" / f"{png.stem}.labels.png"), cv2.IMREAD_UNCHANGED).astype(np.int32)
         paper = float(np.percentile(gray, 90))
@@ -107,7 +116,8 @@ def collect(workspace: Path) -> list[Instance]:
         coverage = np.clip((paper - gray.astype(np.float32)) / max(1.0, paper - ink_level), 0, 1)
         base = fit_baselines(seg, ocr)
         xhs, page_xh = line_x_heights(seg)
-        italic = word_italics(seg, labels)
+        slants = word_slants(seg, labels)
+        italic = word_italics(seg, labels, slants=slants)
         h, w = gray.shape
         for u in seg.units:
             if not u.box or not u.components:
@@ -126,8 +136,100 @@ def collect(workspace: Path) -> list[Instance]:
                 page=png.stem, unit=u.id, text=u.text, line=u.line, word=u.word, box=list(u.box),
                 baseline=a + b * cx, centroid_x=cx, xh=xh, size_class=_size_class(xh / doc_xh),
                 italic=italic.get((u.line, u.word), False), conf=u.conf, crop=crop.astype(np.float32), crop_origin=(xa, ya),
+                zone=zones[k].get(u.line, ""),
+                slant_unsure=SLANT_UNSURE[0] <= (slants.get((u.line, u.word)) or 0.0) < SLANT_UNSURE[1],
             ))
+    refine_italics(instances)
     return instances
+
+
+def _letters(text: str) -> str:
+    return "".join(c for c in text.lower() if c.isalpha())
+
+
+def running_lines(pages: list[OcrPage], min_pages: int = 3, similarity: float = 80.0) -> list[dict[int, str]]:
+    """Per page, the OCR lines of its running head ("head") and foot ("foot"). The top
+    band (the top line and any line beside it) is a running head when it stands apart
+    from the text below it (a gap well over the page's usual one between lines) and its
+    letters recur, near enough, in the top band of at least `min_pages` pages in all, or
+    it has no letters (a lone folio); likewise the bottom band. Chapter titles don't
+    repeat, and footnotes ("Ibid." on several pages) aren't set apart, so they stay text."""
+    bands: list[dict[str, tuple[list[int], str]]] = []
+    for page in pages:
+        found = {}
+        lines = [(i, l) for i, l in enumerate(page.lines) if l.words]
+        tops = sorted((l.box for _, l in lines), key=lambda b: b[1])
+        gaps = [b[1] - a[3] for a, b in zip(tops, tops[1:]) if b[1] > a[3]]
+        min_gap = max(1.5 * float(np.median(gaps)), 0.4 * float(np.median([b[3] - b[1] for b in tops]))) if gaps else 0.0
+        for zone in ("head", "foot") if lines else ():
+            edge = (min(lines, key=lambda il: il[1].box[1]) if zone == "head" else max(lines, key=lambda il: il[1].box[3]))[1]
+            band = sorted(((i, l) for i, l in lines if l.box[1] < edge.box[3] and edge.box[1] < l.box[3]), key=lambda il: il[1].box[0])
+            rest = [l for _, l in lines if all(l is not b for _, b in band)]
+            if not rest:
+                continue  # a page of one line: nothing to stand apart from
+            if zone == "head":
+                gap = min(l.box[1] for l in rest) - max(l.box[3] for _, l in band)
+            else:
+                gap = min(l.box[1] for _, l in band) - max(l.box[3] for l in rest)
+            if gap >= min_gap:
+                found[zone] = ([i for i, _ in band], _letters(" ".join(w.text for _, l in band for w in l.words)))
+        bands.append(found)
+    out: list[dict[int, str]] = []
+    for found in bands:
+        zones: dict[int, str] = {}
+        for zone, (idx, text) in found.items():
+            if text and sum(1 for other in bands if zone in other and other[zone][1]
+                            and fuzz.ratio(text, other[zone][1]) >= similarity) < min_pages:
+                continue
+            for i in idx:
+                zones[i] = zone
+        out.append(zones)
+    return out
+
+
+def refine_italics(instances: list[Instance], sample: int = 300) -> None:
+    """Settle words whose measured slant fell between upright and italic by shape: each
+    letter votes for whichever of its upright and italic averages (same size and zone,
+    from words whose slant was clear) it is closer to. A sans-serif italic "Some" leans
+    less than its round letters suggest; an upright "for" leans more because of its f."""
+    unsure: dict[tuple, list[int]] = defaultdict(list)
+    for i, inst in enumerate(instances):
+        if inst.slant_unsure:
+            unsure[(inst.page, inst.line, inst.word)].append(i)
+    if not unsure:
+        return
+    rng = np.random.default_rng(0)
+    clear: dict[tuple, list[int]] = defaultdict(list)
+    for i, inst in enumerate(instances):
+        if not inst.slant_unsure and inst.text.isalpha():
+            clear[(inst.text, inst.size_class, inst.zone, inst.italic)].append(i)
+    cache: dict[tuple, tuple[float, np.ndarray, np.ndarray] | None] = {}
+
+    def means(text, size_class, zone):
+        key = (text, size_class, zone)
+        if key not in cache:
+            up, it = clear.get(key + (False,), []), clear.get(key + (True,), [])
+            if len(up) < 2 or len(it) < 2:
+                cache[key] = None
+            else:
+                widths = [(instances[i].box[2] - instances[i].box[0]) / instances[i].xh for i in up + it]
+                half = float(np.percentile(widths, 95)) / 2 + 0.25
+                mean = lambda idx: np.mean([_feature(instances[i], half) for i in
+                                            (idx if len(idx) <= sample else rng.choice(idx, sample, replace=False))], axis=0)
+                cache[key] = (half, mean(up), mean(it))
+        return cache[key]
+
+    for idx in unsure.values():
+        votes = 0
+        for i in idx:
+            inst = instances[i]
+            m = means(inst.text, inst.size_class, inst.zone) if inst.text.isalpha() else None
+            if m is not None:
+                f = _feature(inst, m[0])
+                votes += 1 if _corr_dist(f, m[2]) < _corr_dist(f, m[1]) else -1
+        if votes:
+            for i in idx:
+                instances[i].italic = votes > 0
 
 
 def _feature(inst: Instance, half_width: float) -> np.ndarray:
@@ -144,15 +246,15 @@ def _feature(inst: Instance, half_width: float) -> np.ndarray:
 
 def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_size: int = 3,
                       max_linkage: int = 3000, seed: int = 0) -> dict[tuple, list[list[int]]]:
-    """Group instances by (text, size class), then by shape. Returns the groups as lists of
+    """Group instances by (text, size class, slant, zone), then by shape. Returns the groups as lists of
     indices into `instances` and sets each instance's `cluster`."""
     rng = np.random.default_rng(seed)
     by_key: dict[tuple, list[int]] = defaultdict(list)
     for i, inst in enumerate(instances):
-        by_key[(inst.text, inst.size_class, inst.italic)].append(i)
+        by_key[(inst.text, inst.size_class, inst.italic, inst.zone)].append(i)
     groups: dict[tuple, list[list[int]]] = {}
     next_id = 0
-    for key, idx in sorted(by_key.items(), key=lambda kv: (kv[0][1], kv[0][2], kv[0][0])):
+    for key, idx in sorted(by_key.items(), key=lambda kv: (ZONES.index(kv[0][3]), kv[0][1], kv[0][2], kv[0][0])):
         widths = [(instances[i].box[2] - instances[i].box[0]) / instances[i].xh for i in idx]
         half = float(np.percentile(widths, 95)) / 2 + 0.25
         feats = np.stack([_feature(instances[i], half) for i in idx])
@@ -203,10 +305,12 @@ def _corr_dist(a: np.ndarray, b: np.ndarray) -> float:
 
 def assign_styles(instances: list[Instance], min_links: int = 2) -> dict[int, int]:
     """Join letter clusters that occur together in words into styles, only within one
-    size class and slant (so a stray link can't merge italic into roman). Clusters of
-    punctuation and digits, and letters that never share a word with another (the J of
-    "J."), join the style they most often share a word or line with."""
-    info = {inst.cluster: (inst.size_class, inst.italic, inst.text.isalpha()) for inst in instances}
+    size class, slant and zone (so a stray link can't merge italic into roman). In running
+    heads and feet, sharing a line is enough: their few words ("Edward", "Young") may
+    never share a letter cluster. Clusters of punctuation and digits, and letters that
+    never share a word with another (the J of "J."), join the style they most often share
+    a word or line with, or failing that the largest of their zone, preferring their slant."""
+    info = {inst.cluster: (inst.size_class, inst.italic, inst.zone, inst.text.isalpha()) for inst in instances}
     count: dict[int, int] = defaultdict(int)
     for inst in instances:
         count[inst.cluster] += 1
@@ -221,11 +325,14 @@ def assign_styles(instances: list[Instance], min_links: int = 2) -> dict[int, in
     links: dict[tuple[int, int], int] = defaultdict(int)
     by_word: dict[tuple, list[int]] = defaultdict(list)
     by_line: dict[tuple, list[int]] = defaultdict(list)
+    by_zone: dict[tuple, list[int]] = defaultdict(list)
     for inst in instances:
         by_word[(inst.page, inst.line, inst.word)].append(inst.cluster)
         by_line[(inst.page, inst.line)].append(inst.cluster)
-    for clusters in by_word.values():
-        cs = sorted({c for c in clusters if info[c][2]})
+        by_zone[(inst.zone,)].append(inst.cluster)
+    running_lines = [cs for cs in by_line.values() if info[cs[0]][2]]
+    for clusters in [*by_word.values(), *running_lines]:
+        cs = sorted({c for c in clusters if info[c][3]})
         for i in range(len(cs)):
             for j in range(i + 1, len(cs)):
                 links[(cs[i], cs[j])] += 1
@@ -233,21 +340,22 @@ def assign_styles(instances: list[Instance], min_links: int = 2) -> dict[int, in
     for (a, b), n in links.items():
         # Rare letters (a chapter title's) can't co-occur twice; they need only as many
         # shared words as they have instances.
-        if n >= min(min_links, count[a], count[b]) and info[a][:2] == info[b][:2]:
+        if n >= min(min_links, count[a], count[b]) and info[a][:3] == info[b][:3]:
             parent[find(a)] = find(b)
             linked.update((a, b))
 
     # Punctuation and digits: the letter style they share words with most, else lines.
-    for c, (sc, it, alpha) in info.items():
+    for c, (sc, it, zone, alpha) in info.items():
         if alpha and c in linked:
             continue  # letters linked through words already have a style; the rest vote
         votes: dict[int, int] = defaultdict(int)
         for same_slant in (True, False):
-            for scope in (by_word, by_line):
+            for scope in (by_word, by_line, by_zone):
                 for clusters in scope.values():
                     if c in clusters:
                         for o in clusters:
-                            if o != c and o in linked and info[o][0] == sc and (info[o][1] == it or not same_slant):
+                            if (o != c and o in linked and info[o][0] == sc and info[o][2] == zone
+                                    and (info[o][1] == it or not same_slant)):
                                 votes[find(o)] += 1
                 if votes:
                     break
@@ -282,11 +390,12 @@ def word_slant(mask: np.ndarray, baseline_row: float) -> float:
     return best
 
 
-def word_italics(seg: Segmentation, labels: np.ndarray, low: float = 7.0, high: float = 18.0) -> dict[tuple[int, int], bool]:
-    """Italic flag per (line, word) from the word's measured slant. Book italics lean
-    about 8-15 degrees (the Young chapter's measure 8-12); steeper readings come from
-    words made mostly of diagonals ("very", "way": 22-24), so only low..high counts.
-    Words of one or two letters are too short to measure and follow their neighbours."""
+SLANT_UNSURE = (3.0, 7.0)  # measured slants settled by shape (refine_italics)
+
+
+def word_slants(seg: Segmentation, labels: np.ndarray) -> dict[tuple[int, int], float | None]:
+    """Measured slant per (line, word); None for words too short to measure (one or two
+    letters), 0 for those without letters."""
     by_word: dict[tuple[int, int], list] = defaultdict(list)
     for u in seg.units:
         if u.box and u.components:
@@ -306,6 +415,16 @@ def word_italics(seg: Segmentation, labels: np.ndarray, low: float = 7.0, high: 
         comps = [c for u in letters for c in u.components]
         mask = np.isin(labels[y0:y1, x0:x1], comps)
         slant[key] = word_slant(mask, float(np.median([u.baseline_y for u in letters])) - y0)
+    return slant
+
+
+def word_italics(seg: Segmentation, labels: np.ndarray, low: float = 7.0, high: float = 18.0,
+                 slants: dict[tuple[int, int], float | None] | None = None) -> dict[tuple[int, int], bool]:
+    """Italic flag per (line, word) from the word's measured slant. Book italics lean
+    about 8-15 degrees (the Young chapter's measure 8-12); steeper readings come from
+    words made mostly of diagonals ("very", "way": 22-24), so only low..high counts.
+    Words of one or two letters are too short to measure and follow their neighbours."""
+    slant = word_slants(seg, labels) if slants is None else slants
     flags: dict[tuple[int, int], bool] = {}
     for (li, wi), a in slant.items():
         if a is not None:
@@ -428,7 +547,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
 
     glyphs: list[Glyph] = []
     feats: dict[int, np.ndarray] = {}
-    for (text, size_class, is_italic), clusters in groups.items():
+    for (text, size_class, is_italic, zone), clusters in groups.items():
         for members_idx in clusters:
             cid = instances[members_idx[0]].cluster
             members = by_cluster[cid]
@@ -445,7 +564,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
             else:
                 ink_box = None
             glyphs.append(Glyph(
-                id=cid, text=text, size_class=size_class, italic=is_italic, style=style_of[cid], count=len(members),
+                id=cid, text=text, size_class=size_class, italic=is_italic, style=style_of[cid], count=len(members), zone=zone,
                 xh=round(float(np.median([m.xh for m in members])), 2), composite=name, canvas=canvas, ink=ink_box,
                 instances=[[m.page, m.unit] for m in members],
             ))
@@ -481,6 +600,7 @@ def _style_summary(glyphs: list[Glyph]) -> list[dict]:
             "instances": sum(g.count for g in gs),
             "size_classes": sorted({g.size_class for g in gs}),
             "italic": sorted({g.italic for g in gs}),
+            "zones": sorted({g.zone for g in gs}, key=ZONES.index),
             "duplicates": {f"{t} @{sc}": n for (t, sc), n in sorted(per_key.items()) if n > 1},
             "duplicates_with_3_plus": {f"{t} @{sc}": n for (t, sc), n in sorted(per_key_big.items()) if n > 1},
             "sample": "".join(sorted({g.text for g in gs if len(g.text) == 1 and g.text.isalpha()}))[:60],
@@ -497,9 +617,10 @@ def _write_sheets(s: dict, out: Path, cell: int = 72, columns: int = 16) -> None
             "the number is how many instances it averages. Check that each style has one glyph per character and that italic and "
             "roman are in different styles.</p>"]
     body.append(report.table(
-        ["Style", "Glyphs", "Instances", "Size classes", "Slant", "Letters", "Characters with more than one glyph of 3+ instances"],
+        ["Style", "Glyphs", "Instances", "Size classes", "Slant", "Zone", "Letters", "Characters with more than one glyph of 3+ instances"],
         [[st["style"], st["glyphs"], st["instances"], " ".join(map(str, st["size_classes"])),
-          "/".join("italic" if i else "upright" for i in st["italic"]), st["sample"],
+          "/".join("italic" if i else "upright" for i in st["italic"]),
+          "/".join({"": "text", "head": "running head", "foot": "running foot"}[z] for z in st["zones"]), st["sample"],
           ", ".join(f"{k}×{n}" for k, n in list(st["duplicates_with_3_plus"].items())[:25])] for st in s["styles"]],
         numeric={0, 1, 2},
     ))
