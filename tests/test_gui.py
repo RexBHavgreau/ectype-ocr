@@ -96,3 +96,51 @@ def test_window_review_and_correction(project, tmp_path):
     out = project.export(tmp_path / "book-ectype.pdf")
     assert out.is_file() and out.stat().st_size > 0
     w.close()
+
+
+def test_languages_text_mode_and_idml_dialog(project, tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import AddLanguagesDialog, IdmlDialog, MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    app.processEvents()
+
+    # Languages: several can be ticked, the last one can't be unticked.
+    assert "eng" in w.langs.boxes and w.langs.boxes["eng"].isChecked()
+    w.langs.boxes["eng"].setChecked(False)
+    assert w.langs.boxes["eng"].isChecked() and project.languages() == ["eng"]
+    w._languages_changed(["eng", "grc"])
+    assert project.settings.lang == "eng+grc"
+    w.langs.set_languages(project.languages())
+    assert "grc" in w.langs.boxes, "a chosen language not yet installed is still listed"
+    project.set_languages(["eng"])
+    dialog = AddLanguagesDialog(w)
+    assert dialog.list.count() > 100 and dialog.chosen() == []
+
+    # Text-layer mode: its own stages and page-image choice.
+    w.mode.setCurrentIndex(2)
+    assert project.settings.mode == "text" and project.stages() == ["preprocess", "ocr", "textlayer"]
+    assert project.update_stage() == "textlayer"
+    w.page_image.setCurrentIndex(1)
+    assert project.settings.page_image == "bw"
+    project.run("textlayer")
+    assert project.output_pdf() is not None and project.output_pdf().parent.name == "textlayer"
+    w.mode.setCurrentIndex(0)
+
+    # IDML: the dialog offers both layouts, Reflow's options and the matched fonts.
+    prepared = project.prepare_idml()
+    d = IdmlDialog(prepared, w)
+    d.reflow.setChecked(True)
+    assert d.reflow_box.isEnabled() and not d.fac_box.isEnabled()
+    d.markers.setChecked(True)
+    options = d.options()
+    assert options.mode == "reflow" and options.page_markers and options.check_below > 0
+    d.facsimile.setChecked(True)
+    assert d.fac_box.isEnabled() and d.table.rowCount() >= 1
+    options = d.options()
+    assert options.mode == "facsimile" and options.faces == {} and options.include_scan
+    out = project.export_idml(tmp_path / "book.idml", options, prepared)
+    assert (tmp_path / "book" / "book.idml").is_file() and out["pages"] == 2
+    w.close()

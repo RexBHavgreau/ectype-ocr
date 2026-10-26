@@ -63,6 +63,7 @@ class PageSpec:
     background: np.ndarray | None = None  # grayscale, full page
     background_dpi: float = 150
     background_quality: int = 75
+    bilevel: np.ndarray | None = None  # instead of background: black-and-white page (True = ink), CCITT G4
     runs: list[GlyphRun] = field(default_factory=list)
     fill_gray: float = 0.0  # text colour, 0 = black
     invisible: bool = False  # render mode 3 (for image fallback comparisons)
@@ -164,6 +165,23 @@ def _background_xobject(pdf: pikepdf.Pdf, page: PageSpec) -> pikepdf.Stream:
     return xobj
 
 
+def _bilevel_xobject(pdf: pikepdf.Pdf, ink: np.ndarray) -> pikepdf.Stream:
+    """A black-and-white page image, CCITT Group 4 coded (as TIFF G4 in one strip)."""
+    h, w = ink.shape
+    image = Image.fromarray(np.where(ink, 0, 255).astype(np.uint8)).convert("1")
+    buf = io.BytesIO()
+    image.save(buf, format="TIFF", compression="group4", tiffinfo={278: h})  # 278: RowsPerStrip
+    tiff = Image.open(io.BytesIO(buf.getvalue()))
+    (offset,), (length,) = tiff.tag_v2[273], tiff.tag_v2[279]  # StripOffsets, StripByteCounts
+    white_is_zero = tiff.tag_v2.get(262, 0) == 0  # PhotometricInterpretation
+    xobj = pikepdf.Stream(pdf, buf.getvalue()[offset:offset + length])
+    xobj.Type, xobj.Subtype = pikepdf.Name.XObject, pikepdf.Name.Image
+    xobj.Width, xobj.Height = w, h
+    xobj.ColorSpace, xobj.BitsPerComponent, xobj.Filter = pikepdf.Name.DeviceGray, 1, pikepdf.Name.CCITTFaxDecode
+    xobj.DecodeParms = pikepdf.Dictionary(K=-1, Columns=w, Rows=h, BlackIs1=not white_is_zero)
+    return xobj
+
+
 def write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], producer: str = "Ectype OCR") -> None:
     pdf = pikepdf.new()
     font_objs = {f.key: _embed_font(pdf, f) for f in fonts}
@@ -173,8 +191,9 @@ def write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], prod
         pdf_page = pdf.add_blank_page(page_size=(wpt, hpt))
         resources = pikepdf.Dictionary()
         ops: list[str] = []
-        if page.background is not None:
-            resources.XObject = pikepdf.Dictionary(Im0=_background_xobject(pdf, page))
+        if page.background is not None or page.bilevel is not None:
+            image = _bilevel_xobject(pdf, page.bilevel) if page.bilevel is not None else _background_xobject(pdf, page)
+            resources.XObject = pikepdf.Dictionary(Im0=image)
             ops.append(f"q {_fmt(wpt)} 0 0 {_fmt(hpt)} 0 0 cm /Im0 Do Q")
         used = sorted({r.font for r in page.runs})
         if used:

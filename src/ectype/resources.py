@@ -3,6 +3,7 @@
 The Windows installer ships Tesseract (with English and orientation data) and EB
 Garamond inside the program folder. From source, Tesseract comes from PATH, from
 the ECTYPE_TESSERACT setting, or from its usual install folder on Windows.
+Languages downloaded from the app live in the user's own folder (`user_data_dir`).
 """
 
 from __future__ import annotations
@@ -43,11 +44,63 @@ def tesseract_cmd() -> str | None:
     return None
 
 
-def tesseract_env() -> dict[str, str] | None:
-    """Environment for running a bundled Tesseract: point it at its own language data."""
+def user_data_dir() -> Path:
+    """The user's own Ectype folder (downloaded languages); ECTYPE_DATA_DIR overrides it."""
+    if os.environ.get("ECTYPE_DATA_DIR"):
+        return Path(os.environ["ECTYPE_DATA_DIR"])
+    home = Path.home()
+    if sys.platform == "win32":
+        return Path(os.environ.get("LOCALAPPDATA", home)) / "Ectype OCR"
+    if sys.platform == "darwin":
+        return home / "Library" / "Application Support" / "Ectype OCR"
+    return Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share")) / "ectype"
+
+
+def user_tessdata_dir() -> Path:
+    return user_data_dir() / "tessdata"
+
+
+@lru_cache(maxsize=1)
+def base_tessdata_dir() -> Path | None:
+    """The language folder of the app's own Tesseract, or of the system's."""
     bundle = bundle_dir()
     if bundle and (bundle / "tesseract" / "tessdata").is_dir():
-        return {**os.environ, "TESSDATA_PREFIX": str(bundle / "tesseract" / "tessdata")}
+        return bundle / "tesseract" / "tessdata"
+    prefix = os.environ.get("TESSDATA_PREFIX")
+    if prefix and Path(prefix).is_dir() and Path(prefix) != user_tessdata_dir():  # not one we set ourselves
+        return Path(prefix)
+    cmd = tesseract_cmd()
+    if not cmd:
+        return None
+    try:
+        out = subprocess.run([cmd, "--list-langs"], capture_output=True, text=True, timeout=30, **subprocess_flags())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # First line: List of available languages in "/usr/share/tesseract-ocr/5/tessdata/" (2):
+    first = (out.stdout or out.stderr).splitlines()[:1]
+    if first and '"' in first[0]:
+        folder = Path(first[0].split('"')[1])
+        if folder.is_dir():
+            return folder
+    return None
+
+
+def tessdata_dir() -> Path | None:
+    """The folder Tesseract reads languages from: the user's, once languages have been
+    downloaded there (it then holds the shipped ones too), else the app's or system's."""
+    user = user_tessdata_dir()
+    if user.is_dir() and any(user.glob("*.traineddata")):
+        return user
+    return base_tessdata_dir()
+
+
+def tesseract_env() -> dict[str, str] | None:
+    """Environment for running Tesseract: point it at the language folder in use, when
+    that isn't the one it would find by itself."""
+    folder = tessdata_dir()
+    bundle = bundle_dir()
+    if folder is not None and (folder == user_tessdata_dir() or bundle is not None):
+        return {**os.environ, "TESSDATA_PREFIX": str(folder)}
     return None
 
 
@@ -66,7 +119,7 @@ def configure_pytesseract() -> None:
         pytesseract.pytesseract.tesseract_cmd = cmd
     env = tesseract_env()
     if env:
-        os.environ.setdefault("TESSDATA_PREFIX", env["TESSDATA_PREFIX"])
+        os.environ["TESSDATA_PREFIX"] = env["TESSDATA_PREFIX"]
 
 
 def font_dirs() -> list[Path]:

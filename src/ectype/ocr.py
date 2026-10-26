@@ -256,9 +256,10 @@ def _fresh(output: Path, *inputs: Path) -> bool:
 
 def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, threads: int, force: bool) -> dict:
     target = out_dir / f"{png.stem}.ocr.json"
-    if not force and _fresh(target, png):
-        page = OcrPage.from_json(json.loads(target.read_text(encoding="utf-8")))
-    else:
+    page = OcrPage.from_json(json.loads(target.read_text(encoding="utf-8"))) if not force and _fresh(target, png) else None
+    if page is not None and (page.lang != lang or page.engine != engine):
+        page = None  # read with other languages: read again
+    if page is None:
         image = Image.open(png)
         gray = np.asarray(image.convert("L"))
         eng = get_engine(engine, threads=threads) if engine == "tesseract" else get_engine(engine)
@@ -280,7 +281,8 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
     """OCR every page PNG from a preprocess run; write .ocr.json, overlays and a report.
 
     Pages run in parallel (`jobs`, default one per CPU, each Tesseract on one thread);
-    a page whose .ocr.json is newer than its image is reused unless `force`.
+    a page whose .ocr.json is newer than its image and was read with the same engine
+    and languages is reused unless `force`.
     """
     from concurrent.futures import ThreadPoolExecutor
 

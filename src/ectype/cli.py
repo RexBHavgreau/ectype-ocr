@@ -133,6 +133,61 @@ def cmd_traced(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_textlayer(args: argparse.Namespace) -> int:
+    from .textlayer import textlayer_workspace
+
+    ws = Path(args.workspace)
+    s = textlayer_workspace(ws, out_name=args.name, image=args.page_image)
+    print(f"{ws / 'textlayer' / s['pdf']}: {s['bytes']:,} bytes; {s['words']} words as an invisible text layer")
+    return 0
+
+
+def cmd_languages(args: argparse.Namespace) -> int:
+    from . import languages
+    from .resources import tessdata_dir
+
+    if args.add:
+        def show(code, got, total):
+            print(f"\r{languages.name(code)}: {got / 1e6:.1f} MB" + (f" of {total / 1e6:.1f} MB" if total else ""), end="", flush=True)
+
+        done = languages.download(args.add, show)
+        print(f"\nInstalled: {', '.join(languages.name(c) for c in done)} (in {tessdata_dir()})")
+        return 0
+    installed = languages.installed()
+    print(f"Installed ({tessdata_dir()}):")
+    for code in installed:
+        print(f"  {code:14} {languages.name(code)}")
+    if args.all:
+        print("Available to add (ectype languages --add CODE ...):")
+        for code in languages.available():
+            if code not in installed:
+                print(f"  {code:14} {languages.name(code)}")
+    return 0
+
+
+def cmd_idml(args: argparse.Namespace) -> int:
+    from .converter import ConverterMissing
+    from .idml import IdmlOptions
+    from .project import Project
+
+    ws = Path(args.workspace)
+    project = Project(ws)
+    dest = Path(args.output) if args.output else ws / f"{project.settings.name or ws.name}-{args.mode}.idml"
+    options = IdmlOptions(mode=args.mode, include_scan=not args.no_scan, page_markers=args.page_markers,
+                          check_below=0.0 if args.no_check_ocr else 70.0, profile=args.profile)
+    try:
+        out = project.export_idml(dest, options, progress=lambda stage, msg: print(f"{stage}: {msg}"))
+    except ConverterMissing as exc:
+        print(exc)
+        return 1
+    for alert in out.get("alerts", []):
+        print(f"Note: {alert}")
+    if args.mode == "facsimile":
+        for name, face in out["styles"].items():
+            print(f"  {name}: {face}")
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     """Every stage, scan to PDF, in one workspace."""
     ws = Path(args.output) if args.output else _default_out("work", Path(args.input))
@@ -140,9 +195,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         ("preprocess", cmd_preprocess, argparse.Namespace(input=args.input, output=str(ws), keep_spreads=args.keep_spreads,
                                                           overrides=args.overrides, pages=args.pages, no_deskew=False, dpi=300)),
         ("ocr", cmd_ocr, argparse.Namespace(workspace=str(ws), engine="tesseract", lang=args.lang)),
-        ("segment", cmd_segment, argparse.Namespace(workspace=str(ws), truth=None)),
     ]
-    if args.mode == "substitute":
+    if args.mode != "text":
+        steps.append(("segment", cmd_segment, argparse.Namespace(workspace=str(ws), truth=None)))
+    if args.mode == "text":
+        steps.append(("textlayer", cmd_textlayer, argparse.Namespace(workspace=str(ws), name=args.name, page_image=args.page_image)))
+    elif args.mode == "substitute":
         steps.append(("substitute", cmd_substitute, argparse.Namespace(workspace=str(ws), font=args.font, name=args.name,
                                                                        background_dpi=150)))
     else:
@@ -172,6 +230,8 @@ def cmd_review(args: argparse.Namespace) -> int:
 def cmd_rebuild(args: argparse.Namespace) -> int:
     """After corrections: segmentation through the output PDF again."""
     ws = str(args.workspace)
+    if args.mode == "text":
+        return cmd_textlayer(argparse.Namespace(workspace=ws, name=args.name, page_image=args.page_image))
     cmd_segment(argparse.Namespace(workspace=ws, truth=None))
     if args.mode == "substitute":
         return cmd_substitute(argparse.Namespace(workspace=ws, font=args.font, name=args.name, background_dpi=150))
@@ -299,14 +359,38 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("run", help="every stage, scan to PDF")
     p.add_argument("input", help="scanned PDF or page image")
     p.add_argument("-o", "--output", help="workspace folder (default reports/work-<name>)")
-    p.add_argument("--mode", choices=["traced", "substitute"], default="traced")
+    p.add_argument("--mode", choices=["traced", "substitute", "text"], default="traced",
+                   help="text: just the scan with an invisible OCR text layer (no tracing)")
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
-    p.add_argument("--lang", default="eng")
+    p.add_argument("--lang", default="eng", help="OCR languages, e.g. eng or eng+grc (see: ectype languages)")
+    p.add_argument("--page-image", choices=["gray", "bw"], default="gray", help="text mode: grayscale or black-and-white page images")
     p.add_argument("--keep-spreads", action="store_true")
     p.add_argument("--overrides", help="JSON of per-page preprocessing corrections")
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("textlayer", help="build the text-layer PDF (the scan + invisible OCR text): <workspace>/textlayer")
+    p.add_argument("workspace")
+    p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
+    p.add_argument("--page-image", choices=["gray", "bw"], default="gray", help="grayscale JPEG, or black and white (CCITT G4)")
+    p.set_defaults(func=cmd_textlayer)
+
+    p = sub.add_parser("languages", help="list the OCR languages, or download more")
+    p.add_argument("--add", nargs="+", metavar="CODE", help="download these languages, e.g. grc lat heb")
+    p.add_argument("--all", action="store_true", help="also list the languages that can be added")
+    p.set_defaults(func=cmd_languages)
+
+    p = sub.add_parser("idml", help="export the OCR text as an InDesign document (IDML), in a folder with its links")
+    p.add_argument("workspace")
+    p.add_argument("-o", "--output", help="the .idml path; the export folder takes its name (default <workspace>/<name>-<mode>.idml)")
+    p.add_argument("--mode", choices=["reflow", "facsimile"], default="reflow",
+                   help="reflow: laid out as a book by docx-to-idml; facsimile: line for line where the scan has it")
+    p.add_argument("--profile", help="reflow: a docx-to-idml layout profile (name or .json)")
+    p.add_argument("--page-markers", action="store_true", help="reflow: mark where each scanned page begins, {p. 172}")
+    p.add_argument("--no-check-ocr", action="store_true", help="reflow: don't mark words the OCR was unsure of")
+    p.add_argument("--no-scan", action="store_true", help="facsimile: don't place the scan on a hidden layer")
+    p.set_defaults(func=cmd_idml)
 
     p = sub.add_parser("review", help="correct OCR in the browser; corrections become training data")
     p.add_argument("workspace")
@@ -315,7 +399,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("rebuild", help="after corrections: segment, cluster, fonts and the PDF again")
     p.add_argument("workspace")
-    p.add_argument("--mode", choices=["traced", "substitute"], default="traced")
+    p.add_argument("--mode", choices=["traced", "substitute", "text"], default="traced")
+    p.add_argument("--page-image", choices=["gray", "bw"], default="gray")
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
     p.set_defaults(func=cmd_rebuild)

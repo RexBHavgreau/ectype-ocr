@@ -16,6 +16,9 @@ here = Path(SPECPATH)
 root = here.parent
 
 datas = [(str(root / name), ".") for name in ("LICENSE", "NOTICE", "CREDITS.md")]
+# docx-to-idml's IDML base (InDesign's own settings and styles), used by the facsimile export.
+datas += [(str(root / "src" / "ectype" / "idmlkit" / "base"), "ectype/idmlkit/base"),
+          (str(root / "src" / "ectype" / "idmlkit" / "LICENSE-docx-to-idml"), "ectype/idmlkit")]
 # Licence files of the LGPL Qt bindings travel with them.
 for dist in ("PySide6_Essentials", "shiboken6"):
     try:
