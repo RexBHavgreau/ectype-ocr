@@ -188,6 +188,29 @@ def cmd_idml(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update(args: argparse.Namespace) -> int:
+    """Check for a newer release; with --install (the installed Windows app), install it."""
+    from . import __version__, updates
+
+    r = updates.check(timeout=15)
+    if r["status"] == "error":
+        print(f"Couldn't check for updates: {r['error']}")
+        return 1
+    if r["status"] != "newer":
+        print(f"Ectype OCR {__version__} is the latest version.")
+        return 0
+    print(f"Ectype OCR {r['latest']} is available (you have {__version__}): {r['url']}")
+    if not args.install:
+        return 0
+    if not updates.can_install() or not r.get("asset"):
+        print("Install it from the releases page (this copy isn't the installed Windows app).")
+        return 1
+    setup = updates.download(r["asset"], progress=lambda f: print(f"\rDownloading {100 * f:.0f}%", end="", flush=True))
+    print(f"\nStarting {setup.name}; Ectype opens again when it's done.")
+    updates.run_installer(setup, updates.installed_app())
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     """Every stage, scan to PDF, in one workspace."""
     ws = Path(args.output) if args.output else _default_out("work", Path(args.input))
@@ -404,6 +427,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
     p.set_defaults(func=cmd_rebuild)
+
+    p = sub.add_parser("update", help="check for a newer version (and install it, with --install)")
+    p.add_argument("--install", action="store_true", help="download and run the new installer (installed Windows app)")
+    p.set_defaults(func=cmd_update)
 
     p = sub.add_parser("gui", help="open the desktop app")
     p.add_argument("target", nargs="?", help="a scan to open, or a project folder")

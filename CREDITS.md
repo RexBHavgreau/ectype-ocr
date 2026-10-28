@@ -7,6 +7,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | Source | What | License |
 | --- | --- | --- |
 | docx-to-idml (https://github.com/RexBHavgreau/docx-to-idml), commit dff3874 | `src/ectype/idmlkit/`: its IDML writer (`writer.py`, `model.py`, `images.py`) and `base/` (InDesign's own preferences, colours, fonts and root styles), copied unchanged; Ectype's facsimile export subclasses the writer. The .docx it writes for Reflow follows docx-to-idml's `docs/ENGINE.md` and its test helper's WordprocessingML | MIT (`src/ectype/idmlkit/LICENSE-docx-to-idml`) |
+| docx-to-idml's updater (`docx2idml/updates.py`) | `src/ectype/updates.py` follows it: the GitHub latest-release check, the release file picked by name, the download through a ".part" file checked against size and SHA-256 digest, and the offer/skip settings. Changed to download and run an installer instead of saving a new .exe | MIT (`LICENSES/docx-to-idml-MIT.txt`) |
 
 ## Ideas and methods
 

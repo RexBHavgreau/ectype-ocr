@@ -14,6 +14,8 @@ On the Young chapter, the traced PDF is 619 KB against Acrobat ClearScan's 914 K
 
 On Windows, download `Ectype-OCR-<version>-Setup.exe` from the [releases page](https://github.com/RexBHavgreau/ectype-ocr/releases) and run it. Tesseract and a default font come with it. How releases are built: [`docs/releasing.md`](docs/releasing.md).
 
+From 0.3.0 the app keeps itself up to date. At startup (switched off under **Help**) and from **Help → Check for updates…**, it asks GitHub for the latest release. If there's a newer one, it offers to install it: it downloads the installer, checks it against the release's SHA-256 digest, runs it over the existing install and opens the new version. You can also choose "Skip this version" or "Not now". `ectype update [--install]` does the same from the command line. Versions before 0.3.0 have no update check: install 0.3.0 by hand once.
+
 ## Setup from source
 
 ```

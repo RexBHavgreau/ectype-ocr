@@ -144,3 +144,27 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     out = project.export_idml(tmp_path / "book.idml", options, prepared)
     assert (tmp_path / "book" / "book.idml").is_file() and out["pages"] == 2
     w.close()
+
+
+def test_help_menu_and_update_check(project, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ectype import __version__
+    from ectype.gui import MainWindow
+
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path))
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    titles = [a.text() for a in w.menuBar().actions()]
+    assert "&Help" in titles
+    assert w.check_at_start.isChecked()
+    w.check_at_start.setChecked(False)
+    from ectype import updates
+
+    assert updates.load_settings()["check_updates"] is False
+    said = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a: said.append(a[2]))
+    w._update_checked({"status": "current"}, manual=True)
+    assert said and __version__ in said[0]
+    w.close()
+    app.processEvents()

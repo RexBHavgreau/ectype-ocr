@@ -23,11 +23,11 @@ from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
     QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSplitter, QTableWidget,
+    QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import languages
+from . import __version__, languages, updates
 from .project import Project
 
 MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
@@ -830,6 +830,15 @@ class MainWindow(QMainWindow):
         self.review.message.connect(self.statusBar().showMessage)
         self.glyphs.jump.connect(self._jump)
 
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction("Check for updates…", lambda: self.check_for_updates(manual=True))
+        self.check_at_start = help_menu.addAction("Check for updates at startup")
+        self.check_at_start.setCheckable(True)
+        self.check_at_start.setChecked(updates.check_at_start(updates.load_settings()))
+        self.check_at_start.toggled.connect(self._check_at_start_changed)
+        help_menu.addSeparator()
+        help_menu.addAction("About Ectype OCR", self.about)
+
     def load(self, project: Project) -> None:
         self.project = project
         for tab in (self.spreads, self.review, self.glyphs):
@@ -976,6 +985,101 @@ class MainWindow(QMainWindow):
             a.setEnabled(True)
         QMessageBox.warning(self, "Ectype OCR", error.strip().splitlines()[-1])
 
+    # -- updates and about ----------------------------------------------------
+
+    def about(self) -> None:
+        QMessageBox.about(self, "About Ectype OCR",
+                          f"<b>Ectype OCR {__version__}</b><p>Scanned pages to PDFs with real, searchable type "
+                          f"traced from the scan.</p><p><a href=\"{updates.RELEASES}\">Releases</a> · Apache License 2.0</p>")
+
+    def _check_at_start_changed(self, on: bool) -> None:
+        settings = updates.load_settings()
+        settings["check_updates"] = on
+        updates.save_settings(settings)
+
+    def check_for_updates(self, manual: bool = False) -> None:
+        """Ask GitHub for the latest release, off the interface thread. At startup, say nothing
+        unless there is a version to offer; when asked, always answer."""
+        if getattr(self, "update_task", None) is not None and self.update_task.isRunning():
+            return
+        self.update_task = Task(lambda progress: updates.check())
+        self.update_task.done.connect(lambda result: self._update_checked(result, manual))
+        self.update_task.start()
+
+    def _update_checked(self, result: dict, manual: bool) -> None:
+        settings = updates.load_settings()
+        status = result.get("status")
+        if not updates.should_offer(result, settings, manual):
+            if manual:
+                if status in ("current", "norelease"):
+                    QMessageBox.information(self, "Check for updates", f"Ectype OCR {__version__} is the latest version.")
+                else:
+                    QMessageBox.warning(self, "Check for updates", "Couldn't reach GitHub to check for updates "
+                                        f"({result.get('error', 'no answer')}). Try again later, or see {updates.RELEASES}.")
+            return
+        latest = result["latest"]
+        box = QMessageBox(self)
+        box.setWindowTitle("Update available")
+        box.setText(f"Ectype OCR {latest} is available. You have {__version__}.")
+        if result.get("notes"):
+            box.setDetailedText(result["notes"])
+        installable = updates.can_install() and result.get("asset")
+        if installable:
+            box.setInformativeText("Install it now? Ectype closes while the installer runs, then opens again. "
+                                   "Your projects and settings are kept.")
+            go = box.addButton("Install now", QMessageBox.AcceptRole)
+        else:
+            box.setInformativeText("Download it from the releases page.")
+            go = box.addButton("Open the releases page", QMessageBox.AcceptRole)
+        skip = None if manual else box.addButton("Skip this version", QMessageBox.RejectRole)
+        box.addButton("Not now", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is skip:
+            settings["skipped_version"] = latest
+            updates.save_settings(settings)
+        elif box.clickedButton() is go:
+            if installable:
+                self._install_update(result["asset"])
+            else:
+                from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+
+                QDesktopServices.openUrl(QUrl(result.get("url") or updates.RELEASES))
+
+    def _install_update(self, asset: dict) -> None:
+        if (self.worker is not None and self.worker.isRunning()) or (self.task is not None and self.task.isRunning()):
+            QMessageBox.information(self, "Update", "Ectype is still working. Install the update when it's done "
+                                    "(Help > Check for updates).")
+            return
+        dialog = QProgressDialog(f"Downloading {asset['name']}…", "Cancel", 0, 1000, self)
+        dialog.setWindowTitle("Update")
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        cancelled = []
+
+        def step(progress, fraction):
+            if cancelled:
+                raise updates.UpdateError("cancelled")
+            progress("download", str(fraction))
+
+        self.download_task = Task(lambda progress: updates.download(asset, progress=lambda f: step(progress, f)))
+        self.download_task.progress.connect(lambda _stage, f: dialog.setValue(int(float(f) * 1000)))
+        dialog.canceled.connect(lambda: cancelled.append(True))
+
+        def done(setup):
+            dialog.close()
+            updates.run_installer(setup, updates.installed_app())
+            QApplication.instance().quit()
+
+        def failed(error):
+            dialog.close()
+            if not cancelled:
+                QMessageBox.warning(self, "Update", error.strip().splitlines()[-1].split(": ", 1)[-1])
+
+        self.download_task.done.connect(done)
+        self.download_task.failed.connect(failed)
+        self.download_task.start()
+
     def export(self) -> None:
         default = str(Path(self.project.settings.source).with_name((self.project.settings.name or "output") + "-ectype.pdf"))
         path, _ = QFileDialog.getSaveFileName(self, "Export PDF", default, "PDF (*.pdf)")
@@ -996,6 +1100,8 @@ def main(argv: list[str] | None = None) -> int:
         project = Project(target) if target.is_dir() else Project.for_scan(target)
     window = MainWindow(project)
     window.show()
+    if updates.installed_app() is not None and updates.check_at_start(updates.load_settings()):
+        window.check_for_updates()  # the installed app only, not a copy run from source
     return app.exec()
 
 
