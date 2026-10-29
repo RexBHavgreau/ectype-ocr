@@ -26,6 +26,7 @@ from . import report
 from .ocr import OcrPage
 from .pdfwrite import EmbeddedFont, GlyphRun, PageSpec, write_pdf
 from .preprocess import binarize
+from .scripts import is_rtl
 
 UPM = 1000
 ADVANCE = 500
@@ -71,13 +72,20 @@ def place_words(ocr: OcrPage, cid: dict[str, int], font_key: str = "F1") -> list
             size = max(4.0, (baseline - line.box[1]) * UPM / ASCENT)
             natural = len(cids) * ADVANCE / UPM * size
             scale = max(0.05, (x1 - x0) / natural)
+            actual = None
+            if is_rtl(text):
+                # Right to left: glyphs in visual order, the text in reading order.
+                cids = cids[::-1]
+                actual = text + (" " if wi < len(line.words) - 1 else "")
             if wi < len(line.words) - 1 and " " in cid:
                 cids.append(cid[" "])  # keeps words apart when the text is copied out
-            runs.append(GlyphRun(font_key, size, x0, baseline, cids, horizontal_scale=scale, invisible=True))
+            runs.append(GlyphRun(font_key, size, x0, baseline, cids, horizontal_scale=scale, invisible=True,
+                                 actual_text=actual))
     return runs
 
 
-def textlayer_workspace(workspace: Path, out_name: str | None = None, image: str = "gray", image_quality: int = 60) -> dict:
+def textlayer_workspace(workspace: Path, out_name: str | None = None, image: str = "gray", image_quality: int = 60,
+                        on_page=None) -> dict:
     """Build <workspace>/textlayer/<name>.pdf from the page images and OCR. `image` is
     "gray" (JPEG at the page's resolution) or "bw" (black and white, CCITT G4: about a
     tenth of the size, for pages of plain text)."""
@@ -86,7 +94,10 @@ def textlayer_workspace(workspace: Path, out_name: str | None = None, image: str
     out.mkdir(parents=True, exist_ok=True)
     loaded = []
     chars: set[str] = {" "}
-    for png in sorted((workspace / "pages").glob("*.png")):
+    pngs = sorted((workspace / "pages").glob("*.png"))
+    for n, png in enumerate(pngs, 1):
+        if on_page:
+            on_page(n, len(pngs))
         page_image = Image.open(png)
         ocr_path = workspace / "ocr" / f"{png.stem}.ocr.json"
         ocr = OcrPage.from_json(json.loads(ocr_path.read_text(encoding="utf-8"))) if ocr_path.is_file() else None

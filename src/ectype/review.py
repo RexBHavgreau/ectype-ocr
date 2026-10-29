@@ -59,6 +59,27 @@ def save_training_line(workspace: Path, page: str, ocr: OcrPage, line: int) -> P
     return stem.with_suffix(".png")
 
 
+def save_training_word(workspace: Path, page: str, ocr: OcrPage, line: int, word: int) -> Path | None:
+    """A word in another script than the main text's (Hebrew, Greek...), cropped with its text
+    as a training pair in training/words/: those scripts' models are trained on words, since
+    their lines mix scripts."""
+    from .scripts import UNICODE_NAME, in_script
+
+    w = ocr.lines[line].words[word]
+    if not any(in_script(w.text, script) for script in UNICODE_NAME if script != "Latin"):
+        return None
+    x0, y0, x1, y1 = w.box
+    pad = max(6, (y1 - y0) // 3)
+    image = Image.open(Path(workspace) / "pages" / f"{page}.png")
+    crop = image.crop((max(0, x0 - pad), max(0, y0 - pad), min(image.width, x1 + pad), min(image.height, y1 + pad)))
+    out = Path(workspace) / "training" / "words"
+    out.mkdir(parents=True, exist_ok=True)
+    stem = out / f"{page}-l{line:03d}-w{word:03d}"
+    crop.save(stem.with_suffix(".png"))
+    stem.with_suffix(".gt.txt").write_text(w.text + "\n", encoding="utf-8")
+    return stem.with_suffix(".png")
+
+
 def correct(workspace: Path, page: str, line: int, word: int, text: str) -> dict:
     """Apply one correction to a workspace: OCR file, correction log, training pair."""
     workspace = Path(workspace)
@@ -77,7 +98,52 @@ def correct(workspace: Path, page: str, line: int, word: int, text: str) -> dict
     log.append(entry)
     report.write_json(log_path, log)
     pair = save_training_line(workspace, page, ocr, line)
+    save_training_word(workspace, page, ocr, line, word)
     return {**entry, "training": str(pair.relative_to(workspace))}
+
+
+def carry_corrections(workspace: Path, page_name: str, page: OcrPage) -> int:
+    """Carry the page's corrections over to a new reading of it (other languages, a trained
+    model): each corrected word's text goes to the new word that covers the same place on the
+    page. The new reading becomes the page's original, and the log points at the new words.
+    Returns how many corrections were carried over."""
+    import copy
+
+    workspace = Path(workspace)
+    log_path = workspace / "corrections" / f"{page_name}.json"
+    original = workspace / "ocr" / f"{page_name}.ocr.original.json"
+    if not log_path.is_file() or not original.is_file():
+        return 0
+    old = OcrPage.from_json(json.loads(original.read_text(encoding="utf-8")))
+    raw = copy.deepcopy(page)
+    log = json.loads(log_path.read_text(encoding="utf-8"))
+    words = [(li, wi, w.box) for li, line in enumerate(page.lines) for wi, w in enumerate(line.words)]
+
+    def overlap(a, b):
+        ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+        iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+        inter = ix * iy
+        union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+        return inter / union if union > 0 else 0.0
+
+    carried = 0
+    for e in log:
+        try:
+            box = old.lines[e["line"]].words[e["word"]].box
+        except IndexError:
+            e["lost"] = True
+            continue
+        best = max(words, key=lambda t: overlap(box, t[2]), default=None)
+        if best is None or overlap(box, best[2]) < 0.3:
+            e["lost"] = True
+            continue
+        apply_correction(page, best[0], best[1], e["new"])
+        e["line"], e["word"] = best[0], best[1]
+        e.pop("lost", None)
+        carried += 1
+    original.write_text(json.dumps(raw.to_json(), ensure_ascii=False), encoding="utf-8")
+    report.write_json(log_path, log)
+    return carried
 
 
 def _flags(workspace: Path) -> dict[str, set[tuple[int, int]]]:

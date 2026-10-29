@@ -41,9 +41,11 @@ def _spread_pdf(root):
 def project(tmp_path_factory):
     root = tmp_path_factory.mktemp("gui")
     p = Project.for_scan(_spread_pdf(root))
-    stages = []
-    p.run(progress=lambda stage, msg: stages.append(stage))
-    assert stages[::2] == ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
+    stages, fractions = [], []
+    p.run(progress=lambda stage, msg: stages.append(stage), fraction=fractions.append)
+    assert list(dict.fromkeys(stages)) == ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
+    assert fractions[0] == 0 and fractions[-1] == 1 and fractions == sorted(fractions), "the progress bar only moves on"
+    assert len(fractions) > 8, "page by page within stages"
     return p
 
 
@@ -143,4 +145,67 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     assert options.mode == "facsimile" and options.faces == {} and options.include_scan
     out = project.export_idml(tmp_path / "book.idml", options, prepared)
     assert (tmp_path / "book" / "book.idml").is_file() and out["pages"] == 2
+    w.close()
+
+
+def test_help_menu_and_update_check(project, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ectype import __version__
+    from ectype.gui import MainWindow
+
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path))
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    titles = [a.text() for a in w.menuBar().actions()]
+    assert "&Help" in titles
+    assert w.check_at_start.isChecked()
+    w.check_at_start.setChecked(False)
+    from ectype import updates
+
+    assert updates.load_settings()["check_updates"] is False
+    said = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a: said.append(a[2]))
+    w._update_checked({"status": "current"}, manual=True)
+    assert said and __version__ in said[0]
+    w.close()
+    app.processEvents()
+
+
+def test_select_pdf_shows_the_selection_and_training_route(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    scan = _spread_pdf(tmp_path)
+    w = MainWindow(Project.for_scan(scan))
+    app.processEvents()
+    assert w.actions["open_scan"].text() == "Select PDF…"
+    assert "book.pdf" in w.source_label.text() and "1 page" in w.source_label.text()
+    assert "not read yet" in w.source_label.text() and w.actions["run"].font().bold()
+    assert "Selected: book.pdf" in w.spreads.note.text()
+    assert w.actions["train"].text() == "Train OCR model…"
+    w.offer_languages()  # no other scripts found: nothing asked
+    w.close()
+
+
+def test_progress_window_during_a_run(project):
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    w.run("traced")
+    window = w.progress_window
+    assert window is not None and window.isVisible()
+    seen = set()
+    while w.worker.isRunning() or w.progress_window is not None:
+        app.processEvents()
+        if w.progress_window is not None:
+            seen.add(window.bar.text())
+    assert w.progress_window is None and not window.isVisible(), "closed when the run is done"
+    assert "100%" in seen or window.bar.value() == 1000
+    assert "traced:" in window.text.toPlainText()
     w.close()

@@ -48,8 +48,21 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; Value
 
 [Run]
 Filename: "{app}\{#AppName}.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; An update started from the app (silent, with /UPDATE) opens the new version when done, as the
+; user who started it (not as administrator after an install for everyone).
+Filename: "{app}\{#AppName}.exe"; Flags: nowait runasoriginaluser; Check: IsUpdate
 
 [Code]
+function IsUpdate: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/UPDATE') = 0 then
+      Result := True;
+end;
+
 function NeedsAddPath(Dir: string): Boolean;
 var
   Paths: string;

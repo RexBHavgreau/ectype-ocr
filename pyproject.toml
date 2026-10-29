@@ -28,6 +28,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "opentype-sanitizer>=9"]
 gui = ["PySide6-Essentials>=6.6"]
+# The second OCR engine, for Greek, Hebrew and other scripts (brings PyTorch); the Windows app
+# has it as an optional download instead.
+kraken = ["kraken>=7.0"]
 
 [project.scripts]
 ectype = "ectype.cli:main"

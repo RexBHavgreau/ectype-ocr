@@ -7,6 +7,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | Source | What | License |
 | --- | --- | --- |
 | docx-to-idml (https://github.com/RexBHavgreau/docx-to-idml), commit dff3874 | `src/ectype/idmlkit/`: its IDML writer (`writer.py`, `model.py`, `images.py`) and `base/` (InDesign's own preferences, colours, fonts and root styles), copied unchanged; Ectype's facsimile export subclasses the writer. The .docx it writes for Reflow follows docx-to-idml's `docs/ENGINE.md` and its test helper's WordprocessingML | MIT (`src/ectype/idmlkit/LICENSE-docx-to-idml`) |
+| docx-to-idml's updater (`docx2idml/updates.py`) | `src/ectype/updates.py` follows it: the GitHub latest-release check, the release file picked by name, the download through a ".part" file checked against size and SHA-256 digest, and the offer/skip settings. Changed to download and run an installer instead of saving a new .exe | MIT (`LICENSES/docx-to-idml-MIT.txt`) |
 
 ## Ideas and methods
 
@@ -17,6 +18,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | smoothscan (GPL-3.0) | Grouping repeated symbols, vectorizing them and embedding them as a font | https://github.com/ncraun/smoothscan |
 | Leptonica jbclass and jbig2enc | Symbol classification by correlation; averaging every instance of a class into one composite template | http://www.leptonica.org/ , https://github.com/agl/jbig2enc |
 | OCRmyPDF and Tesseract's PDF renderer ("GlyphLessFont") | An invisible text layer set in a font of empty glyphs, mapped to Unicode | https://github.com/ocrmypdf/OCRmyPDF |
+| tesstrain (Apache-2.0) | Fine-tuning Tesseract on line images with their text: box files for whole lines, .lstmf files, lstmtraining continued from a tessdata_best model. Followed as documented; no code copied | https://github.com/tesseract-ocr/tesstrain |
 | Ocular OCR; DeepVecFont, Im2Vec | Learned font models and vector-font reconstruction, for later work on damaged or rare glyphs | — |
 
 ## Dependencies
@@ -39,6 +41,8 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | PySide6 (Qt for Python) | The desktop app (optional `gui` extra), used as an unmodified library | LGPL-3.0 |
 | docx-to-idml | Reflow's layout: run as a separate installed program, not shipped; in the tests, run from source, and its checker validates every IDML export against Adobe's IDML schema (jing) | MIT |
 | lxml | Writing IDML (docx-to-idml's writer) | BSD-3-Clause |
+| Kraken | The second OCR engine (Greek, Hebrew and other scripts) and its trainer (`ketos`), run in a process of its own: the optional `kraken` extra, or in the Windows app the Kraken engine, an optional download | Apache-2.0 |
+| PyTorch, PyTorch Lightning, torchvision, coremltools, htrmopo | Kraken's dependencies, in the Kraken engine only | BSD-3-Clause (PyTorch, torchvision, coremltools), Apache-2.0 (Lightning, htrmopo) |
 | PyInstaller | Packaging the Windows app (build only; its bootloader is GPL-2.0 with an exception allowing distribution of packaged programs) | GPL-2.0 with bootloader exception |
 | Inno Setup | Building the Windows installer (build only) | Inno Setup licence (free, including commercial use) |
 | pytest | Test runner (development only) | MIT |
@@ -54,6 +58,8 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | EB Garamond (bundled with the Windows app; the default substitute font) | Substitute mode | Georg Duffner, Octavio Pardo | SIL OFL 1.1 (`fonts/EBGaramond-OFL.txt` in the app) |
 | Tesseract and its libraries, with `eng` and `osd` data (bundled with the Windows app, UB Mannheim build) | OCR | Tesseract contributors; Leptonica, libpng, libjpeg, libtiff, zlib and others | Apache-2.0 (Tesseract); each library's licence is in the app's `tesseract` folder |
 | Tesseract language data (tessdata), downloaded on request | OCR in further languages | Tesseract contributors | Apache-2.0 |
+| Tesseract's trainable models (tessdata_best), downloaded on request | The base of a model trained on a book's corrections | Tesseract contributors | Apache-2.0 |
+| Kraken models from Kraken's repository on Zenodo, chosen and downloaded by the user | OCR of Greek, Hebrew and other scripts; the base of a Kraken model trained on a book's corrections | Each model's authors, named in its record (shown in the app) | Each model's own licence, shown in the app before download |
 | Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
 | DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
 

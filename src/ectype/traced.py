@@ -26,6 +26,7 @@ from .fontbuild import UNITS_PER_EM, XH_UNITS, build_workspace_fonts
 from .ocr import OcrPage
 from .pdfwrite import GlyphRun, PageSpec, load_font, write_pdf
 from .preprocess import binarize
+from .scripts import is_rtl
 from .segment import Segmentation, fit_baselines, line_x_heights
 from .substitute import PlacedWord, _render, measure_overlay
 
@@ -58,7 +59,11 @@ def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyp
     runs, drawn, placed, fallback = [], [], [], []
     for li, line in enumerate(ocr.lines):
         for wi, word in enumerate(line.words):
-            units = sorted(units_by_word.get((li, wi), []), key=lambda u: u.chars[0])
+            rtl = is_rtl(word.text)
+            # Glyphs are set left to right; a right-to-left word's, in visual order, with its
+            # text in reading order attached (ActualText), so it copies and searches right.
+            units = sorted(units_by_word.get((li, wi), []),
+                           key=lambda u: (u.box[0] if u.box else 0) if rtl else u.chars[0])
             glyphs = [glyph_of.get(cluster_of.get(u.id)) if u.box else None for u in units]
             if not units:
                 continue
@@ -74,6 +79,7 @@ def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyp
                 continue
             # One run per stretch of glyphs in the same font (punctuation can sit in another style).
             current = None
+            word_runs = len(runs)
             for u, (key, cid, ink_left, advance) in zip(units, glyphs):
                 origin = u.box[0] - ink_left * s
                 if current is None or current.font != key:
@@ -87,6 +93,10 @@ def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyp
             if wi < len(line.words) - 1 and current is not None:
                 current.cids.append(1)  # the space glyph, so copied text has word breaks
                 current.adjust.append(0.0)
+            if rtl and len(runs) > word_runs:
+                runs[word_runs].actual_text = word.text + (" " if wi < len(line.words) - 1 else "")
+                for r in runs[word_runs + 1:]:
+                    r.actual_text = ""
             if ok:
                 drawn += units
                 placed.append(PlacedWord(li, wi, word.text, ink, current, ""))
@@ -98,7 +108,7 @@ def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyp
 
 
 def traced_workspace(workspace: Path, out_name: str | None = None, background_dpi: float = 150,
-                     min_word_conf: float = 60.0) -> dict:
+                     min_word_conf: float = 60.0, on_page=None) -> dict:
     workspace = Path(workspace)
     out = workspace / "traced"
     out.mkdir(parents=True, exist_ok=True)
@@ -110,7 +120,10 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
     fonts, glyph_of = _load_fonts(workspace)
 
     pages_out, text_only, rows, placed_all, loaded = [], [], [], [], []
-    for png in sorted((workspace / "pages").glob("*.png")):
+    pngs = sorted((workspace / "pages").glob("*.png"))
+    for n, png in enumerate(pngs, 1):
+        if on_page:
+            on_page(n, len(pngs))
         name = png.stem
         image = Image.open(png)
         dpi = report.image_dpi(image)

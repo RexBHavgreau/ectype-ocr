@@ -25,6 +25,7 @@ from scipy import ndimage
 from . import report
 from .ocr import OcrPage
 from .preprocess import binarize
+from .scripts import is_rtl
 
 X_LETTERS = set("acemnorsuvwxz")
 NO_DESCENDER = set("abcdefhiklmnorstuvwxzABCDEFGHIKLMNOPRSTUVWXYZ0123456789!?%&")
@@ -121,7 +122,7 @@ def segment_page(gray: np.ndarray, ocr: OcrPage) -> tuple[Segmentation, np.ndarr
         xs = ocr.lines[li].x_size or x_size
         clustered[k] = _clusters(by_word.get(k, []), stats, xs, speck)
         if word.chars and len(word.chars) == len(clustered[k]):
-            for ch, cl in zip(word.chars, clustered[k]):
+            for ch, cl in zip(_visual(word.chars), clustered[k]):
                 samples.setdefault(ch.text, []).append((cl["x1"] - cl["x0"]) / xs)
     widths = {t: float(np.median(v)) for t, v in samples.items() if len(v) >= 2}
     fallback = float(np.median([w for v in samples.values() for w in v])) if samples else 0.5
@@ -133,9 +134,14 @@ def segment_page(gray: np.ndarray, ocr: OcrPage) -> tuple[Segmentation, np.ndarr
         if not chars:
             continue
         clusters = clustered[k]
-        expected = [widths.get(c.text, fallback) for c in chars]
-        groups, skipped = _align(chars, clusters, line.x_size or x_size, speck, expected)
-        groups = _join_dotless(groups, chars, clusters, stats)
+        # Ink clusters run left to right; a right-to-left word's characters are aligned to
+        # them in visual order and mapped back to their places in the text.
+        order = sorted(range(len(chars)), key=lambda i: chars[i].box[0]) if is_rtl(word.text) else list(range(len(chars)))
+        visual = [chars[i] for i in order]
+        expected = [widths.get(c.text, fallback) for c in visual]
+        groups, skipped = _align(visual, clusters, line.x_size or x_size, speck, expected)
+        groups = _join_dotless(groups, visual, clusters, stats)
+        groups = [(sorted(order[i] for i in idx), cl) for idx, cl in groups]
         for j in skipped:
             for c in clusters[j]["components"]:
                 seg.unassigned.append(_component_info(c, stats, "speck in word" if clusters[j]["area"] < 3 * speck else "extra ink in word"))
@@ -157,6 +163,11 @@ def segment_page(gray: np.ndarray, ocr: OcrPage) -> tuple[Segmentation, np.ndarr
             ))
             next_id += 1
     return seg, labels
+
+
+def _visual(chars):
+    """A word's characters left to right on the page (right-to-left words come in text order)."""
+    return sorted(chars, key=lambda c: c.box[0]) if is_rtl("".join(c.text for c in chars)) else chars
 
 
 def _clusters(comps: list[int], stats: np.ndarray, x_size: float, speck: int) -> list[dict]:
@@ -548,7 +559,8 @@ def _segment_one(png: Path, workspace: Path, truth_root: Path | None, force: boo
     return row
 
 
-def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int | None = None, force: bool = False) -> dict:
+def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int | None = None, force: bool = False,
+                      on_page=None) -> dict:
     """Segment every page in <workspace>/pages using <workspace>/ocr; write <workspace>/segment.
     Pages run in parallel processes; a page whose result is newer than its inputs is reused."""
     import os
@@ -558,14 +570,21 @@ def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int
     (workspace / "segment").mkdir(parents=True, exist_ok=True)
     pngs = sorted((workspace / "pages").glob("*.png"))
     jobs = max(1, jobs or (os.cpu_count() or 1))
+    rows = []
     if jobs == 1 or len(pngs) < 2:
-        rows = [_segment_one(p, workspace, truth_root, force) for p in pngs]
+        for p in pngs:
+            rows.append(_segment_one(p, workspace, truth_root, force))
+            if on_page:
+                on_page(len(rows), len(pngs))
     else:
         import multiprocessing
 
         # spawn, not fork: forking a process that has threads (OpenCV, BLAS) can deadlock.
         with ProcessPoolExecutor(max_workers=min(jobs, len(pngs)), mp_context=multiprocessing.get_context("spawn")) as pool:
-            rows = list(pool.map(_segment_one, pngs, [workspace] * len(pngs), [truth_root] * len(pngs), [force] * len(pngs)))
+            for row in pool.map(_segment_one, pngs, [workspace] * len(pngs), [truth_root] * len(pngs), [force] * len(pngs)):
+                rows.append(row)
+                if on_page:
+                    on_page(len(rows), len(pngs))
     rows = [r for r in rows if r is not None]
     evals = [r["eval"] for r in rows if "eval" in r]
     summary = {"pages": rows}

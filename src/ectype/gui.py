@@ -23,11 +23,11 @@ from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
     QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSplitter, QTableWidget,
+    QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import languages
+from . import __version__, languages, updates
 from .project import Project
 
 MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
@@ -42,6 +42,7 @@ class Worker(QThread):
     """Runs the pipeline off the interface thread."""
 
     progress = Signal(str, str)
+    fraction = Signal(float)
     done = Signal(str)
     failed = Signal(str)
 
@@ -51,7 +52,8 @@ class Worker(QThread):
 
     def run(self) -> None:
         try:
-            pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg))
+            pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg),
+                                   lambda f: self.fraction.emit(f))
             self.done.emit(str(pdf or ""))
         except Exception:
             self.failed.emit(traceback.format_exc())
@@ -73,6 +75,57 @@ class Task(QThread):
             self.done.emit(self.fn(lambda stage, msg: self.progress.emit(stage, msg)))
         except Exception:
             self.failed.emit(traceback.format_exc())
+
+
+STAGE_NAMES = {"preprocess": "Preparing the pages", "ocr": "Reading the text (OCR)", "segment": "Finding each letter",
+               "cluster": "Grouping the letters into glyphs", "fonts": "Building the fonts", "traced": "Writing the PDF",
+               "substitute": "Writing the PDF", "textlayer": "Writing the PDF", "train": "Training the OCR model"}
+
+
+class ProgressWindow(QDialog):
+    """A run in progress: what it is doing, a progress bar with a percentage, and the log.
+    Hiding it leaves the run going; the Log tab has the same lines."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(False)
+        self.resize(640, 400)
+        self.stage = QLabel("Starting…")
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 1000)
+        self.bar.setFormat("%p%")
+        self.bar.setTextVisible(True)
+        self.text = QPlainTextEdit()
+        self.text.setReadOnly(True)
+        self.buttons = QDialogButtonBox()
+        self.hide_button = self.buttons.addButton("Hide", QDialogButtonBox.RejectRole)
+        self.buttons.rejected.connect(self.hide)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.stage)
+        layout.addWidget(self.bar)
+        layout.addWidget(self.text, 1)
+        layout.addWidget(self.buttons)
+
+    def busy(self) -> None:
+        """No measure of how far along it is: the bar just shows activity."""
+        self.bar.setRange(0, 0)
+
+    def add(self, stage: str, msg: str) -> None:
+        self.stage.setText(STAGE_NAMES.get(stage, stage.capitalize()) + (f": {msg}" if msg != "running" else "…"))
+        self.text.appendPlainText(f"{stage}: {msg}")
+
+    def set_fraction(self, f: float) -> None:
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(round(1000 * max(0.0, min(1.0, f))))
+
+    def finish(self, ok: bool, message: str) -> None:
+        self.bar.setRange(0, 1000)
+        if ok:
+            self.bar.setValue(1000)
+        self.stage.setText(message)
+        self.text.appendPlainText(message)
+        self.hide_button.setText("Close")
 
 
 class ImageView(QGraphicsView):
@@ -103,6 +156,33 @@ class ImageView(QGraphicsView):
     def fit(self) -> None:
         if not self.scene().sceneRect().isEmpty():
             self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+
+def source_pages(path: Path) -> int:
+    """How many pages a selected scan has (a page image has one)."""
+    if Path(path).suffix.lower() != ".pdf":
+        return 1
+    import pypdfium2 as pdfium
+
+    try:
+        doc = pdfium.PdfDocument(str(path))
+    except Exception:
+        return 0
+    try:
+        return len(doc)
+    finally:
+        doc.close()
+
+
+def _source_preview(path: Path, dpi: float = 60) -> QImage | None:
+    """The first page of a selected scan, small, before it has been read."""
+    if Path(path).suffix.lower() == ".pdf":
+        try:
+            return _pdf_page_image(Path(path), 0, dpi)
+        except Exception:
+            return None
+    image = QImage(str(path))
+    return None if image.isNull() else image.scaledToWidth(min(image.width(), 900))
 
 
 def _pdf_page_image(pdf: Path, index: int, dpi: float = 150) -> QImage | None:
@@ -200,7 +280,17 @@ class SpreadsTab(QWidget):
             self.list.setCurrentRow(min(row, len(self.sources) - 1))
             self.show_source(self.list.currentRow())
         else:
-            self.note.setText("Open a scan and press Run to see its pages here.")
+            source = self.project.settings.source
+            if source and Path(source).is_file():
+                n = source_pages(Path(source))
+                self.note.setText(f"<b>Selected: {Path(source).name}</b> ({n} page{'s' if n != 1 else ''}). "
+                                  "Press <b>Run</b> to read it; its pages appear here, ready to check how spreads split.")
+                preview = _source_preview(Path(source))
+                if preview is not None:
+                    self.view.show_image(preview)
+                    self.view.fit()
+            else:
+                self.note.setText("Choose <b>Select PDF…</b> to pick a scanned book, then press <b>Run</b>.")
 
     def _current(self) -> dict | None:
         row = self.list.currentRow()
@@ -571,17 +661,27 @@ class LanguageButton(QToolButton):
 
 
 class AddLanguagesDialog(QDialog):
-    """Pick languages to download; they are added to the OCR languages afterwards."""
+    """Pick languages to download; they are added to the OCR languages afterwards. Two tabs:
+    Tesseract's languages, and Kraken's models (for Greek, Hebrew and other scripts)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add languages")
-        self.resize(420, 520)
+        self.resize(760, 600)
         self.downloaded: list[str] = []
         self.task: Task | None = None
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        outer.addWidget(self.tabs)
+        page = QWidget()
+        self.tabs.addTab(page, "Tesseract languages")
+        self.kraken = KrakenModelsPanel()
+        self.kraken.installed.connect(self._kraken_installed)
+        self.tabs.addTab(self.kraken, "Kraken models (Greek, Hebrew…)")
+        layout = QVBoxLayout(page)
         intro = QLabel("Choose languages to download (from the Tesseract project's language data, "
-                       "a few megabytes each). They become available to every project.")
+                       "a few megabytes each). They become available to every project. Tesseract reads "
+                       "the main text; for Greek, Hebrew and other scripts, a Kraken model reads better.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         self.search = QLineEdit()
@@ -611,6 +711,10 @@ class AddLanguagesDialog(QDialog):
         self.buttons.accepted.connect(self.download)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
+
+    def _kraken_installed(self, codes: list) -> None:
+        self.downloaded = list(codes)
+        self.accept()
 
     def _filter(self, text: str) -> None:
         for k in range(self.list.count()):
@@ -654,6 +758,224 @@ class AddLanguagesDialog(QDialog):
         self.bar.hide()
         self.download_button.setEnabled(True)
         self.status.setText("Download failed: " + error.strip().splitlines()[-1])
+
+
+class KrakenModelsPanel(QWidget):
+    """Kraken's models from its repository on Zenodo: the engine first (an optional download in
+    the Windows app), then the list of models, filtered by script, to download and use."""
+
+    installed = Signal(list)
+    COLUMNS = ["Script", "Model", "Kind", "Error rate", "Date", "Licence"]
+
+    def __init__(self):
+        super().__init__()
+        from . import kraken
+
+        self.kraken = kraken
+        self.records: list[dict] = []
+        self.task: Task | None = None
+        self.engine_ok = False
+        layout = QVBoxLayout(self)
+        intro = QLabel("Kraken reads Greek, Hebrew and other scripts with models trained by scholars and "
+                       "libraries and shared in its repository on Zenodo. Tesseract still reads the main text; "
+                       "words in a model's script are read again by Kraken. Choose a model that matches your "
+                       "book: printed or handwritten, and the period of the type. The description says what "
+                       "each was trained on.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.engine_label = QLabel("")
+        self.engine_label.setWordWrap(True)
+        self.engine_label.setOpenExternalLinks(True)
+        layout.addWidget(self.engine_label)
+        row = QHBoxLayout()
+        self.engine_button = QPushButton("Download the Kraken engine")
+        self.engine_button.clicked.connect(self.install_engine)
+        row.addWidget(self.engine_button)
+        self.list_button = QPushButton("Show the models")
+        self.list_button.clicked.connect(lambda: self.load(refresh=False))
+        row.addWidget(self.list_button)
+        self.script = QComboBox()
+        self.script.currentIndexChanged.connect(self._filter)
+        row.addWidget(self.script)
+        self.printed = QCheckBox("Printed text only")
+        self.printed.setChecked(True)
+        self.printed.toggled.connect(self._filter)
+        row.addWidget(self.printed)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search")
+        self.search.textChanged.connect(self._filter)
+        row.addWidget(self.search, 1)
+        layout.addLayout(row)
+        self.table = QTableWidget(0, len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.itemSelectionChanged.connect(self._describe)
+        layout.addWidget(self.table, 3)
+        self.description = QPlainTextEdit()
+        self.description.setReadOnly(True)
+        layout.addWidget(self.description, 2)
+        self.bar = QProgressBar()
+        self.bar.hide()
+        layout.addWidget(self.bar)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        self.download_button = QPushButton("Download the selected models")
+        self.download_button.clicked.connect(self.download)
+        buttons.addWidget(self.download_button)
+        layout.addLayout(buttons)
+        self.check_engine()
+
+    # -- the engine
+
+    def check_engine(self) -> None:
+        self.engine_label.setText("Checking for the Kraken engine…")
+        self._busy(True)
+        self._run(lambda progress: self.kraken.engine_status(), self._engine_checked)
+
+    def _engine_checked(self, status: dict) -> None:
+        self._busy(False)
+        self.engine_ok = status.get("installed", False)
+        if self.engine_ok:
+            self.engine_label.setText(f"Kraken engine {status.get('kraken')} (PyTorch {status.get('torch')}).")
+            self.engine_button.hide()
+        elif getattr(sys, "frozen", False):
+            self.engine_label.setText("The Kraken engine is a separate download (it includes PyTorch, a few hundred "
+                                      "megabytes). It is saved in your user folder and used by every project.")
+            self.engine_button.show()
+        else:
+            self.engine_label.setText("Kraken isn't installed beside Ectype. Install it with "
+                                      "<code>pip install \"ectype-ocr[kraken]\"</code>, or set ECTYPE_KRAKEN to a command "
+                                      "that runs <code>python -m ectype.kraken_worker</code> where it is installed.")
+            self.engine_button.hide()
+        self.list_button.setEnabled(self.engine_ok)
+        self.download_button.setEnabled(self.engine_ok)
+
+    def install_engine(self) -> None:
+        self.status.setText("Looking for the Kraken engine in this version's release…")
+        self._busy(True)
+
+        def work(progress):
+            asset = self.kraken.engine_asset()
+            if asset is None:
+                raise self.kraken.KrakenError(f"This version's release ({__version__}) has no Kraken engine download.")
+            progress("size", str(asset["size"]))
+            self.kraken.install_engine(asset, progress=lambda f: progress("download", str(f)))
+            return self.kraken.engine_status()
+
+        self._run(work, lambda status: (self.status.setText("Kraken engine installed."), self._engine_checked(status)))
+
+    # -- the models
+
+    def load(self, refresh: bool = False) -> None:
+        self.status.setText("Reading the list of models from Zenodo (the first time takes a minute or two)…")
+        self._busy(True)
+        self._run(lambda progress: self.kraken.list_models(refresh, lambda done, total: progress("list", f"{done} {total}")),
+                  self._loaded)
+
+    def _loaded(self, records: list) -> None:
+        self._busy(False)
+        self.records = sorted(records, key=lambda r: (",".join(self.kraken.scripts_of(r)), r.get("summary", "")))
+        scripts = sorted({s for r in self.records for s in self.kraken.scripts_of(r)})
+        self.script.blockSignals(True)
+        self.script.clear()
+        self.script.addItem("All scripts", "")
+        for s in scripts:
+            self.script.addItem(s, s)
+        default = next((i for i in range(self.script.count()) if self.script.itemData(i) in ("Hebrew", "Greek")), 0)
+        self.script.setCurrentIndex(default)
+        self.script.blockSignals(False)
+        self.status.setText(f"{len(self.records)} recognition models in the repository.")
+        self._filter()
+
+    def _filter(self) -> None:
+        script = self.script.currentData() or ""
+        text = self.search.text().lower()
+        have = {m.get("doi") for m in self.kraken.installed_models().values()}
+        shown = [r for r in self.records
+                 if (not script or script in self.kraken.scripts_of(r))
+                 and (not self.printed.isChecked() or self.kraken.printed(r) is not False)
+                 and (not text or text in (r.get("summary", "") + " " + r.get("description", "")).lower())]
+        self.table.setRowCount(len(shown))
+        for row, r in enumerate(shown):
+            kind = {True: "Printed", False: "Handwritten", None: ""}[self.kraken.printed(r)]
+            cer = f"{r['cer']:.1f}%" if isinstance(r.get("cer"), (int, float)) else ""
+            title = r.get("summary") or r["doi"]
+            values = [", ".join(self.kraken.scripts_of(r)), title + ("  (installed)" if r["doi"] in have else ""),
+                      kind, cer, r.get("date", ""), r.get("license", "")]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.UserRole, r)
+                self.table.setItem(row, col, item)
+        self.table.resizeColumnsToContents()
+
+    def selected(self) -> list[dict]:
+        rows = sorted({i.row() for i in self.table.selectedItems()})
+        return [self.table.item(r, 0).data(Qt.UserRole) for r in rows]
+
+    def _describe(self) -> None:
+        chosen = self.selected()
+        if not chosen:
+            self.description.setPlainText("")
+            return
+        r = chosen[0]
+        by = ", ".join(r.get("creators") or [])
+        self.description.setPlainText(f"{r.get('summary', '')}\n{r['doi']}" + (f"\nBy {by}" if by else "")
+                                      + f"\nLanguages: {', '.join(r.get('language') or [])}\n\n{r.get('description', '')}")
+
+    def download(self) -> None:
+        chosen = self.selected()
+        if not chosen:
+            self.status.setText("Select one or more models in the list.")
+            return
+        self._busy(True)
+
+        def work(progress):
+            codes = []
+            for r in chosen:
+                progress("model", r.get("summary") or r["doi"])
+                codes.append(self.kraken.install_model(r, lambda done, total: progress("bytes", f"{done} {total}")))
+            return codes
+
+        self._run(work, lambda codes: (self._busy(False), self.installed.emit(codes)))
+
+    # -- running
+
+    def _busy(self, on: bool) -> None:
+        self.bar.setVisible(on)
+        self.bar.setRange(0, 0)
+        self.engine_button.setEnabled(not on)
+        for b in (self.list_button, self.download_button):
+            b.setEnabled(not on and self.engine_ok)
+
+    def _run(self, fn, done) -> None:
+        self.task = Task(fn)
+        self.task.progress.connect(self._progress)
+        self.task.done.connect(done)
+        self.task.failed.connect(self._failed)
+        self.task.start()
+
+    def _progress(self, kind: str, msg: str) -> None:
+        if kind == "download":
+            self.bar.setRange(0, 1000)
+            self.bar.setValue(round(1000 * float(msg)))
+        elif kind == "size":
+            self.status.setText(f"Downloading the Kraken engine ({int(msg) / 1e6:.0f} MB)…")
+        elif kind == "model":
+            self.status.setText(f"Downloading {msg}…")
+        elif kind in ("bytes", "list"):
+            done, total = (int(v) for v in msg.split())
+            if total:
+                self.bar.setRange(0, total)
+                self.bar.setValue(min(done, total))
+
+    def _failed(self, error: str) -> None:
+        self._busy(False)
+        self.status.setText("Failed: " + error.strip().splitlines()[-1])
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +1105,7 @@ class MainWindow(QMainWindow):
         self.project = project or Project(Path.home() / ".ectype" / "scratch")
         self.worker: Worker | None = None
         self.task: Task | None = None
+        self.progress_window: ProgressWindow | None = None
         self._build()
         self.load(self.project)
 
@@ -790,8 +1113,12 @@ class MainWindow(QMainWindow):
         bar = QToolBar("Main")
         self.addToolBar(bar)
         self.actions: dict[str, QAction] = {}
-        for key, text, slot in (("open_scan", "Open scan…", self.open_scan), ("open_project", "Open project…", self.open_project)):
+        for key, text, slot in (("open_scan", "Select PDF…", self.open_scan), ("open_project", "Open project…", self.open_project)):
             self.actions[key] = bar.addAction(text, slot)
+        self.actions["open_scan"].setToolTip("Choose the scanned book (a PDF, or page images) to read")
+        self.source_label = QLabel()
+        self.source_label.setContentsMargins(8, 0, 8, 0)
+        bar.addWidget(self.source_label)
         bar.addSeparator()
         self.mode = QComboBox()
         self.mode.addItems([label for _, label in MODES])
@@ -812,6 +1139,7 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
         for key, text, slot in (("run", "Run", lambda: self.run("preprocess")),
                                 ("update", "Update after corrections", lambda: self.run(self.project.update_stage())),
+                                ("train", "Train OCR model…", self.train_model),
                                 ("export", "Export PDF…", self.export),
                                 ("export_idml", "Export IDML…", self.export_idml)):
             self.actions[key] = bar.addAction(text, slot)
@@ -830,6 +1158,15 @@ class MainWindow(QMainWindow):
         self.review.message.connect(self.statusBar().showMessage)
         self.glyphs.jump.connect(self._jump)
 
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction("Check for updates…", lambda: self.check_for_updates(manual=True))
+        self.check_at_start = help_menu.addAction("Check for updates at startup")
+        self.check_at_start.setCheckable(True)
+        self.check_at_start.setChecked(updates.check_at_start(updates.load_settings()))
+        self.check_at_start.toggled.connect(self._check_at_start_changed)
+        help_menu.addSeparator()
+        help_menu.addAction("About Ectype OCR", self.about)
+
     def load(self, project: Project) -> None:
         self.project = project
         for tab in (self.spreads, self.review, self.glyphs):
@@ -847,6 +1184,7 @@ class MainWindow(QMainWindow):
         self.split.blockSignals(False)
         source = Path(project.settings.source).name if project.settings.source else "no scan yet"
         self.setWindowTitle(f"Ectype OCR — {source}")
+        self._show_source()
         self.refresh()
         if project.pages():
             self.tabs.setCurrentWidget(self.review)
@@ -858,6 +1196,10 @@ class MainWindow(QMainWindow):
         has_pdf = self.project.output_pdf() is not None
         self.actions["export"].setEnabled(has_pdf)
         self.actions["export_idml"].setEnabled(any((self.project.workspace / "ocr").glob("*.ocr.json")))
+        lines, words = self.project.corrected_lines(), self.project.corrected_words()
+        count = ", ".join(t for t in (f"{lines} lines" if lines else "", f"{words} words in other scripts" if words else "") if t)
+        self.actions["train"].setText(f"Train OCR model ({count})…" if count else "Train OCR model…")
+        self.actions["train"].setToolTip("Teach the OCR model this book's type from the lines you corrected in Review")
         self.actions["update"].setEnabled(bool(self.project.pages()))
         self.actions["run"].setEnabled(bool(self.project.settings.source))
 
@@ -875,7 +1217,7 @@ class MainWindow(QMainWindow):
         self.project.set_languages(codes)
         msg = "OCR languages: " + ", ".join(languages.name(c) for c in codes) + ". Run to read the pages again."
         if self.project.has_corrections():
-            msg += " Corrections made so far are lost when the pages are read again."
+            msg += " Corrections made so far are carried over to the new reading."
         self.statusBar().showMessage(msg)
 
     def add_languages(self) -> None:
@@ -894,12 +1236,25 @@ class MainWindow(QMainWindow):
             a.setEnabled(False)
         self.tabs.setCurrentWidget(self.log)
         self.log.appendPlainText(f"— {title} —")
+        self.progress_window = ProgressWindow(title, self)
+        self.progress_window.busy()
+        self.progress_window.show()
         self.task = Task(fn)
-        self.task.progress.connect(lambda stage, msg: (self.log.appendPlainText(f"{stage}: {msg}"),
-                                                      self.statusBar().showMessage(f"{stage}: {msg}")))
-        self.task.done.connect(lambda result: (self._enable(), on_done(result)))
+        self.task.progress.connect(self._progress_line)
+        self.task.done.connect(lambda result: (self._close_progress(), self._enable(), on_done(result)))
         self.task.failed.connect(self._failed)
         self.task.start()
+
+    def _progress_line(self, stage: str, msg: str) -> None:
+        self.log.appendPlainText(f"{stage}: {msg}")
+        self.statusBar().showMessage(f"{stage}: {msg}")
+        if self.progress_window is not None:
+            self.progress_window.add(stage, msg)
+
+    def _close_progress(self) -> None:
+        if self.progress_window is not None:
+            self.progress_window.close()
+            self.progress_window = None
 
     def _enable(self) -> None:
         for a in self.actions.values():
@@ -937,11 +1292,28 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.review)
         self.review.select_word(page, line, word)
 
+    def _show_source(self) -> None:
+        """The selected scan in the toolbar, and Run in bold until it has been read."""
+        source = self.project.settings.source
+        if source and Path(source).is_file():
+            n = source_pages(Path(source))
+            state = "read" if self.project.pages() else "not read yet: press Run"
+            self.source_label.setText(f"<b>PDF:</b> {Path(source).name} ({n} page{'s' if n != 1 else ''}) · {state}")
+            self.source_label.setToolTip(source)
+        else:
+            self.source_label.setText("<i>No PDF selected</i>")
+            self.source_label.setToolTip("")
+        font = self.actions["run"].font()
+        font.setBold(bool(source) and not self.project.pages())
+        self.actions["run"].setFont(font)
+
     def open_scan(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open a scan", "", "Scans (*.pdf *.png *.tif *.tiff *.jpg *.jpeg)")
+        path, _ = QFileDialog.getOpenFileName(self, "Select a scanned PDF", "",
+                                              "Scanned books (*.pdf *.png *.tif *.tiff *.jpg *.jpeg);;PDF (*.pdf)")
         if path:
             self.load(Project.for_scan(Path(path)))
-            self.statusBar().showMessage("Press Run to process the scan.")
+            self.tabs.setCurrentWidget(self.spreads)
+            self.statusBar().showMessage(f"Selected {Path(path).name}. Press Run to read it.")
 
     def open_project(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Open an Ectype project folder")
@@ -955,26 +1327,221 @@ class MainWindow(QMainWindow):
             a.setEnabled(False)
         self.tabs.setCurrentWidget(self.log)
         self.log.appendPlainText(f"— Running from {start} —")
+        self.progress_window = ProgressWindow(f"Running {self.project.settings.name or self.project.workspace.name}", self)
+        self.progress_window.show()
         self.worker = Worker(self.project, start)
-        self.worker.progress.connect(lambda stage, msg: (self.log.appendPlainText(f"{stage}: {msg}"),
-                                                        self.statusBar().showMessage(f"{stage}: {msg}")))
+        self.worker.progress.connect(self._progress_line)
+        self.worker.fraction.connect(lambda f: self.progress_window and self.progress_window.set_fraction(f))
         self.worker.done.connect(self._finished)
         self.worker.failed.connect(self._failed)
         self.worker.start()
 
     def _finished(self, pdf: str) -> None:
+        self._close_progress()
         self.log.appendPlainText(f"Done: {pdf}" if pdf else "Done.")
         self.statusBar().showMessage("Done.")
         for a in self.actions.values():
             a.setEnabled(True)
         self.refresh()
+        self._show_source()
         self.tabs.setCurrentWidget(self.review)
+        self.offer_languages()
+
+    def offer_languages(self) -> None:
+        """Words in a script none of the OCR languages covers (Greek or Hebrew in an English
+        book): offer to add the languages, downloading them if needed, and read the pages again."""
+        codes = self.project.language_suggestions()
+        if not codes:
+            return
+        unread = self.project.unread_scripts()
+        found = ", ".join(f"{script} ({n} words)" for script, n in unread.items())
+        names = ", ".join(languages.name(c) for c in codes)
+        missing = [c for c in codes if c not in languages.installed()]
+        box = QMessageBox(self)
+        box.setWindowTitle("Other scripts found")
+        box.setText(f"This scan has words in scripts the OCR languages don't read: {found}.")
+        box.setInformativeText(f"Add {names} to the OCR languages and read the pages again?"
+                               + (" (They'll be downloaded first, a few megabytes each.)" if missing else ""))
+        add = box.addButton("Add and read again", QMessageBox.AcceptRole)
+        never = box.addButton("Not for this book", QMessageBox.RejectRole)
+        box.addButton("Not now", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is never:
+            self.project.decline_languages(codes)
+        elif box.clickedButton() is add:
+            def work(progress):
+                if missing:
+                    languages.download(missing, lambda code, got, total: progress(
+                        "languages", f"{languages.name(code)}: {got / 1e6:.1f} of {total / 1e6:.1f} MB" if total else languages.name(code)))
+                return codes
+
+            def added(_codes):
+                codes_now = self.project.languages() + [c for c in codes if c not in self.project.languages()]
+                self.project.set_languages(codes_now)
+                self.langs.set_languages(codes_now)
+                self.run("ocr")
+
+            self._start(work, added, "Adding " + names)
 
     def _failed(self, error: str) -> None:
         self.log.appendPlainText(error)
+        if self.progress_window is not None:
+            self.progress_window.finish(False, "Stopped: " + error.strip().splitlines()[-1])
+            self.progress_window = None
         for a in self.actions.values():
             a.setEnabled(True)
         QMessageBox.warning(self, "Ectype OCR", error.strip().splitlines()[-1])
+
+    # -- training --------------------------------------------------------------
+
+    def train_model(self) -> None:
+        from . import train
+
+        problem = train.available()
+        if problem:
+            QMessageBox.warning(self, "Train OCR model", problem + " Training needs them; reinstall Ectype OCR.")
+            return
+        plan = self.project.trainable()
+        if not plan:
+            lines, words = self.project.corrected_lines(), self.project.corrected_words()
+            QMessageBox.information(self, "Train OCR model",
+                                    f"Correct at least {train.MIN_LINES} lines in the Review tab first ({lines} so far).\n\n"
+                                    "Each line you correct is saved with its image as training data. Training then teaches "
+                                    "the OCR model this book's type, so the next reading makes fewer of the same mistakes.\n\n"
+                                    f"Words in another script (Hebrew, Greek) train that language's model: correct at least "
+                                    f"{train.MIN_WORDS} of them ({words} so far), with the language ticked.")
+            return
+        book = self.project.settings.name or self.project.workspace.name
+        which = "\n".join(f"• {languages.name(base)}, on {n} corrected {'words' if unit == 'kraken' else unit}" for base, unit, n in plan)
+        box = QMessageBox(self)
+        box.setWindowTitle("Train OCR model")
+        box.setText(f"Train these models on your corrections?\n\n{which}")
+        box.setInformativeText(
+            "Ectype fine-tunes a copy of each model on them (and on text it read confidently, so it keeps what "
+            "it does well), checks it on corrections kept aside, and saves it as a new language for this book, "
+            f"e.g. \"{languages.name(plan[0][0])}, trained on {book}\". It takes a few minutes each; the first time, "
+            "each trainable model (about 15 MB) is downloaded. Your corrections are kept when the pages are read again.")
+        go = box.addButton("Train", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        if box.clickedButton() is go:
+            self._start(lambda progress: self.project.train_model(progress), self._trained, "Training the OCR model")
+
+    def _trained(self, results) -> None:
+        self.langs.set_languages(self.project.languages())
+        report = []
+        for r in results:
+            text = f"\"{languages.name(r.model)}\", on {r.lines} corrected {r.unit}."
+            if r.cer_before is not None and r.cer_after is not None:
+                text += (f" On {r.held_out} kept aside, character errors went from "
+                         f"{100 * r.cer_before:.1f}% to {100 * r.cer_after:.1f}%.")
+            if r.skipped:
+                text += f" {r.skipped} {r.unit} with characters the model doesn't know (another script) were left out."
+            report.append(text)
+        box = QMessageBox(self)
+        box.setWindowTitle("Train OCR model")
+        box.setText("Trained " + ("a new model." if len(results) == 1 else f"{len(results)} new models."))
+        box.setInformativeText("\n\n".join(report) + "\n\nRead the pages again with them now? Your corrections are kept.")
+        again = box.addButton("Read again", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is again:
+            self.run("ocr")
+
+    # -- updates and about ----------------------------------------------------
+
+    def about(self) -> None:
+        QMessageBox.about(self, "About Ectype OCR",
+                          f"<b>Ectype OCR {__version__}</b><p>Scanned pages to PDFs with real, searchable type "
+                          f"traced from the scan.</p><p><a href=\"{updates.RELEASES}\">Releases</a> · Apache License 2.0</p>")
+
+    def _check_at_start_changed(self, on: bool) -> None:
+        settings = updates.load_settings()
+        settings["check_updates"] = on
+        updates.save_settings(settings)
+
+    def check_for_updates(self, manual: bool = False) -> None:
+        """Ask GitHub for the latest release, off the interface thread. At startup, say nothing
+        unless there is a version to offer; when asked, always answer."""
+        if getattr(self, "update_task", None) is not None and self.update_task.isRunning():
+            return
+        self.update_task = Task(lambda progress: updates.check())
+        self.update_task.done.connect(lambda result: self._update_checked(result, manual))
+        self.update_task.start()
+
+    def _update_checked(self, result: dict, manual: bool) -> None:
+        settings = updates.load_settings()
+        status = result.get("status")
+        if not updates.should_offer(result, settings, manual):
+            if manual:
+                if status in ("current", "norelease"):
+                    QMessageBox.information(self, "Check for updates", f"Ectype OCR {__version__} is the latest version.")
+                else:
+                    QMessageBox.warning(self, "Check for updates", "Couldn't reach GitHub to check for updates "
+                                        f"({result.get('error', 'no answer')}). Try again later, or see {updates.RELEASES}.")
+            return
+        latest = result["latest"]
+        box = QMessageBox(self)
+        box.setWindowTitle("Update available")
+        box.setText(f"Ectype OCR {latest} is available. You have {__version__}.")
+        if result.get("notes"):
+            box.setDetailedText(result["notes"])
+        installable = updates.can_install() and result.get("asset")
+        if installable:
+            box.setInformativeText("Install it now? Ectype closes while the installer runs, then opens again. "
+                                   "Your projects and settings are kept.")
+            go = box.addButton("Install now", QMessageBox.AcceptRole)
+        else:
+            box.setInformativeText("Download it from the releases page.")
+            go = box.addButton("Open the releases page", QMessageBox.AcceptRole)
+        skip = None if manual else box.addButton("Skip this version", QMessageBox.RejectRole)
+        box.addButton("Not now", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is skip:
+            settings["skipped_version"] = latest
+            updates.save_settings(settings)
+        elif box.clickedButton() is go:
+            if installable:
+                self._install_update(result["asset"])
+            else:
+                from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+
+                QDesktopServices.openUrl(QUrl(result.get("url") or updates.RELEASES))
+
+    def _install_update(self, asset: dict) -> None:
+        if (self.worker is not None and self.worker.isRunning()) or (self.task is not None and self.task.isRunning()):
+            QMessageBox.information(self, "Update", "Ectype is still working. Install the update when it's done "
+                                    "(Help > Check for updates).")
+            return
+        dialog = QProgressDialog(f"Downloading {asset['name']}…", "Cancel", 0, 1000, self)
+        dialog.setWindowTitle("Update")
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        cancelled = []
+
+        def step(progress, fraction):
+            if cancelled:
+                raise updates.UpdateError("cancelled")
+            progress("download", str(fraction))
+
+        self.download_task = Task(lambda progress: updates.download(asset, progress=lambda f: step(progress, f)))
+        self.download_task.progress.connect(lambda _stage, f: dialog.setValue(int(float(f) * 1000)))
+        dialog.canceled.connect(lambda: cancelled.append(True))
+
+        def done(setup):
+            dialog.close()
+            updates.run_installer(setup, updates.installed_app())
+            QApplication.instance().quit()
+
+        def failed(error):
+            dialog.close()
+            if not cancelled:
+                QMessageBox.warning(self, "Update", error.strip().splitlines()[-1].split(": ", 1)[-1])
+
+        self.download_task.done.connect(done)
+        self.download_task.failed.connect(failed)
+        self.download_task.start()
 
     def export(self) -> None:
         default = str(Path(self.project.settings.source).with_name((self.project.settings.name or "output") + "-ectype.pdf"))
@@ -996,6 +1563,8 @@ def main(argv: list[str] | None = None) -> int:
         project = Project(target) if target.is_dir() else Project.for_scan(target)
     window = MainWindow(project)
     window.show()
+    if updates.installed_app() is not None and updates.check_at_start(updates.load_settings()):
+        window.check_for_updates()  # the installed app only, not a copy run from source
     return app.exec()
 
 

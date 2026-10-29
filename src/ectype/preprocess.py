@@ -75,6 +75,15 @@ def load_pages(path: Path, dpi: float = 300, pages: list[int] | None = None):
         pdf.close()
 
 
+def page_count(path: Path, pages: list[int] | None = None) -> int:
+    """How many source pages load_pages will yield."""
+    if Path(path).suffix.lower() in IMAGE_SUFFIXES:
+        return 1
+    with pikepdf.open(path) as pdf:
+        n = len(pdf.pages)
+    return len([p for p in pages if 1 <= p <= n]) if pages else n
+
+
 def _single_page_image(page: pikepdf.Page) -> tuple[np.ndarray, float] | None:
     """The page's only image, if the page is nothing but one image covering it."""
     resources = page.obj.get("/Resources")
@@ -270,7 +279,10 @@ def preprocess(
     pages: list[int] | None = None,
     deskew: bool = True,
     dpi: float = 300,
+    on_page=None,
 ) -> dict:
+    """Orient, split and deskew every source page into <out_dir>/pages. `on_page(done, total)`
+    is called as pages are done (two passes, so total is twice the source pages)."""
     out_dir = Path(out_dir)
     page_dir = out_dir / "pages"
     report_dir = out_dir / "preprocess"
@@ -283,6 +295,7 @@ def preprocess(
     # the document's typical fold position. Images are reloaded in pass 2 rather
     # than held, to keep memory flat on long books.
     measured: dict[int, dict] = {}
+    total = 2 * page_count(Path(input_path), pages)
     for src in load_pages(Path(input_path), dpi=dpi, pages=pages):
         ov = overrides.get(str(src.number), {})
         if "rotate" in ov:
@@ -296,6 +309,8 @@ def preprocess(
         gutter = find_gutter(oriented) if is_spread and not keep_spreads and "split" not in ov else None
         measured[src.number] = {"rotate": rotate, "conf": conf, "overridden": overridden,
                                 "spread": is_spread, "width": ow, "gutter": gutter}
+        if on_page:
+            on_page(len(measured), total)
     confident = [m["gutter"].x / m["width"] for m in measured.values() if m["gutter"] and m["gutter"].confidence >= 0.5]
     typical = float(np.median(confident)) if confident else None
 
@@ -364,6 +379,8 @@ def preprocess(
             )
             report.write_json(page_dir / f"{name}.json", vars(page))
             outputs.append(page)
+        if on_page:
+            on_page(len(measured) + len(sources), total)
 
     # Pages a source page no longer produces (a spread now kept whole, or the reverse) go.
     produced = {p.name for p in outputs}

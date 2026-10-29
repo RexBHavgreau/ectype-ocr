@@ -2,8 +2,9 @@
 
 Each engine returns an `OcrPage` in the page's pixel coordinates. Tesseract is
 implemented through its hOCR output with per-character boxes; Kraken is the
-planned second engine (Greek, Hebrew, Rashi, Syriac, Arabic) and reports itself
-unavailable until it is installed. Results are written as `<page>.ocr.json`.
+second engine (Greek, Hebrew, Rashi, Syriac, Arabic): after Tesseract has read the page,
+runs of words in a script a chosen Kraken model covers are read again by Kraken
+(`kraken.py`). Results are written as `<page>.ocr.json`.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from PIL import Image
 
 from . import report
 from .resources import subprocess_flags
+from .scripts import clean
 
 
 @dataclass
@@ -63,6 +65,7 @@ class OcrPage:
     dpi: float
     lines: list[Line] = field(default_factory=list)
     dropped: list[dict] = field(default_factory=list)  # words removed as noise, kept for review
+    unread_scripts: dict[str, int] = field(default_factory=dict)  # words in scripts the languages don't cover
 
     def words(self):
         for line in self.lines:
@@ -161,11 +164,8 @@ class KrakenEngine:
     name = "kraken"
 
     def __init__(self, model: str | None = None):
-        try:
-            import kraken  # noqa: F401
-        except ImportError as exc:
-            raise EngineUnavailable("Kraken is not installed (pip install kraken) or its models are unavailable") from exc
-        raise EngineUnavailable("The Kraken engine is planned for Phase 5b and not implemented yet")
+        raise EngineUnavailable("Kraken reads after Tesseract, the words in its models' scripts: choose a Kraken "
+                                "model as one of the OCR languages (--lang eng+kraken_<id>) instead")
 
 
 ENGINES = {"tesseract": TesseractEngine, "kraken": KrakenEngine}
@@ -226,11 +226,11 @@ def parse_hocr(hocr: str, engine: str = "tesseract", lang: str = "eng", dpi: flo
             chars = []
             for c_el in word_el.findall("h:span[@class='ocrx_cinfo']", ns):
                 cprops = _title(c_el)
-                text = "".join(c_el.itertext())
+                text = clean("".join(c_el.itertext()))
                 if not text or "x_bboxes" not in cprops:
                     continue
                 chars.append(Char(text=text, box=_box(cprops, "x_bboxes"), conf=round(float(cprops.get("x_conf", ["0"])[0]), 2)))
-            text = "".join(c.text for c in chars) if chars else "".join(word_el.itertext()).strip()
+            text = "".join(c.text for c in chars) if chars else clean("".join(word_el.itertext())).strip()
             if not text.strip():
                 continue
             line.words.append(Word(
@@ -254,16 +254,44 @@ def _fresh(output: Path, *inputs: Path) -> bool:
     return output.is_file() and all(output.stat().st_mtime >= i.stat().st_mtime for i in inputs if i.is_file())
 
 
-def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, threads: int, force: bool) -> dict:
+def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, threads: int, force: bool,
+             session=None) -> dict:
     target = out_dir / f"{png.stem}.ocr.json"
     page = OcrPage.from_json(json.loads(target.read_text(encoding="utf-8"))) if not force and _fresh(target, png) else None
-    if page is not None and (page.lang != lang or page.engine != engine):
+    if page is not None and (page.lang != lang or page.engine.split("+")[0] != engine):
         page = None  # read with other languages: read again
     if page is None:
         image = Image.open(png)
         gray = np.asarray(image.convert("L"))
         eng = get_engine(engine, threads=threads) if engine == "tesseract" else get_engine(engine)
-        page = drop_margin_noise(eng.recognize(gray, dpi=report.image_dpi(image), lang=lang))
+        dpi = report.image_dpi(image)
+        from .kraken import installed_models, is_model, main_script
+
+        codes = lang.split("+")
+        tess = "+".join(c for c in codes if not is_model(c)) or "eng"
+        page = drop_margin_noise(eng.recognize(gray, dpi=dpi, lang=tess))
+        page.lang = lang
+        if engine == "tesseract":
+            # Unsure words in another script: read again in their own language, or counted
+            # when no chosen language covers their script (scripts.py).
+            from .scripts import check_words
+
+            models = installed_models()
+            kraken = {main_script(c): models[c]["file"] for c in codes if is_model(c) and c in models}
+            kraken.pop("Latin", None)
+            word_engine = TesseractEngine(psm=8, threads=threads)
+            page.unread_scripts = dict(check_words(
+                gray, page, codes, lambda crop, one: list(word_engine.recognize(crop, dpi=dpi, lang=one).words()),
+                defer=frozenset(kraken)))
+            if kraken and session is not None:
+                from .kraken import read_runs
+
+                read_runs(page, png, kraken, session)
+                page.engine = "tesseract+kraken"
+        # Corrections made in Review, carried over to the new reading.
+        from .review import carry_corrections
+
+        carry_corrections(out_dir.parent, png.stem, page)
         report.write_json(target, page.to_json())
         Image.fromarray(draw_overlay(gray, page, low_conf)).save(out_dir / f"{png.stem}.overlay.png")
     words = list(page.words())
@@ -273,17 +301,19 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
         "mean_conf": round(float(np.mean([w.conf for w in words])), 1) if words else None,
         "low_conf_words": [w.text for w in words if w.conf < low_conf],
         "dropped": len(page.dropped),
+        "unread_scripts": page.unread_scripts,
     }
 
 
 def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: str = "eng",
-              low_conf: float = 70.0, jobs: int | None = None, force: bool = False) -> dict:
+              low_conf: float = 70.0, jobs: int | None = None, force: bool = False, on_page=None) -> dict:
     """OCR every page PNG from a preprocess run; write .ocr.json, overlays and a report.
 
     Pages run in parallel (`jobs`, default one per CPU, each Tesseract on one thread);
     a page whose .ocr.json is newer than its image and was read with the same engine
-    and languages is reused unless `force`.
+    and languages is reused unless `force`. `on_page(done, total)` is called as pages finish.
     """
+    import threading
     from concurrent.futures import ThreadPoolExecutor
 
     pages_dir, out_dir = Path(pages_dir), Path(out_dir)
@@ -292,9 +322,38 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
     pngs = sorted(pages_dir.glob("*.png"))
     jobs = max(1, jobs or (os.cpu_count() or 1))
     threads = 1 if jobs > 1 else 0
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        rows = list(pool.map(lambda p: _ocr_one(p, out_dir, engine, lang, low_conf, threads, force), pngs))
-    summary = {"engine": engine, "lang": lang, "low_conf_threshold": low_conf, "pages": rows}
+    done = [0]
+    lock = threading.Lock()
+
+    session = None
+    if any(c.startswith("kraken_") for c in lang.split("+")):
+        from .kraken import Session
+
+        session = Session()  # one Kraken process for the whole run
+
+    def one(png):
+        row = _ocr_one(png, out_dir, engine, lang, low_conf, threads, force, session)
+        with lock:
+            done[0] += 1
+            if on_page:
+                on_page(done[0], len(pngs))
+        return row
+
+    try:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            rows = list(pool.map(one, pngs))
+    finally:
+        if session is not None:
+            session.close()
+    from .scripts import suggest
+
+    unread: dict[str, int] = {}
+    for r in rows:
+        for script, n in (r.get("unread_scripts") or {}).items():
+            unread[script] = unread.get(script, 0) + n
+    summary = {"engine": engine, "lang": lang, "low_conf_threshold": low_conf, "pages": rows,
+               "unread_scripts": unread,
+               "suggest_languages": suggest(unread, lang.split("+"), [r.get("unread_scripts") or {} for r in rows])}
     report.write_json(out_dir / "ocr.json", summary)
     _write_html(summary, out_dir / "index.html")
     return summary

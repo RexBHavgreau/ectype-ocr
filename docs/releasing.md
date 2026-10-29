@@ -19,6 +19,10 @@ The workflow then:
 6. Smoke-tests the packaged command line on a synthetic page in both modes.
 7. Builds `Ectype-OCR-<version>-Setup.exe` with Inno Setup (`packaging/installer.iss`) and attaches it to a GitHub release for the tag.
 
+**Updates:** installed copies (0.3.0 on) find a new release by itself; nothing more is needed than the tag.
+- **What the app needs from the release:** it reads the latest release (`/releases/latest`), so mark a release as a pre-release if it shouldn't be offered. It compares the tag with its own version and downloads the file named `Ectype-OCR-<version>-Setup.exe`, checking it against the SHA-256 digest GitHub publishes for each release file.
+- **How the installer runs:** silently over the existing install (`/SILENT /UPDATE`, plus `/ALLUSERS` or `/CURRENTUSER` to match it). With `/UPDATE` the installer opens the new version when it's done (`packaging/installer.iss`). Tasks chosen at the first install (desktop icon, PATH) are kept.
+
 **For a test build without a release:** run the workflow by hand (Actions → Windows installer → Run workflow). The installer is then under the run's artifacts.
 
 **The installer:**
