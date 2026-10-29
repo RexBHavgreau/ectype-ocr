@@ -2,8 +2,9 @@
 
 Each engine returns an `OcrPage` in the page's pixel coordinates. Tesseract is
 implemented through its hOCR output with per-character boxes; Kraken is the
-planned second engine (Greek, Hebrew, Rashi, Syriac, Arabic) and reports itself
-unavailable until it is installed. Results are written as `<page>.ocr.json`.
+second engine (Greek, Hebrew, Rashi, Syriac, Arabic): after Tesseract has read the page,
+runs of words in a script a chosen Kraken model covers are read again by Kraken
+(`kraken.py`). Results are written as `<page>.ocr.json`.
 """
 
 from __future__ import annotations
@@ -163,11 +164,8 @@ class KrakenEngine:
     name = "kraken"
 
     def __init__(self, model: str | None = None):
-        try:
-            import kraken  # noqa: F401
-        except ImportError as exc:
-            raise EngineUnavailable("Kraken is not installed (pip install kraken) or its models are unavailable") from exc
-        raise EngineUnavailable("The Kraken engine is planned for Phase 5b and not implemented yet")
+        raise EngineUnavailable("Kraken reads after Tesseract, the words in its models' scripts: choose a Kraken "
+                                "model as one of the OCR languages (--lang eng+kraken_<id>) instead")
 
 
 ENGINES = {"tesseract": TesseractEngine, "kraken": KrakenEngine}
@@ -256,25 +254,40 @@ def _fresh(output: Path, *inputs: Path) -> bool:
     return output.is_file() and all(output.stat().st_mtime >= i.stat().st_mtime for i in inputs if i.is_file())
 
 
-def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, threads: int, force: bool) -> dict:
+def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, threads: int, force: bool,
+             session=None) -> dict:
     target = out_dir / f"{png.stem}.ocr.json"
     page = OcrPage.from_json(json.loads(target.read_text(encoding="utf-8"))) if not force and _fresh(target, png) else None
-    if page is not None and (page.lang != lang or page.engine != engine):
+    if page is not None and (page.lang != lang or page.engine.split("+")[0] != engine):
         page = None  # read with other languages: read again
     if page is None:
         image = Image.open(png)
         gray = np.asarray(image.convert("L"))
         eng = get_engine(engine, threads=threads) if engine == "tesseract" else get_engine(engine)
         dpi = report.image_dpi(image)
-        page = drop_margin_noise(eng.recognize(gray, dpi=dpi, lang=lang))
+        from .kraken import installed_models, is_model, main_script
+
+        codes = lang.split("+")
+        tess = "+".join(c for c in codes if not is_model(c)) or "eng"
+        page = drop_margin_noise(eng.recognize(gray, dpi=dpi, lang=tess))
+        page.lang = lang
         if engine == "tesseract":
             # Unsure words in another script: read again in their own language, or counted
             # when no chosen language covers their script (scripts.py).
             from .scripts import check_words
 
+            models = installed_models()
+            kraken = {main_script(c): models[c]["file"] for c in codes if is_model(c) and c in models}
+            kraken.pop("Latin", None)
             word_engine = TesseractEngine(psm=8, threads=threads)
             page.unread_scripts = dict(check_words(
-                gray, page, lang.split("+"), lambda crop, one: list(word_engine.recognize(crop, dpi=dpi, lang=one).words())))
+                gray, page, codes, lambda crop, one: list(word_engine.recognize(crop, dpi=dpi, lang=one).words()),
+                defer=frozenset(kraken)))
+            if kraken and session is not None:
+                from .kraken import read_runs
+
+                read_runs(page, png, kraken, session)
+                page.engine = "tesseract+kraken"
         # Corrections made in Review, carried over to the new reading.
         from .review import carry_corrections
 
@@ -312,16 +325,26 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
     done = [0]
     lock = threading.Lock()
 
+    session = None
+    if any(c.startswith("kraken_") for c in lang.split("+")):
+        from .kraken import Session
+
+        session = Session()  # one Kraken process for the whole run
+
     def one(png):
-        row = _ocr_one(png, out_dir, engine, lang, low_conf, threads, force)
+        row = _ocr_one(png, out_dir, engine, lang, low_conf, threads, force, session)
         with lock:
             done[0] += 1
             if on_page:
                 on_page(done[0], len(pngs))
         return row
 
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        rows = list(pool.map(one, pngs))
+    try:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            rows = list(pool.map(one, pngs))
+    finally:
+        if session is not None:
+            session.close()
     from .scripts import suggest
 
     unread: dict[str, int] = {}

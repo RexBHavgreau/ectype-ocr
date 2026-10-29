@@ -410,3 +410,73 @@ def trained_models() -> dict[str, dict]:
         return {}
 
 
+
+
+def train_kraken(workspace: Path, code: str, book: str, progress: Callable[[str], None] | None = None,
+                 epochs: int = 50, seed: int = 0) -> TrainResult:
+    """Fine-tune an installed Kraken model (`code`) on the words corrected into its script,
+    with Kraken's own trainer (`ketos train`, run by the Kraken engine). The result is installed
+    as a Kraken model of its own, e.g. "Hebrew (Kraken), trained on Treatise"."""
+    from . import kraken
+
+    progress = progress or (lambda msg: None)
+    model = kraken.installed_models().get(code)
+    if model is None:
+        raise TrainingError(f"The Kraken model {code} isn't installed.")
+    if kraken.worker_command() is None:
+        raise TrainingError("The Kraken engine isn't installed. Add it in Languages > Add languages > Kraken models.")
+    corrected = script_words(workspace, code)
+    if len(corrected) < MIN_WORDS:
+        raise TrainingError(f"Correct at least {MIN_WORDS} words in Review first ({len(corrected)} so far).")
+    random.Random(seed).shuffle(corrected)
+    held = corrected[: max(2, len(corrected) // 5)]
+    train_pairs = corrected[len(held):]
+    new_code = f"{code}_{re.sub(r'[^a-z0-9]+', '', book.lower())[:24] or 'book'}"
+    with tempfile.TemporaryDirectory(prefix="ectype-ketos-") as tmp:
+        work = Path(tmp)
+        lists = {}
+        for part, pairs in (("train", train_pairs), ("eval", held)):
+            folder = work / part
+            folder.mkdir()
+            for n, (png, text) in enumerate(pairs):  # ketos reads <image> with <image stem>.gt.txt beside it
+                shutil.copyfile(png, folder / f"w{n:05d}.png")
+                (folder / f"w{n:05d}.gt.txt").write_text(text, encoding="utf-8")
+            lists[part] = work / f"{part}.txt"
+            lists[part].write_text("\n".join(str(p) for p in sorted(folder.glob("*.png"))) + "\n", encoding="utf-8")
+        progress(f"{kraken.name(code)}: training on {len(train_pairs)} corrected words, up to {epochs} epochs (a few minutes)")
+        out = work / "model"
+        kraken._run(["train", "-f", "path", "-i", model["file"], "--resize", "union", "-o", str(out),
+                     "-t", str(lists["train"]), "-e", str(lists["eval"]), "-N", str(epochs), "-q", "early",
+                     "--lag", "5", "--min-epochs", str(min(5, epochs))], timeout=6 * 3600,
+                    progress=lambda done, total: progress(f"epoch {done} of {total}"))
+        best = sorted(out.glob("best_*.safetensors")) or sorted(out.glob("*.safetensors"))
+        if not best:
+            raise TrainingError("Kraken's training didn't save a model.")
+        target = kraken.models_dir() / new_code
+        target.mkdir(parents=True, exist_ok=True)
+        weights = target / "model.safetensors"
+        shutil.copyfile(best[-1], weights)
+        progress("comparing the old and new model on words kept aside")
+        before = _kraken_cer(model["file"], held)
+        after = _kraken_cer(str(weights), held)
+    kraken.register(new_code, {**{k: v for k, v in model.items() if k not in ("book", "base")},
+                               "file": str(weights), "base": code, "book": book})
+    return TrainResult(new_code, code, len(train_pairs), 0, 0, epochs, before, after, len(held), "words")
+
+
+def _kraken_cer(model_file: str, pairs: list[tuple[Path, str]]) -> float | None:
+    """Character error rate of a Kraken model on word images."""
+    from PIL import Image
+    from rapidfuzz.distance import Levenshtein
+
+    from . import kraken
+
+    errors = total = 0
+    with kraken.Session() as session:
+        for png, text in pairs:
+            with Image.open(png) as im:
+                box = [0, 0, im.width, im.height]
+            got = session.read(model_file, png, [box])[0]["text"]
+            errors += Levenshtein.distance(got.strip(), text)
+            total += len(text)
+    return round(errors / total, 4) if total else None

@@ -67,6 +67,10 @@ BIDI_MARKS = dict.fromkeys(map(ord, "‎‏‪‫‬‭‮⁦⁧⁨⁩"))
 
 
 def script_of(lang: str) -> str:
+    if lang.startswith("kraken_"):
+        from .kraken import main_script
+
+        return main_script(lang) or "Latin"
     if lang not in SCRIPT_OF:
         from .train import trained_models
 
@@ -116,11 +120,13 @@ def osd_available(tessdata: Path | None) -> bool:
     return tessdata is not None and (Path(tessdata) / "osd.traineddata").is_file()
 
 
-def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None) -> Counter:
+def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None,
+                defer: frozenset = frozenset()) -> Counter:
     """Check the page's unsure words (see the module docstring). `reread(crop, lang)` reads one
     word image with one language and returns its words (an OcrPage's, in crop coordinates).
-    Words are changed in place. Returns how many words were found in each script that none of
-    the chosen languages covers."""
+    Words are changed in place. Words found in a script in `defer` (one a Kraken model reads)
+    are only marked, word.script, for Kraken to read with their neighbours. Returns how many
+    words were found in each script that none of the chosen languages covers."""
     from .resources import subprocess_flags, tessdata_dir, tesseract_cmd, tesseract_env
 
     unread: Counter = Counter()
@@ -134,7 +140,10 @@ def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None
     for lang in langs:
         covered.setdefault(script_of(lang), lang)
     h, w = gray.shape
-    unsure = sorted((wd for wd in page.words() if wd.conf < UNSURE), key=lambda wd: wd.conf)[:MAX_CHECKED]
+    # With a Kraken model chosen for a script, Tesseract (without that script's language) can
+    # read its words as confident figures ("13723" for וּבָרְכוּ): check what isn't a plain word too.
+    unsure = sorted((wd for wd in page.words() if wd.conf < UNSURE or defer and not LATIN_WORD.match(wd.text)
+                     and not any(in_script(wd.text, s) for s in defer)), key=lambda wd: wd.conf)[:MAX_CHECKED]
     for word in unsure:
         x0, y0, x1, y1 = word.box
         if not any(c.isalnum() for c in word.text) or (x1 - x0) < (y1 - y0):
@@ -147,6 +156,10 @@ def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None
         script, conf = detect_fn(crop)
         if not script or conf <= 0 or script == "Latin" and "Latin" in covered:
             continue  # no answer, a guess with no confidence, or the main script
+        if script in defer:
+            if not in_script(word.text, script) and not (LATIN_WORD.match(word.text) and conf < 5):
+                word.script = script
+            continue
         if script not in covered:
             if script in SUGGEST or script == "Latin":
                 unread[script] += 1

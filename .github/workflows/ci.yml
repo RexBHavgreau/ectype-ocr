@@ -34,3 +34,50 @@ jobs:
         run: |
           export PYTHONPATH="$ECTYPE_DOCX2IDML_SOURCE"
           pytest -q
+
+  # Kraken, the second OCR engine: its tests with a model from Kraken's repository on Zenodo,
+  # and a comparison of the repository's printed Greek and Hebrew models with Tesseract
+  # (tools/kraken_eval.py), printed in the log and kept as an artifact.
+  kraken:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-heb tesseract-ocr-grc libleptonica-dev libfribidi0 \
+            fonts-freefont-ttf fonts-dejavu-core fonts-noto-core fonts-sil-ezra fonts-gfs-didot fonts-sil-gentiumplus
+      - name: Python packages (PyTorch for the CPU, then Kraken)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev,kraken]"
+      - name: Kraken engine
+        run: python -m ectype.kraken_worker version
+      - name: Compare the repository's Greek and Hebrew models
+        id: eval
+        continue-on-error: true
+        env:
+          ECTYPE_DATA_DIR: ${{ runner.temp }}/ectype-data
+        run: python tools/kraken_eval.py "${{ runner.temp }}/kraken-eval" --max 12
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kraken-eval
+          path: ${{ runner.temp }}/kraken-eval/results.json
+          if-no-files-found: ignore
+      - name: Tests with a Kraken model
+        env:
+          ECTYPE_DATA_DIR: ${{ runner.temp }}/ectype-data
+        run: |
+          model=$(python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "kraken-eval" / "results.json"
+          rows = [r for s in (json.loads(p.read_text()) if p.is_file() else []) for r in s["rows"] if r.get("file")]
+          print(rows[0]["file"] if rows else "")
+          PY
+          )
+          echo "model: $model"
+          ECTYPE_KRAKEN_TEST_MODEL="$model" pytest -q tests/test_kraken.py

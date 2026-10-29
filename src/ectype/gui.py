@@ -661,17 +661,27 @@ class LanguageButton(QToolButton):
 
 
 class AddLanguagesDialog(QDialog):
-    """Pick languages to download; they are added to the OCR languages afterwards."""
+    """Pick languages to download; they are added to the OCR languages afterwards. Two tabs:
+    Tesseract's languages, and Kraken's models (for Greek, Hebrew and other scripts)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add languages")
-        self.resize(420, 520)
+        self.resize(760, 600)
         self.downloaded: list[str] = []
         self.task: Task | None = None
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        outer.addWidget(self.tabs)
+        page = QWidget()
+        self.tabs.addTab(page, "Tesseract languages")
+        self.kraken = KrakenModelsPanel()
+        self.kraken.installed.connect(self._kraken_installed)
+        self.tabs.addTab(self.kraken, "Kraken models (Greek, Hebrew…)")
+        layout = QVBoxLayout(page)
         intro = QLabel("Choose languages to download (from the Tesseract project's language data, "
-                       "a few megabytes each). They become available to every project.")
+                       "a few megabytes each). They become available to every project. Tesseract reads "
+                       "the main text; for Greek, Hebrew and other scripts, a Kraken model reads better.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         self.search = QLineEdit()
@@ -701,6 +711,10 @@ class AddLanguagesDialog(QDialog):
         self.buttons.accepted.connect(self.download)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
+
+    def _kraken_installed(self, codes: list) -> None:
+        self.downloaded = list(codes)
+        self.accept()
 
     def _filter(self, text: str) -> None:
         for k in range(self.list.count()):
@@ -744,6 +758,224 @@ class AddLanguagesDialog(QDialog):
         self.bar.hide()
         self.download_button.setEnabled(True)
         self.status.setText("Download failed: " + error.strip().splitlines()[-1])
+
+
+class KrakenModelsPanel(QWidget):
+    """Kraken's models from its repository on Zenodo: the engine first (an optional download in
+    the Windows app), then the list of models, filtered by script, to download and use."""
+
+    installed = Signal(list)
+    COLUMNS = ["Script", "Model", "Kind", "Error rate", "Date", "Licence"]
+
+    def __init__(self):
+        super().__init__()
+        from . import kraken
+
+        self.kraken = kraken
+        self.records: list[dict] = []
+        self.task: Task | None = None
+        self.engine_ok = False
+        layout = QVBoxLayout(self)
+        intro = QLabel("Kraken reads Greek, Hebrew and other scripts with models trained by scholars and "
+                       "libraries and shared in its repository on Zenodo. Tesseract still reads the main text; "
+                       "words in a model's script are read again by Kraken. Choose a model that matches your "
+                       "book: printed or handwritten, and the period of the type. The description says what "
+                       "each was trained on.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.engine_label = QLabel("")
+        self.engine_label.setWordWrap(True)
+        self.engine_label.setOpenExternalLinks(True)
+        layout.addWidget(self.engine_label)
+        row = QHBoxLayout()
+        self.engine_button = QPushButton("Download the Kraken engine")
+        self.engine_button.clicked.connect(self.install_engine)
+        row.addWidget(self.engine_button)
+        self.list_button = QPushButton("Show the models")
+        self.list_button.clicked.connect(lambda: self.load(refresh=False))
+        row.addWidget(self.list_button)
+        self.script = QComboBox()
+        self.script.currentIndexChanged.connect(self._filter)
+        row.addWidget(self.script)
+        self.printed = QCheckBox("Printed text only")
+        self.printed.setChecked(True)
+        self.printed.toggled.connect(self._filter)
+        row.addWidget(self.printed)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search")
+        self.search.textChanged.connect(self._filter)
+        row.addWidget(self.search, 1)
+        layout.addLayout(row)
+        self.table = QTableWidget(0, len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.itemSelectionChanged.connect(self._describe)
+        layout.addWidget(self.table, 3)
+        self.description = QPlainTextEdit()
+        self.description.setReadOnly(True)
+        layout.addWidget(self.description, 2)
+        self.bar = QProgressBar()
+        self.bar.hide()
+        layout.addWidget(self.bar)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        self.download_button = QPushButton("Download the selected models")
+        self.download_button.clicked.connect(self.download)
+        buttons.addWidget(self.download_button)
+        layout.addLayout(buttons)
+        self.check_engine()
+
+    # -- the engine
+
+    def check_engine(self) -> None:
+        self.engine_label.setText("Checking for the Kraken engine…")
+        self._busy(True)
+        self._run(lambda progress: self.kraken.engine_status(), self._engine_checked)
+
+    def _engine_checked(self, status: dict) -> None:
+        self._busy(False)
+        self.engine_ok = status.get("installed", False)
+        if self.engine_ok:
+            self.engine_label.setText(f"Kraken engine {status.get('kraken')} (PyTorch {status.get('torch')}).")
+            self.engine_button.hide()
+        elif getattr(sys, "frozen", False):
+            self.engine_label.setText("The Kraken engine is a separate download (it includes PyTorch, a few hundred "
+                                      "megabytes). It is saved in your user folder and used by every project.")
+            self.engine_button.show()
+        else:
+            self.engine_label.setText("Kraken isn't installed beside Ectype. Install it with "
+                                      "<code>pip install \"ectype-ocr[kraken]\"</code>, or set ECTYPE_KRAKEN to a command "
+                                      "that runs <code>python -m ectype.kraken_worker</code> where it is installed.")
+            self.engine_button.hide()
+        self.list_button.setEnabled(self.engine_ok)
+        self.download_button.setEnabled(self.engine_ok)
+
+    def install_engine(self) -> None:
+        self.status.setText("Looking for the Kraken engine in this version's release…")
+        self._busy(True)
+
+        def work(progress):
+            asset = self.kraken.engine_asset()
+            if asset is None:
+                raise self.kraken.KrakenError(f"This version's release ({__version__}) has no Kraken engine download.")
+            progress("size", str(asset["size"]))
+            self.kraken.install_engine(asset, progress=lambda f: progress("download", str(f)))
+            return self.kraken.engine_status()
+
+        self._run(work, lambda status: (self.status.setText("Kraken engine installed."), self._engine_checked(status)))
+
+    # -- the models
+
+    def load(self, refresh: bool = False) -> None:
+        self.status.setText("Reading the list of models from Zenodo (the first time takes a minute or two)…")
+        self._busy(True)
+        self._run(lambda progress: self.kraken.list_models(refresh, lambda done, total: progress("list", f"{done} {total}")),
+                  self._loaded)
+
+    def _loaded(self, records: list) -> None:
+        self._busy(False)
+        self.records = sorted(records, key=lambda r: (",".join(self.kraken.scripts_of(r)), r.get("summary", "")))
+        scripts = sorted({s for r in self.records for s in self.kraken.scripts_of(r)})
+        self.script.blockSignals(True)
+        self.script.clear()
+        self.script.addItem("All scripts", "")
+        for s in scripts:
+            self.script.addItem(s, s)
+        default = next((i for i in range(self.script.count()) if self.script.itemData(i) in ("Hebrew", "Greek")), 0)
+        self.script.setCurrentIndex(default)
+        self.script.blockSignals(False)
+        self.status.setText(f"{len(self.records)} recognition models in the repository.")
+        self._filter()
+
+    def _filter(self) -> None:
+        script = self.script.currentData() or ""
+        text = self.search.text().lower()
+        have = {m.get("doi") for m in self.kraken.installed_models().values()}
+        shown = [r for r in self.records
+                 if (not script or script in self.kraken.scripts_of(r))
+                 and (not self.printed.isChecked() or self.kraken.printed(r) is not False)
+                 and (not text or text in (r.get("summary", "") + " " + r.get("description", "")).lower())]
+        self.table.setRowCount(len(shown))
+        for row, r in enumerate(shown):
+            kind = {True: "Printed", False: "Handwritten", None: ""}[self.kraken.printed(r)]
+            cer = f"{r['cer']:.1f}%" if isinstance(r.get("cer"), (int, float)) else ""
+            title = r.get("summary") or r["doi"]
+            values = [", ".join(self.kraken.scripts_of(r)), title + ("  (installed)" if r["doi"] in have else ""),
+                      kind, cer, r.get("date", ""), r.get("license", "")]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.UserRole, r)
+                self.table.setItem(row, col, item)
+        self.table.resizeColumnsToContents()
+
+    def selected(self) -> list[dict]:
+        rows = sorted({i.row() for i in self.table.selectedItems()})
+        return [self.table.item(r, 0).data(Qt.UserRole) for r in rows]
+
+    def _describe(self) -> None:
+        chosen = self.selected()
+        if not chosen:
+            self.description.setPlainText("")
+            return
+        r = chosen[0]
+        by = ", ".join(r.get("creators") or [])
+        self.description.setPlainText(f"{r.get('summary', '')}\n{r['doi']}" + (f"\nBy {by}" if by else "")
+                                      + f"\nLanguages: {', '.join(r.get('language') or [])}\n\n{r.get('description', '')}")
+
+    def download(self) -> None:
+        chosen = self.selected()
+        if not chosen:
+            self.status.setText("Select one or more models in the list.")
+            return
+        self._busy(True)
+
+        def work(progress):
+            codes = []
+            for r in chosen:
+                progress("model", r.get("summary") or r["doi"])
+                codes.append(self.kraken.install_model(r, lambda done, total: progress("bytes", f"{done} {total}")))
+            return codes
+
+        self._run(work, lambda codes: (self._busy(False), self.installed.emit(codes)))
+
+    # -- running
+
+    def _busy(self, on: bool) -> None:
+        self.bar.setVisible(on)
+        self.bar.setRange(0, 0)
+        self.engine_button.setEnabled(not on)
+        for b in (self.list_button, self.download_button):
+            b.setEnabled(not on and self.engine_ok)
+
+    def _run(self, fn, done) -> None:
+        self.task = Task(fn)
+        self.task.progress.connect(self._progress)
+        self.task.done.connect(done)
+        self.task.failed.connect(self._failed)
+        self.task.start()
+
+    def _progress(self, kind: str, msg: str) -> None:
+        if kind == "download":
+            self.bar.setRange(0, 1000)
+            self.bar.setValue(round(1000 * float(msg)))
+        elif kind == "size":
+            self.status.setText(f"Downloading the Kraken engine ({int(msg) / 1e6:.0f} MB)…")
+        elif kind == "model":
+            self.status.setText(f"Downloading {msg}…")
+        elif kind in ("bytes", "list"):
+            done, total = (int(v) for v in msg.split())
+            if total:
+                self.bar.setRange(0, total)
+                self.bar.setValue(min(done, total))
+
+    def _failed(self, error: str) -> None:
+        self._busy(False)
+        self.status.setText("Failed: " + error.strip().splitlines()[-1])
 
 
 # ---------------------------------------------------------------------------
@@ -1180,7 +1412,7 @@ class MainWindow(QMainWindow):
                                     f"{train.MIN_WORDS} of them ({words} so far), with the language ticked.")
             return
         book = self.project.settings.name or self.project.workspace.name
-        which = "\n".join(f"• {languages.name(base)}, on {n} corrected {unit}" for base, unit, n in plan)
+        which = "\n".join(f"• {languages.name(base)}, on {n} corrected {'words' if unit == 'kraken' else unit}" for base, unit, n in plan)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
         box.setText(f"Train these models on your corrections?\n\n{which}")

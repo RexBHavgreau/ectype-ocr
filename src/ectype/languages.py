@@ -55,6 +55,10 @@ NOT_LANGUAGES = {"osd", "equ"}
 def name(code: str) -> str:
     if code in LANGUAGES:
         return LANGUAGES[code]
+    if code.startswith("kraken_"):
+        from .kraken import name as kraken_name
+
+        return kraken_name(code)
     from .train import trained_models
 
     model = trained_models().get(code)
@@ -78,11 +82,14 @@ def join(codes: list[str]) -> str:
 
 
 def installed() -> list[str]:
-    """Codes of the languages Tesseract can use now, sorted by name."""
+    """Codes of the languages that can be used now, sorted by name: Tesseract's, and the
+    Kraken models installed (kraken.py)."""
+    from .kraken import installed_models
+
     folder = tessdata_dir()
-    if folder is None:
-        return []
-    codes = {p.name[:-len(".traineddata")] for p in folder.glob("*.traineddata")} - NOT_LANGUAGES
+    codes = set(installed_models())
+    if folder is not None:
+        codes |= {p.name[:-len(".traineddata")] for p in folder.glob("*.traineddata")} - NOT_LANGUAGES
     return sorted(codes, key=lambda c: name(c).lower())
 
 

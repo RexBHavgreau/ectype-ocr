@@ -215,13 +215,20 @@ class Project:
         lines = self.corrected_lines()
         if lines >= MIN_LINES:
             out.append((self.base_language(), "lines", lines))
+        from .kraken import installed_models, is_model
+
         models = trained_models()
         for code in self.languages()[1:]:
-            base = models.get(code, {}).get("base", code)
+            if is_model(code):  # a Kraken model, trained with Kraken's own trainer
+                base = installed_models().get(code, {}).get("base", code)
+                unit = "kraken"
+            else:
+                base = models.get(code, {}).get("base", code)
+                unit = "words"
             if script_of(base) != "Latin":
                 n = len(script_words(self.workspace, base))
                 if n >= MIN_WORDS:
-                    out.append((base, "words", n))
+                    out.append((base, unit, n))
         return out
 
     def corrected_words(self) -> int:
@@ -233,7 +240,8 @@ class Project:
     def train_model(self, progress: Progress | None = None) -> list:
         """Fine-tune each language there is enough correction for (see trainable), and use the
         new models for this book from the next reading on."""
-        from .train import MIN_LINES, TrainingError, train, trained_models
+        from .kraken import installed_models
+        from .train import MIN_LINES, TrainingError, train, train_kraken, trained_models
 
         progress = progress or (lambda stage, msg: None)
         plan = self.trainable()
@@ -241,9 +249,11 @@ class Project:
             raise TrainingError(f"Correct at least {MIN_LINES} lines in Review first ({self.corrected_lines()} so far). "
                                 "Each corrected line becomes training data.")
         book = self.settings.name or self.workspace.name
-        results = [train(self.workspace, base, book, progress=lambda msg: progress("train", msg), words=unit == "words")
+        say = lambda msg: progress("train", msg)  # noqa: E731
+        results = [train_kraken(self.workspace, base, book, progress=say) if unit == "kraken"
+                   else train(self.workspace, base, book, progress=say, words=unit == "words")
                    for base, unit, _ in plan]
-        models = trained_models()
+        models = {**trained_models(), **installed_models()}
         new = {r.base: r.model for r in results}
         codes = []
         for code in self.languages():
