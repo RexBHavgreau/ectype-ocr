@@ -80,8 +80,9 @@ def training_pairs(workspace: Path, words: bool = False) -> list[tuple[Path, str
 
 
 def _run(args: list[str], cwd: Path | None = None, timeout: float = 3600) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, cwd=cwd, timeout=timeout, env=tesseract_env(),
-                          **subprocess_flags())
+    # Tesseract writes UTF-8, whatever Windows' code page is.
+    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+                          timeout=timeout, env=tesseract_env(), **subprocess_flags())
 
 
 def best_model(base: str, progress: Callable[[str], None] | None = None) -> Path:

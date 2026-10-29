@@ -47,7 +47,7 @@ def main() -> int:
         im = Image.new("L", (int(font.getlength(text)) + 40, 72), 255)
         ImageDraw.Draw(im).text((20, 52), text, font=font, fill=0, anchor="ls")
         im.save(data / f"l{i}.png")
-        (data / f"l{i}.gt.txt").write_text(text, encoding="utf-8")
+        (data / f"l{i}.gt.txt").write_text(text, encoding="utf-8", newline="\n")
 
     request = json.dumps({"model": model, "image": str(data / "l0.png"), "lines": [[0, 0, *Image.open(data / "l0.png").size]]})
     answer = run(engine, "serve", stdin=request + "\n")
@@ -55,8 +55,8 @@ def main() -> int:
     if "lines" not in answer or not answer["lines"][0]["text"].strip():
         sys.exit("no reading")
 
-    (work / "train.txt").write_text("\n".join(str(data / f"l{i}.png") for i in range(6)) + "\n", encoding="utf-8")
-    (work / "eval.txt").write_text("\n".join(str(data / f"l{i}.png") for i in range(6, 8)) + "\n", encoding="utf-8")
+    (work / "train.txt").write_text("\n".join(str(data / f"l{i}.png") for i in range(6)) + "\n", encoding="utf-8", newline="\n")
+    (work / "eval.txt").write_text("\n".join(str(data / f"l{i}.png") for i in range(6, 8)) + "\n", encoding="utf-8", newline="\n")
     result = run(engine, "train", "-f", "path", "-i", model, "--resize", "union", "-o", str(work / "trained"),
                  "-t", str(work / "train.txt"), "-e", str(work / "eval.txt"), "-N", "1", "-q", "fixed")
     weights = sorted((work / "trained").glob("*.safetensors"))
