@@ -39,7 +39,29 @@ def _progress(done: int, total: int) -> None:
 def version() -> dict:
     import importlib.metadata as md
 
-    return {"protocol": PROTOCOL, "kraken": md.version("kraken"), "torch": md.version("torch")}
+    return {"protocol": PROTOCOL, "kraken": md.version("kraken"), "torch": md.version("torch"),
+            "utf8_mode": bool(sys.flags.utf8_mode)}
+
+
+def _utf8_by_default() -> None:
+    """Open text files as UTF-8 unless told otherwise. Kraken's repository client (htrmopo)
+    reads its data files without naming an encoding, which fails in Windows' own code page;
+    UTF-8 mode would fix that, but a packaged program can't always be started in it."""
+    import builtins
+    import io
+
+    if sys.flags.utf8_mode or getattr(builtins.open, "_ectype_utf8", False):
+        return
+    original = builtins.open
+
+    def utf8_open(file, mode="r", buffering=-1, encoding=None, *args, **kwargs):
+        if "b" not in mode and encoding is None:
+            encoding = "utf-8"
+        return original(file, mode, buffering, encoding, *args, **kwargs)
+
+    utf8_open._ectype_utf8 = True
+    builtins.open = utf8_open
+    io.open = utf8_open
 
 
 def _record(doi: str, rec) -> dict | None:
@@ -169,6 +191,10 @@ def train(args: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    _utf8_by_default()
+    for stream in (sys.stdout, sys.stderr, sys.stdin):  # JSON on the pipes is UTF-8 everywhere
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     if not argv:
         print(__doc__)
         return 2
