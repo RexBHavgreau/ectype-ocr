@@ -201,17 +201,54 @@ class Project:
         main = self.languages()[0]
         return trained_models().get(main, {}).get("base", main)
 
-    def train_model(self, progress: Progress | None = None):
-        """Fine-tune the main OCR language on this book's corrected lines (train.py), and use
-        the new model for this book from the next reading on."""
-        from .train import train
+    def trainable(self) -> list[tuple[str, str, int]]:
+        """What training can run on now: (stock language, "lines" or "words", count) for the main
+        language with enough corrected lines, and each other-script language with enough
+        corrected words (Hebrew, Greek... are trained on words, their lines mixing scripts)."""
+        from .scripts import script_of
+        from .train import MIN_LINES, MIN_WORDS, script_words, trained_models
+
+        out = []
+        lines = self.corrected_lines()
+        if lines >= MIN_LINES:
+            out.append((self.base_language(), "lines", lines))
+        models = trained_models()
+        for code in self.languages()[1:]:
+            base = models.get(code, {}).get("base", code)
+            if script_of(base) != "Latin":
+                n = len(script_words(self.workspace, base))
+                if n >= MIN_WORDS:
+                    out.append((base, "words", n))
+        return out
+
+    def corrected_words(self) -> int:
+        """Words corrected into another script than the main text's, saved for training."""
+        from .train import training_pairs
+
+        return len(training_pairs(self.workspace, words=True))
+
+    def train_model(self, progress: Progress | None = None) -> list:
+        """Fine-tune each language there is enough correction for (see trainable), and use the
+        new models for this book from the next reading on."""
+        from .train import MIN_LINES, TrainingError, train, trained_models
 
         progress = progress or (lambda stage, msg: None)
-        result = train(self.workspace, self.base_language(), self.settings.name or self.workspace.name,
-                       progress=lambda msg: progress("train", msg))
-        codes = [result.model] + [c for c in self.languages()[1:] if c != result.model]
+        plan = self.trainable()
+        if not plan:
+            raise TrainingError(f"Correct at least {MIN_LINES} lines in Review first ({self.corrected_lines()} so far). "
+                                "Each corrected line becomes training data.")
+        book = self.settings.name or self.workspace.name
+        results = [train(self.workspace, base, book, progress=lambda msg: progress("train", msg), words=unit == "words")
+                   for base, unit, _ in plan]
+        models = trained_models()
+        new = {r.base: r.model for r in results}
+        codes = []
+        for code in self.languages():
+            code = new.get(models.get(code, {}).get("base", code), code)
+            if code not in codes:
+                codes.append(code)
         self.set_languages(codes)
-        return result
+        return results
 
     def has_corrections(self) -> bool:
         return any((self.workspace / "corrections").glob("*.json"))

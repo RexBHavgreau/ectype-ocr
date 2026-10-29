@@ -910,8 +910,9 @@ class MainWindow(QMainWindow):
         has_pdf = self.project.output_pdf() is not None
         self.actions["export"].setEnabled(has_pdf)
         self.actions["export_idml"].setEnabled(any((self.project.workspace / "ocr").glob("*.ocr.json")))
-        lines = self.project.corrected_lines()
-        self.actions["train"].setText(f"Train OCR model ({lines} lines)…" if lines else "Train OCR model…")
+        lines, words = self.project.corrected_lines(), self.project.corrected_words()
+        count = ", ".join(t for t in (f"{lines} lines" if lines else "", f"{words} words in other scripts" if words else "") if t)
+        self.actions["train"].setText(f"Train OCR model ({count})…" if count else "Train OCR model…")
         self.actions["train"].setToolTip("Teach the OCR model this book's type from the lines you corrected in Review")
         self.actions["update"].setEnabled(bool(self.project.pages()))
         self.actions["run"].setEnabled(bool(self.project.settings.source))
@@ -1095,42 +1096,47 @@ class MainWindow(QMainWindow):
         if problem:
             QMessageBox.warning(self, "Train OCR model", problem + " Training needs them; reinstall Ectype OCR.")
             return
-        lines = self.project.corrected_lines()
-        if lines < train.MIN_LINES:
+        plan = self.project.trainable()
+        if not plan:
+            lines, words = self.project.corrected_lines(), self.project.corrected_words()
             QMessageBox.information(self, "Train OCR model",
                                     f"Correct at least {train.MIN_LINES} lines in the Review tab first ({lines} so far).\n\n"
                                     "Each line you correct is saved with its image as training data. Training then teaches "
-                                    "the OCR model this book's type, so the next reading makes fewer of the same mistakes.")
+                                    "the OCR model this book's type, so the next reading makes fewer of the same mistakes.\n\n"
+                                    f"Words in another script (Hebrew, Greek) train that language's model: correct at least "
+                                    f"{train.MIN_WORDS} of them ({words} so far), with the language ticked.")
             return
-        base = self.project.base_language()
         book = self.project.settings.name or self.project.workspace.name
+        which = "\n".join(f"• {languages.name(base)}, on {n} corrected {unit}" for base, unit, n in plan)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
-        box.setText(f"Train the {languages.name(base)} model on the {lines} lines you corrected?")
+        box.setText(f"Train these models on your corrections?\n\n{which}")
         box.setInformativeText(
-            "Ectype fine-tunes a copy of the model on those lines (and on lines it read confidently, so it keeps what "
-            "it does well), checks it on lines kept aside, and saves it as a new language for this book, "
-            f"\"{languages.name(base)}, trained on {book}\". It takes a few minutes; the first time, the trainable "
-            "model (about 15 MB) is downloaded. Your corrections are kept when the pages are read again.")
+            "Ectype fine-tunes a copy of each model on them (and on text it read confidently, so it keeps what "
+            "it does well), checks it on corrections kept aside, and saves it as a new language for this book, "
+            f"e.g. \"{languages.name(plan[0][0])}, trained on {book}\". It takes a few minutes each; the first time, "
+            "each trainable model (about 15 MB) is downloaded. Your corrections are kept when the pages are read again.")
         go = box.addButton("Train", QMessageBox.AcceptRole)
         box.addButton(QMessageBox.Cancel)
         box.exec()
         if box.clickedButton() is go:
             self._start(lambda progress: self.project.train_model(progress), self._trained, "Training the OCR model")
 
-    def _trained(self, result) -> None:
+    def _trained(self, results) -> None:
         self.langs.set_languages(self.project.languages())
-        if result.cer_before is not None and result.cer_after is not None:
-            check = (f"On {result.held_out} corrected lines kept aside, character errors went from "
-                     f"{100 * result.cer_before:.1f}% to {100 * result.cer_after:.1f}%.")
-        else:
-            check = ""
-        skipped = (f" {result.skipped} lines with characters the model doesn't know (another script) were left out."
-                   if result.skipped else "")
+        report = []
+        for r in results:
+            text = f"\"{languages.name(r.model)}\", on {r.lines} corrected {r.unit}."
+            if r.cer_before is not None and r.cer_after is not None:
+                text += (f" On {r.held_out} kept aside, character errors went from "
+                         f"{100 * r.cer_before:.1f}% to {100 * r.cer_after:.1f}%.")
+            if r.skipped:
+                text += f" {r.skipped} {r.unit} with characters the model doesn't know (another script) were left out."
+            report.append(text)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
-        box.setText(f"Trained \"{languages.name(result.model)}\" on {result.lines} corrected lines.")
-        box.setInformativeText(f"{check}{skipped}\n\nRead the pages again with it now? Your corrections are kept.")
+        box.setText("Trained " + ("a new model." if len(results) == 1 else f"{len(results)} new models."))
+        box.setInformativeText("\n\n".join(report) + "\n\nRead the pages again with them now? Your corrections are kept.")
         again = box.addButton("Read again", QMessageBox.AcceptRole)
         box.addButton("Later", QMessageBox.RejectRole)
         box.exec()

@@ -59,6 +59,27 @@ def save_training_line(workspace: Path, page: str, ocr: OcrPage, line: int) -> P
     return stem.with_suffix(".png")
 
 
+def save_training_word(workspace: Path, page: str, ocr: OcrPage, line: int, word: int) -> Path | None:
+    """A word in another script than the main text's (Hebrew, Greek...), cropped with its text
+    as a training pair in training/words/: those scripts' models are trained on words, since
+    their lines mix scripts."""
+    from .scripts import UNICODE_NAME, in_script
+
+    w = ocr.lines[line].words[word]
+    if not any(in_script(w.text, script) for script in UNICODE_NAME if script != "Latin"):
+        return None
+    x0, y0, x1, y1 = w.box
+    pad = max(6, (y1 - y0) // 3)
+    image = Image.open(Path(workspace) / "pages" / f"{page}.png")
+    crop = image.crop((max(0, x0 - pad), max(0, y0 - pad), min(image.width, x1 + pad), min(image.height, y1 + pad)))
+    out = Path(workspace) / "training" / "words"
+    out.mkdir(parents=True, exist_ok=True)
+    stem = out / f"{page}-l{line:03d}-w{word:03d}"
+    crop.save(stem.with_suffix(".png"))
+    stem.with_suffix(".gt.txt").write_text(w.text + "\n", encoding="utf-8")
+    return stem.with_suffix(".png")
+
+
 def correct(workspace: Path, page: str, line: int, word: int, text: str) -> dict:
     """Apply one correction to a workspace: OCR file, correction log, training pair."""
     workspace = Path(workspace)
@@ -77,6 +98,7 @@ def correct(workspace: Path, page: str, line: int, word: int, text: str) -> dict
     log.append(entry)
     report.write_json(log_path, log)
     pair = save_training_line(workspace, page, ocr, line)
+    save_training_word(workspace, page, ocr, line, word)
     return {**entry, "training": str(pair.relative_to(workspace))}
 
 

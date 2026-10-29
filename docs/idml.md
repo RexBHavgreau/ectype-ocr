@@ -44,19 +44,30 @@ A book in English with Greek and Hebrew words needs all three languages ticked; 
 
 ## Training the OCR model
 
-**Train OCR model…** in the app (it shows how many lines you have corrected), or `ectype train <workspace>`. Each word corrected in Review saves its line, image and corrected text, in `training/`. Training fine-tunes a copy of the book's main language on those lines (`train.py`):
+**Train OCR model…** in the app (it shows how many lines and other-script words you have corrected), or `ectype train <workspace>`. Each word corrected in Review saves its line, image and corrected text, in `training/`. Training fine-tunes a copy of the book's main language on those lines (`train.py`):
 
 1. **Base model.** The trainable float model of the language (from `tessdata_best`, about 15 MB) is downloaded once. The shipped models are integer models and can't be trained further.
-2. **Training lines.** The corrected lines, plus as many lines the OCR read with high confidence (every word at 90 or more), so the model keeps what it already does well. Lines with characters the model doesn't know, such as Hebrew in an English line, are left out and counted. Each line becomes Tesseract's training file (`.lstmf`) from its image and a box file with its text.
+2. **Training lines.** The corrected lines, plus as many lines the OCR read with high confidence (every word at 90 or more), so the model keeps what it already does well. Lines with letters of another script, such as Hebrew in an English line, are left out and counted. Each line becomes Tesseract's training file (`.lstmf`) from its image and a box file with its text.
+   - **New characters.** Characters of the model's own script that it lacks are added to it, as tesstrain does: a new character set (the model's plus the new ones) and a starter model with the old model's word lists, which training continues from (`--old_traineddata`).
 3. **Training.** A fifth of the corrected lines (at least two) is kept aside. `lstmtraining` continues the base model on the rest: 30 iterations a line, between 300 and 3,000.
 4. **Check.** The lines kept aside are read with the old and the new model, and the report gives both character error rates.
 5. **Install.** The new model is saved as a language of its own, e.g. `eng_young` ("English, trained on Young"), beside the downloaded ones. It replaces the main language for this book, and can be chosen for others in the Languages menu. The app offers to read the pages again with it, keeping the corrections.
 
 At least 10 corrected lines are needed. Training again later starts from the stock model with all the corrections so far.
 
+### Hebrew, Greek and other scripts in the book
+
+Their words are trained on separately, word by word, since their lines mix scripts. A word corrected into Hebrew (or Greek…) is also saved by itself in `training/words/`. With 20 or more for a language that is ticked, training fine-tunes that language too, on those words and on words of its script read with confidence 90 or more, e.g. `heb_treatise` ("Hebrew, trained on Treatise"). It replaces the stock language for the book.
+
+This is the route for the pointed Hebrew in the Treatise (`corpus/Treatise 01.pdf`). The stock Hebrew model has no holam, tsere, hataf segol or shin dot at all, so it can't give אֱלֹהִים, and it reads this book's type poorly: short pointed words come out as Latin look-alikes in the combined reading ("3223)") and as wrong letters when read again in Hebrew alone. Script detection can only send a word to the right model; only training on this book's own Hebrew will fix the reading.
+
+Right-to-left text is trained in visual order, its characters reversed: Tesseract's Hebrew model reads that way and turns its readings round. Trained in reading order, it learns the words backwards. Like tesstrain, the character set is built with normalisation mode 3 and a pass-through recoder, as the stock model has.
+
+On a test of 150 synthetic pointed Hebrew words and phrases (FreeSerif), training on 120 cut the character error rate on the 30 kept aside from 32% to 16%. The new model reads tsere and the other added points (וּרְאֵה, וּמַלְּטִי); dropped points cause most of the remaining errors.
+
 On a test of 80 synthetic lines in an italic face, training on 64 took 32 seconds and cut the character error rate on the 16 kept aside from 1.1% to 0.16%.
 
-Training needs Tesseract's training tools (`lstmtraining`, `combine_tessdata`). They come with Tesseract in Linux packages; the Windows build log says whether they are in the app.
+Training needs Tesseract's training tools (`lstmtraining`, `combine_tessdata`; to add characters, also `unicharset_extractor`, `merge_unicharsets`, `combine_lang_model` and `dawg2wordlist`). They come with Tesseract in Linux packages; the Windows build log says whether they are in the app.
 
 ## IDML export
 

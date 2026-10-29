@@ -60,7 +60,9 @@ def test_detects_greek_and_hebrew_on_an_english_page(tmp_path):
              "Hebrew word דבר (davar) both mean “word.” In Genesis",
              "1:1, בראשית ברא אלהים is rendered by the Septuagint",
              "as ἐν ἀρχῇ ἐποίησεν ὁ θεός. The same root דבר also",
-             "means a thing or matter, as in the phrase τὰ ῥήματα"]
+             "means a thing or matter, as in the phrase τὰ ῥήματα",
+             "ταῦτα, “these words,” which follows the Hebrew.",
+             "Pointed: בְּרֵאשִׁית בָּרָא אֱלֹהִים, “in the beginning God created.”"]
     img = Image.new("L", (2000, 160 + 70 * len(lines)), 255)
     draw = ImageDraw.Draw(img)
     for i, t in enumerate(lines):
@@ -134,3 +136,51 @@ def test_training_on_corrections(tmp_path, monkeypatch):
     assert languages.name("eng_testbook") == "English, trained on Test Book"
     assert r.cer_after is not None and r.cer_after < 0.2
     shutil.rmtree(tmp_path / "data", ignore_errors=True)
+
+
+def test_hebrew_words_saved_for_training(tmp_path):
+    from ectype.review import save_training_word
+
+    (tmp_path / "pages").mkdir()
+    Image.new("L", (1000, 300), 255).save(tmp_path / "pages" / "p001.png")
+    page = OcrPage("tesseract", "eng+heb", [1000, 300], 300.0,
+                   [Line([0, 100, 600, 140], [0, 0], 30.0, None, None, [_word("the", 0, 90), _word("x", 100)])])
+    assert save_training_word(tmp_path, "p001", page, 0, 0) is None, "a Latin word trains the main model, in its line"
+    page.lines[0].words[1].text = "וּרְאֵה"
+    png = save_training_word(tmp_path, "p001", page, 0, 1)
+    assert png.parent.name == "words" and png.with_suffix(".gt.txt").read_text(encoding="utf-8") == "וּרְאֵה\n"
+
+
+@pytest.mark.skipif(not features.check("raqm"), reason="right-to-left text needs Pillow's raqm layout")
+def test_training_hebrew_on_corrected_words(tmp_path, monkeypatch):
+    """Fine-tune Hebrew on pointed words, adding the vowel points the stock model lacks."""
+    from ectype import train
+    from ectype.project import Project
+
+    if train.available():
+        pytest.skip(train.available())
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
+    try:
+        train.best_model("heb")
+    except train.TrainingError as exc:
+        pytest.skip(str(exc))
+    from ectype.synth import find_font
+
+    font = ImageFont.truetype(str(find_font("FreeSerif")), 44)
+    words = "בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ וּבָרְכוּ וּמַלְּטִי וּרְאֵה דָּבָר".split()
+    rng = np.random.default_rng(1)
+    folder = tmp_path / "ws" / "training" / "words"
+    folder.mkdir(parents=True)
+    for i in range(60):
+        text = " ".join(rng.choice(words, 1 + i % 2))
+        im = Image.new("L", (int(font.getlength(text)) + 40, 80), 255)
+        ImageDraw.Draw(im).text((20, 58), text, font=font, fill=0, anchor="ls", direction="rtl", language="he")
+        im.save(folder / f"w{i:03d}.png", dpi=(300, 300))
+        (folder / f"w{i:03d}.gt.txt").write_text(text + "\n", encoding="utf-8")
+    project = Project(tmp_path / "ws")
+    project.set_languages(["eng", "heb"])
+    assert project.trainable() == [("heb", "words", 60)], "Hebrew trained on words; too few lines for English"
+    r = train.train(tmp_path / "ws", "heb", "Test Book", iterations=800, words=True)
+    assert r.model == "heb_testbook" and r.unit == "words"
+    assert set("ֱֵֹׁ") <= set(r.added), "the points the stock model lacks are added"
+    assert r.cer_after < r.cer_before, (r.cer_before, r.cer_after)

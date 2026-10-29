@@ -60,6 +60,9 @@ UNICODE_NAME = {"Greek": "GREEK", "Hebrew": "HEBREW", "Cyrillic": "CYRILLIC", "A
 
 UNSURE = 60.0  # words below this confidence are checked
 MAX_CHECKED = 40  # per page, the least confident first
+# A plausible word in Latin script: letters (mostly lower case, with a vowel), maybe in
+# brackets or quotes, maybe with an apostrophe or closing punctuation.
+LATIN_WORD = re.compile(r"^[(\[“‘\"']?(?=[A-Za-z'’]*[aeiouyAEIOUY])[A-Z]?[a-z'’]{2,}[)\]”’\"'.,;:!?]*$")
 BIDI_MARKS = dict.fromkeys(map(ord, "‎‏‪‫‬‭‮⁦⁧⁨⁩"))
 
 
@@ -142,14 +145,16 @@ def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None
         if crop.size == 0 or crop.shape[1] < 8:
             continue
         script, conf = detect_fn(crop)
-        if not script or script == "Latin" and "Latin" in covered:
-            continue
+        if not script or conf <= 0 or script == "Latin" and "Latin" in covered:
+            continue  # no answer, a guess with no confidence, or the main script
         if script not in covered:
             if script in SUGGEST or script == "Latin":
                 unread[script] += 1
             continue
-        if in_script(word.text, script):
-            continue  # already read in its script
+        if any(in_script(word.text, other) for other in covered if other != "Latin"):
+            continue  # already read in a script of the chosen languages
+        if LATIN_WORD.match(word.text) and conf < 5:
+            continue  # looks like a word of the main text ("(mil'el)"): only on a clear detection
         words = reread(np.pad(crop, 20, constant_values=255), covered[script])
         text = "".join(wd.text for wd in words)
         if not words or not in_script(text, script):
@@ -173,7 +178,7 @@ def _join_words(words):
 
 
 def suggest(unread: dict[str, int], chosen: list[str], pages: list[dict[str, int]] | None = None,
-            min_words: int = 2, min_on_a_page: int = 2) -> list[str]:
+            min_words: int = 3, min_on_a_page: int = 3) -> list[str]:
     """Languages to add for scripts none of the chosen covers, found in at least min_words words,
     with min_on_a_page of them on one page (real text in another script comes in clusters; the
     detector's occasional wrong guess on a smudged word doesn't)."""

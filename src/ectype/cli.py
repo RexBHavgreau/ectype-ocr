@@ -203,19 +203,20 @@ def cmd_idml(args: argparse.Namespace) -> int:
 
 
 def cmd_train(args: argparse.Namespace) -> int:
-    """Fine-tune the main OCR language on the workspace's corrected lines."""
+    """Fine-tune the OCR languages on the workspace's corrected lines and words."""
     from .project import Project
     from .train import TrainingError
 
     project = Project(Path(args.workspace))
     try:
-        r = project.train_model(lambda stage, msg: print(f"{stage}: {msg}"))
+        results = project.train_model(lambda stage, msg: print(f"{stage}: {msg}"))
     except TrainingError as exc:
         print(exc)
         return 1
-    print(f"Trained {r.model} on {r.lines} corrected lines (+{r.confident} confidently read), {r.iterations} iterations.")
-    if r.cer_before is not None:
-        print(f"Character errors on {r.held_out} lines kept aside: {100 * r.cer_before:.1f}% -> {100 * r.cer_after:.1f}%")
+    for r in results:
+        print(f"Trained {r.model} on {r.lines} corrected {r.unit} (+{r.confident} confidently read), {r.iterations} iterations.")
+        if r.cer_before is not None:
+            print(f"  Character errors on {r.held_out} {r.unit} kept aside: {100 * r.cer_before:.1f}% -> {100 * r.cer_after:.1f}%")
     print(f"OCR languages for this book: {project.settings.lang}. Run `ectype ocr` (or Run in the app) to read the pages again.")
     return 0
 
