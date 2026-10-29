@@ -41,9 +41,11 @@ def _spread_pdf(root):
 def project(tmp_path_factory):
     root = tmp_path_factory.mktemp("gui")
     p = Project.for_scan(_spread_pdf(root))
-    stages = []
-    p.run(progress=lambda stage, msg: stages.append(stage))
-    assert stages[::2] == ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
+    stages, fractions = [], []
+    p.run(progress=lambda stage, msg: stages.append(stage), fraction=fractions.append)
+    assert list(dict.fromkeys(stages)) == ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
+    assert fractions[0] == 0 and fractions[-1] == 1 and fractions == sorted(fractions), "the progress bar only moves on"
+    assert len(fractions) > 8, "page by page within stages"
     return p
 
 
@@ -185,4 +187,25 @@ def test_select_pdf_shows_the_selection_and_training_route(tmp_path):
     assert "Selected: book.pdf" in w.spreads.note.text()
     assert w.actions["train"].text() == "Train OCR model…"
     w.offer_languages()  # no other scripts found: nothing asked
+    w.close()
+
+
+def test_progress_window_during_a_run(project):
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    w.run("traced")
+    window = w.progress_window
+    assert window is not None and window.isVisible()
+    seen = set()
+    while w.worker.isRunning() or w.progress_window is not None:
+        app.processEvents()
+        if w.progress_window is not None:
+            seen.add(window.bar.text())
+    assert w.progress_window is None and not window.isVisible(), "closed when the run is done"
+    assert "100%" in seen or window.bar.value() == 1000
+    assert "traced:" in window.text.toPlainText()
     w.close()

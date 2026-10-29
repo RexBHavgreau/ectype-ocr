@@ -108,7 +108,7 @@ def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyp
 
 
 def traced_workspace(workspace: Path, out_name: str | None = None, background_dpi: float = 150,
-                     min_word_conf: float = 60.0) -> dict:
+                     min_word_conf: float = 60.0, on_page=None) -> dict:
     workspace = Path(workspace)
     out = workspace / "traced"
     out.mkdir(parents=True, exist_ok=True)
@@ -120,7 +120,10 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
     fonts, glyph_of = _load_fonts(workspace)
 
     pages_out, text_only, rows, placed_all, loaded = [], [], [], [], []
-    for png in sorted((workspace / "pages").glob("*.png")):
+    pngs = sorted((workspace / "pages").glob("*.png"))
+    for n, png in enumerate(pngs, 1):
+        if on_page:
+            on_page(n, len(pngs))
         name = png.stem
         image = Image.open(png)
         dpi = report.image_dpi(image)

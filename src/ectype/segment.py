@@ -559,7 +559,8 @@ def _segment_one(png: Path, workspace: Path, truth_root: Path | None, force: boo
     return row
 
 
-def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int | None = None, force: bool = False) -> dict:
+def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int | None = None, force: bool = False,
+                      on_page=None) -> dict:
     """Segment every page in <workspace>/pages using <workspace>/ocr; write <workspace>/segment.
     Pages run in parallel processes; a page whose result is newer than its inputs is reused."""
     import os
@@ -569,14 +570,21 @@ def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int
     (workspace / "segment").mkdir(parents=True, exist_ok=True)
     pngs = sorted((workspace / "pages").glob("*.png"))
     jobs = max(1, jobs or (os.cpu_count() or 1))
+    rows = []
     if jobs == 1 or len(pngs) < 2:
-        rows = [_segment_one(p, workspace, truth_root, force) for p in pngs]
+        for p in pngs:
+            rows.append(_segment_one(p, workspace, truth_root, force))
+            if on_page:
+                on_page(len(rows), len(pngs))
     else:
         import multiprocessing
 
         # spawn, not fork: forking a process that has threads (OpenCV, BLAS) can deadlock.
         with ProcessPoolExecutor(max_workers=min(jobs, len(pngs)), mp_context=multiprocessing.get_context("spawn")) as pool:
-            rows = list(pool.map(_segment_one, pngs, [workspace] * len(pngs), [truth_root] * len(pngs), [force] * len(pngs)))
+            for row in pool.map(_segment_one, pngs, [workspace] * len(pngs), [truth_root] * len(pngs), [force] * len(pngs)):
+                rows.append(row)
+                if on_page:
+                    on_page(len(rows), len(pngs))
     rows = [r for r in rows if r is not None]
     evals = [r["eval"] for r in rows if "eval" in r]
     summary = {"pages": rows}

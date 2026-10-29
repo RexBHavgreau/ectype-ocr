@@ -293,13 +293,14 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
 
 
 def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: str = "eng",
-              low_conf: float = 70.0, jobs: int | None = None, force: bool = False) -> dict:
+              low_conf: float = 70.0, jobs: int | None = None, force: bool = False, on_page=None) -> dict:
     """OCR every page PNG from a preprocess run; write .ocr.json, overlays and a report.
 
     Pages run in parallel (`jobs`, default one per CPU, each Tesseract on one thread);
     a page whose .ocr.json is newer than its image and was read with the same engine
-    and languages is reused unless `force`.
+    and languages is reused unless `force`. `on_page(done, total)` is called as pages finish.
     """
+    import threading
     from concurrent.futures import ThreadPoolExecutor
 
     pages_dir, out_dir = Path(pages_dir), Path(out_dir)
@@ -308,8 +309,19 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
     pngs = sorted(pages_dir.glob("*.png"))
     jobs = max(1, jobs or (os.cpu_count() or 1))
     threads = 1 if jobs > 1 else 0
+    done = [0]
+    lock = threading.Lock()
+
+    def one(png):
+        row = _ocr_one(png, out_dir, engine, lang, low_conf, threads, force)
+        with lock:
+            done[0] += 1
+            if on_page:
+                on_page(done[0], len(pngs))
+        return row
+
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        rows = list(pool.map(lambda p: _ocr_one(p, out_dir, engine, lang, low_conf, threads, force), pngs))
+        rows = list(pool.map(one, pngs))
     from .scripts import suggest
 
     unread: dict[str, int] = {}

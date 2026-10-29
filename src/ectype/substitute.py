@@ -209,7 +209,7 @@ def _render(path: Path, index: int, dpi: float) -> np.ndarray:
 
 
 def substitute_workspace(workspace: Path, font: Path, out_name: str | None = None,
-                         background_dpi: float = 150, pages: list[str] | None = None) -> dict:
+                         background_dpi: float = 150, pages: list[str] | None = None, on_page=None) -> dict:
     """Build <workspace>/substitute/<name>.pdf from pages, OCR and segmentation."""
     workspace = Path(workspace)
     out = workspace / "substitute"
@@ -218,7 +218,9 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
 
     loaded = []
     text = ""
-    for name in names:
+    for n, name in enumerate(names, 1):
+        if on_page:
+            on_page(n, len(names))
         gray = np.asarray(Image.open(workspace / "pages" / f"{name}.png").convert("L"))
         dpi = report.image_dpi(Image.open(workspace / "pages" / f"{name}.png"))
         ocr_path = workspace / "ocr" / f"{name}.ocr.json"

@@ -22,6 +22,9 @@ STAGES_TRACED = ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
 STAGES_SUBSTITUTE = ["preprocess", "ocr", "segment", "substitute"]
 STAGES_TEXT = ["preprocess", "ocr", "textlayer"]
 STAGES = {"traced": STAGES_TRACED, "substitute": STAGES_SUBSTITUTE, "text": STAGES_TEXT}
+# Rough share of a run's time per stage, for the progress bar (OCR takes the most).
+STAGE_WEIGHT = {"preprocess": 12, "ocr": 50, "segment": 12, "cluster": 8, "fonts": 6, "traced": 12,
+                "substitute": 12, "textlayer": 10}
 OUTPUT_FOLDER = {"traced": "traced", "substitute": "substitute", "text": "textlayer"}
 
 
@@ -253,27 +256,41 @@ class Project:
     def has_corrections(self) -> bool:
         return any((self.workspace / "corrections").glob("*.json"))
 
-    def run(self, start: str = "preprocess", progress: Progress | None = None) -> Path | None:
-        """Run the pipeline from `start` to the output PDF. Stages before it keep their results."""
+    def run(self, start: str = "preprocess", progress: Progress | None = None,
+            fraction: Callable[[float], None] | None = None) -> Path | None:
+        """Run the pipeline from `start` to the output PDF. Stages before it keep their results.
+        `fraction(f)` reports how much of the run is done, from 0 to 1, page by page."""
         progress = progress or (lambda stage, msg: None)
+        fraction = fraction or (lambda f: None)
         stages = self.stages()
         if start not in stages:
             raise ValueError(f"unknown stage {start!r}; choose from {', '.join(stages)}")
         ws = self.workspace
         s = self.settings
-        for stage in stages[stages.index(start):]:
+        running = stages[stages.index(start):]
+        whole = sum(STAGE_WEIGHT.get(st, 10) for st in running)
+        before = 0.0
+        fraction(0.0)
+        for stage in running:
+            weight = STAGE_WEIGHT.get(stage, 10)
+
+            def on_page(done: int, total: int, stage=stage, weight=weight, before=before) -> None:
+                fraction((before + weight * done / max(1, total)) / whole)
+                if stage in ("ocr", "segment") or done == total:
+                    progress(stage, f"page {done} of {total}")
+
             progress(stage, "running")
             if stage == "preprocess":
                 if not s.source or not Path(s.source).is_file():
                     raise FileNotFoundError("no scan to preprocess; open a scan first")
                 from .preprocess import preprocess
 
-                out = preprocess(Path(s.source), ws, keep_spreads=not s.split_spreads, overrides=self.overrides())
+                out = preprocess(Path(s.source), ws, keep_spreads=not s.split_spreads, overrides=self.overrides(), on_page=on_page)
                 msg = f"{len(out['sources'])} source pages -> {len(out['pages'])} pages"
             elif stage == "ocr":
                 from .ocr import ocr_pages
 
-                out = ocr_pages(ws / "pages", ws / "ocr", lang=s.lang)
+                out = ocr_pages(ws / "pages", ws / "ocr", lang=s.lang, on_page=on_page)
                 msg = f"{sum(r['words'] for r in out['pages'])} words"
                 if out["unread_scripts"]:
                     from .languages import name
@@ -285,7 +302,7 @@ class Project:
             elif stage == "segment":
                 from .segment import segment_workspace
 
-                out = segment_workspace(ws)
+                out = segment_workspace(ws, on_page=on_page)
                 msg = f"{sum(r['units'] for r in out['pages'])} glyph units"
             elif stage == "cluster":
                 from .cluster import cluster_workspace
@@ -301,20 +318,22 @@ class Project:
             elif stage == "textlayer":
                 from .textlayer import textlayer_workspace
 
-                out = textlayer_workspace(ws, out_name=s.name or None, image=s.page_image)
+                out = textlayer_workspace(ws, out_name=s.name or None, image=s.page_image, on_page=on_page)
                 msg = f"{out['bytes']:,} bytes; {out['words']} words as an invisible text layer"
             elif stage == "traced":
                 from .traced import traced_workspace
 
-                out = traced_workspace(ws, out_name=s.name or None)
+                out = traced_workspace(ws, out_name=s.name or None, on_page=on_page)
                 msg = f"{out['bytes']:,} bytes; {out['words']} words as text, {out['fallback_words']} left as image"
             else:
                 from .substitute import substitute_workspace
                 from .synth import find_font
 
-                out = substitute_workspace(ws, find_font(s.font or None), out_name=s.name or None)
+                out = substitute_workspace(ws, find_font(s.font or None), out_name=s.name or None, on_page=on_page)
                 msg = f"{out['bytes']:,} bytes"
             progress(stage, msg)
+            before += weight
+            fraction(before / whole)
         return self.output_pdf()
 
     # -- IDML ---------------------------------------------------------------------

@@ -42,6 +42,7 @@ class Worker(QThread):
     """Runs the pipeline off the interface thread."""
 
     progress = Signal(str, str)
+    fraction = Signal(float)
     done = Signal(str)
     failed = Signal(str)
 
@@ -51,7 +52,8 @@ class Worker(QThread):
 
     def run(self) -> None:
         try:
-            pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg))
+            pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg),
+                                   lambda f: self.fraction.emit(f))
             self.done.emit(str(pdf or ""))
         except Exception:
             self.failed.emit(traceback.format_exc())
@@ -73,6 +75,57 @@ class Task(QThread):
             self.done.emit(self.fn(lambda stage, msg: self.progress.emit(stage, msg)))
         except Exception:
             self.failed.emit(traceback.format_exc())
+
+
+STAGE_NAMES = {"preprocess": "Preparing the pages", "ocr": "Reading the text (OCR)", "segment": "Finding each letter",
+               "cluster": "Grouping the letters into glyphs", "fonts": "Building the fonts", "traced": "Writing the PDF",
+               "substitute": "Writing the PDF", "textlayer": "Writing the PDF", "train": "Training the OCR model"}
+
+
+class ProgressWindow(QDialog):
+    """A run in progress: what it is doing, a progress bar with a percentage, and the log.
+    Hiding it leaves the run going; the Log tab has the same lines."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(False)
+        self.resize(640, 400)
+        self.stage = QLabel("Starting…")
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 1000)
+        self.bar.setFormat("%p%")
+        self.bar.setTextVisible(True)
+        self.text = QPlainTextEdit()
+        self.text.setReadOnly(True)
+        self.buttons = QDialogButtonBox()
+        self.hide_button = self.buttons.addButton("Hide", QDialogButtonBox.RejectRole)
+        self.buttons.rejected.connect(self.hide)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.stage)
+        layout.addWidget(self.bar)
+        layout.addWidget(self.text, 1)
+        layout.addWidget(self.buttons)
+
+    def busy(self) -> None:
+        """No measure of how far along it is: the bar just shows activity."""
+        self.bar.setRange(0, 0)
+
+    def add(self, stage: str, msg: str) -> None:
+        self.stage.setText(STAGE_NAMES.get(stage, stage.capitalize()) + (f": {msg}" if msg != "running" else "…"))
+        self.text.appendPlainText(f"{stage}: {msg}")
+
+    def set_fraction(self, f: float) -> None:
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(round(1000 * max(0.0, min(1.0, f))))
+
+    def finish(self, ok: bool, message: str) -> None:
+        self.bar.setRange(0, 1000)
+        if ok:
+            self.bar.setValue(1000)
+        self.stage.setText(message)
+        self.text.appendPlainText(message)
+        self.hide_button.setText("Close")
 
 
 class ImageView(QGraphicsView):
@@ -820,6 +873,7 @@ class MainWindow(QMainWindow):
         self.project = project or Project(Path.home() / ".ectype" / "scratch")
         self.worker: Worker | None = None
         self.task: Task | None = None
+        self.progress_window: ProgressWindow | None = None
         self._build()
         self.load(self.project)
 
@@ -950,12 +1004,25 @@ class MainWindow(QMainWindow):
             a.setEnabled(False)
         self.tabs.setCurrentWidget(self.log)
         self.log.appendPlainText(f"— {title} —")
+        self.progress_window = ProgressWindow(title, self)
+        self.progress_window.busy()
+        self.progress_window.show()
         self.task = Task(fn)
-        self.task.progress.connect(lambda stage, msg: (self.log.appendPlainText(f"{stage}: {msg}"),
-                                                      self.statusBar().showMessage(f"{stage}: {msg}")))
-        self.task.done.connect(lambda result: (self._enable(), on_done(result)))
+        self.task.progress.connect(self._progress_line)
+        self.task.done.connect(lambda result: (self._close_progress(), self._enable(), on_done(result)))
         self.task.failed.connect(self._failed)
         self.task.start()
+
+    def _progress_line(self, stage: str, msg: str) -> None:
+        self.log.appendPlainText(f"{stage}: {msg}")
+        self.statusBar().showMessage(f"{stage}: {msg}")
+        if self.progress_window is not None:
+            self.progress_window.add(stage, msg)
+
+    def _close_progress(self) -> None:
+        if self.progress_window is not None:
+            self.progress_window.close()
+            self.progress_window = None
 
     def _enable(self) -> None:
         for a in self.actions.values():
@@ -1028,14 +1095,17 @@ class MainWindow(QMainWindow):
             a.setEnabled(False)
         self.tabs.setCurrentWidget(self.log)
         self.log.appendPlainText(f"— Running from {start} —")
+        self.progress_window = ProgressWindow(f"Running {self.project.settings.name or self.project.workspace.name}", self)
+        self.progress_window.show()
         self.worker = Worker(self.project, start)
-        self.worker.progress.connect(lambda stage, msg: (self.log.appendPlainText(f"{stage}: {msg}"),
-                                                        self.statusBar().showMessage(f"{stage}: {msg}")))
+        self.worker.progress.connect(self._progress_line)
+        self.worker.fraction.connect(lambda f: self.progress_window and self.progress_window.set_fraction(f))
         self.worker.done.connect(self._finished)
         self.worker.failed.connect(self._failed)
         self.worker.start()
 
     def _finished(self, pdf: str) -> None:
+        self._close_progress()
         self.log.appendPlainText(f"Done: {pdf}" if pdf else "Done.")
         self.statusBar().showMessage("Done.")
         for a in self.actions.values():
@@ -1083,6 +1153,9 @@ class MainWindow(QMainWindow):
 
     def _failed(self, error: str) -> None:
         self.log.appendPlainText(error)
+        if self.progress_window is not None:
+            self.progress_window.finish(False, "Stopped: " + error.strip().splitlines()[-1])
+            self.progress_window = None
         for a in self.actions.values():
             a.setEnabled(True)
         QMessageBox.warning(self, "Ectype OCR", error.strip().splitlines()[-1])
