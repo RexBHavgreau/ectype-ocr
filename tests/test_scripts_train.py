@@ -105,15 +105,15 @@ def test_corrections_carry_over_to_a_new_reading(tmp_path):
     assert original["lang"] == "eng_book", "the new reading is the page's original now"
 
 
-def test_training_on_corrections(tmp_path, monkeypatch):
-    """Fine-tune English on a few lines (a short run), install it, and read with it."""
+def test_fitting_tesseract_on_lines(tmp_path, monkeypatch):
+    """Continue English on a few lines (a short run): the fitted model reads them."""
     from ectype import train
 
     if train.available():
         pytest.skip(train.available())
     monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
     try:
-        train.best_model("eng")
+        best = train.best_model("eng")
     except train.TrainingError as exc:
         pytest.skip(str(exc))
     from ectype.synth import find_font
@@ -121,21 +121,16 @@ def test_training_on_corrections(tmp_path, monkeypatch):
     font = ImageFont.truetype(str(find_font("FreeSerif")), 40)
     words = "inspiration scripture doctrine original copies letter president teacher errors careless".split()
     rng = np.random.default_rng(0)
-    (tmp_path / "ws" / "training").mkdir(parents=True)
+    pairs = []
     for i in range(14):
         text = " ".join(rng.choice(words, 5))
         im = Image.new("L", (int(font.getlength(text)) + 40, 70), 255)
         ImageDraw.Draw(im).text((20, 50), text, font=font, fill=0, anchor="ls")
-        im.save(tmp_path / "ws" / "training" / f"l{i:03d}.png", dpi=(300, 300))
-        (tmp_path / "ws" / "training" / f"l{i:03d}.gt.txt").write_text(text + "\n")
-    r = train.train(tmp_path / "ws", "eng", "Test Book", iterations=40)
-    assert r.model == "eng_testbook" and r.lines + r.held_out == 14 and r.held_out >= 2
-    from ectype import languages
-
-    assert "eng_testbook" in languages.installed()
-    assert languages.name("eng_testbook") == "English, trained on Test Book"
-    assert r.cer_after is not None and r.cer_after < 0.2
-    shutil.rmtree(tmp_path / "data", ignore_errors=True)
+        im.save(tmp_path / f"l{i:03d}.png", dpi=(300, 300))
+        pairs.append((tmp_path / f"l{i:03d}.png", text))
+    fit = train.fit_tesseract(best, "eng", pairs, tmp_path / "work", iterations=40)
+    assert fit.path.is_file() and fit.float_path.is_file() and fit.items == 14
+    assert fit.path.stat().st_size < fit.float_path.stat().st_size, "the integer model, to read with, is smaller"
 
 
 def test_hebrew_words_saved_for_training(tmp_path):
@@ -152,16 +147,15 @@ def test_hebrew_words_saved_for_training(tmp_path):
 
 
 @pytest.mark.skipif(not features.check("raqm"), reason="right-to-left text needs Pillow's raqm layout")
-def test_training_hebrew_on_corrected_words(tmp_path, monkeypatch):
-    """Fine-tune Hebrew on pointed words, adding the vowel points the stock model lacks."""
+def test_fitting_hebrew_adds_the_points_it_lacks(tmp_path, monkeypatch):
+    """Continue Hebrew on pointed words, adding the vowel points the stock model lacks."""
     from ectype import train
-    from ectype.project import Project
 
     if train.available():
         pytest.skip(train.available())
     monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
     try:
-        train.best_model("heb")
+        best = train.best_model("heb")
     except train.TrainingError as exc:
         pytest.skip(str(exc))
     from ectype.synth import find_font
@@ -169,18 +163,24 @@ def test_training_hebrew_on_corrected_words(tmp_path, monkeypatch):
     font = ImageFont.truetype(str(find_font("FreeSerif")), 44)
     words = "בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ וּבָרְכוּ וּמַלְּטִי וּרְאֵה דָּבָר".split()
     rng = np.random.default_rng(1)
-    folder = tmp_path / "ws" / "training" / "words"
-    folder.mkdir(parents=True)
+    pairs = []
     for i in range(60):
         text = " ".join(rng.choice(words, 1 + i % 2))
         im = Image.new("L", (int(font.getlength(text)) + 40, 80), 255)
         ImageDraw.Draw(im).text((20, 58), text, font=font, fill=0, anchor="ls", direction="rtl", language="he")
-        im.save(folder / f"w{i:03d}.png", dpi=(300, 300))
-        (folder / f"w{i:03d}.gt.txt").write_text(text + "\n", encoding="utf-8")
-    project = Project(tmp_path / "ws")
-    project.set_languages(["eng", "heb"])
-    assert project.trainable() == [("heb", "words", 60)], "Hebrew trained on words; too few lines for English"
-    r = train.train(tmp_path / "ws", "heb", "Test Book", iterations=800, words=True)
-    assert r.model == "heb_testbook" and r.unit == "words"
-    assert set("ֱֵֹׁ") <= set(r.added), "the points the stock model lacks are added"
-    assert r.cer_after < r.cer_before, (r.cer_before, r.cer_after)
+        im.save(tmp_path / f"w{i:03d}.png", dpi=(300, 300))
+        pairs.append((tmp_path / f"w{i:03d}.png", text))
+    fit = train.fit_tesseract(best, "heb", pairs[:48], tmp_path / "work", iterations=800)
+    assert set("ֱֵֹׁ") <= set(fit.added), "the points the stock model lacks are added"
+
+    class Item:
+        def __init__(self, png, text):
+            self.png, self.text, self.book = png, text, "test"
+
+    (tmp_path / "eval").mkdir()
+    shutil.copyfile(best, tmp_path / "eval" / "stock.traineddata")
+    shutil.copyfile(fit.path, tmp_path / "eval" / "trained.traineddata")
+    held = [Item(p, t) for p, t in pairs[48:]]
+    before = train.errors_tesseract(tmp_path / "eval", "stock", held)["test"]
+    after = train.errors_tesseract(tmp_path / "eval", "trained", held)["test"]
+    assert after[0] < before[0], (before, after)

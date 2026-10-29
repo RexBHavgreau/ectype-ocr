@@ -83,14 +83,16 @@ def join(codes: list[str]) -> str:
 
 def installed() -> list[str]:
     """Codes of the languages that can be used now, sorted by name: Tesseract's, and the
-    Kraken models installed (kraken.py)."""
+    Kraken models installed (kraken.py). The models Ectype trains are not among them: they
+    stand behind the language they were trained for (models.py)."""
     from .kraken import installed_models
+    from .models import is_internal
 
     folder = tessdata_dir()
     codes = set(installed_models())
     if folder is not None:
         codes |= {p.name[:-len(".traineddata")] for p in folder.glob("*.traineddata")} - NOT_LANGUAGES
-    return sorted(codes, key=lambda c: name(c).lower())
+    return sorted((c for c in codes if not is_internal(c)), key=lambda c: name(c).lower())
 
 
 def available() -> list[str]:

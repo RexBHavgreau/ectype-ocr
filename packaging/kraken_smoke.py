@@ -59,10 +59,21 @@ def main() -> int:
     (work / "eval.txt").write_text("\n".join(str(data / f"l{i}.png") for i in range(6, 8)) + "\n", encoding="utf-8")
     result = run(engine, "train", "-f", "path", "-i", model, "--resize", "union", "-o", str(work / "trained"),
                  "-t", str(work / "train.txt"), "-e", str(work / "eval.txt"), "-N", "1", "-q", "fixed")
-    weights = list((work / "trained").glob("*.safetensors"))
+    weights = sorted((work / "trained").glob("*.safetensors"))
     print("trained:", result, [w.name for w in weights])
     if result.get("returncode") or not weights:
         sys.exit("training saved no model")
+
+    # A family's model as a pack of changes over the general one, and read with it laid over.
+    base = model if model.endswith(".safetensors") else str(weights[0])
+    info = run(engine, "pack", base, str(weights[-1]), str(work / "f1.pack.safetensors"))
+    print("pack:", info)
+    request = json.dumps({"model": base, "pack": str(work / "f1.pack.safetensors"), "image": str(data / "l0.png"),
+                          "lines": [[0, 0, *Image.open(data / "l0.png").size]]})
+    packed = run(engine, "serve", stdin=request + "\n")
+    print("read with the pack:", packed)
+    if "lines" not in packed:
+        sys.exit("couldn't read with the pack")
     return 0
 
 

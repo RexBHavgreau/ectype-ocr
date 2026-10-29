@@ -610,6 +610,7 @@ class LanguageButton(QToolButton):
 
     changed = Signal(list)
     add_requested = Signal()
+    models_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -638,6 +639,7 @@ class LanguageButton(QToolButton):
             self.boxes[code] = box
         self.menu_.addSeparator()
         self.menu_.addAction("Add languages…", self.add_requested.emit)
+        self.menu_.addAction("Trained models…", self.models_requested.emit)
         self._label()
 
     def _toggled(self, code: str, on: bool) -> None:
@@ -758,6 +760,108 @@ class AddLanguagesDialog(QDialog):
         self.bar.hide()
         self.download_button.setEnabled(True)
         self.status.setText("Download failed: " + error.strip().splitlines()[-1])
+
+
+class ModelsDialog(QDialog):
+    """The trained models and the training pools: what there is, and removing it."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Trained models")
+        self.resize(720, 480)
+        layout = QVBoxLayout(self)
+        intro = QLabel("Each language has one general model, trained on everything in its pool: every project's "
+                       "corrections, lines set in your fonts, and matched scans. Typeface families with enough "
+                       "material have models of their own, chosen automatically for each book.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.text = QPlainTextEdit()
+        self.text.setReadOnly(True)
+        layout.addWidget(self.text, 1)
+        row = QHBoxLayout()
+        self.choice = QComboBox()
+        row.addWidget(self.choice, 1)
+        self.remove_button = QPushButton("Remove its trained models")
+        self.remove_button.clicked.connect(self.remove_models)
+        row.addWidget(self.remove_button)
+        self.empty_button = QPushButton("Empty its pool")
+        self.empty_button.clicked.connect(self.empty_pool)
+        row.addWidget(self.empty_button)
+        layout.addLayout(row)
+        self.legacy_button = QPushButton("Remove per-book models from earlier versions")
+        self.legacy_button.clicked.connect(self.remove_legacy)
+        layout.addWidget(self.legacy_button)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.refresh()
+
+    def refresh(self) -> None:
+        from . import models, pool
+
+        lines, codes = [], []
+        for code, e in sorted(models.registry().items()):
+            have = models.choices(code)
+            if not have:
+                continue
+            codes.append(code)
+            g = e.get("general", {})
+            lines.append(f"{languages.name(code)}: trained {g.get('trained', '?')} on {g.get('items', '?')} images from "
+                         f"{len(g.get('books', []))} sources; {models.size_of(code) / 1e6:.1f} MB")
+            for fid, f in (e.get("families") or {}).items():
+                lines.append(f"    typeface family {fid[1:]}: {', '.join(f.get('books', []))}")
+        if not lines:
+            lines.append("No trained models yet.")
+        lines.append("")
+        for lang in pool.languages():
+            books = pool.summary(lang)
+            if lang not in codes:
+                codes.append(lang)
+            lines.append(f"Pool {languages.name(lang)}: {sum(b['train'] + b['test'] for b in books.values())} images "
+                         f"from {len(books)} sources")
+            for book, b in sorted(books.items()):
+                lines.append(f"    {book} ({b['source']}): {b['train'] + b['test']}")
+        old = models.legacy()
+        if old:
+            lines += ["", "Per-book models from earlier versions: " + ", ".join(old)]
+        self.text.setPlainText("\n".join(lines))
+        self.choice.clear()
+        for code in codes:
+            self.choice.addItem(languages.name(code), code)
+        self.remove_button.setEnabled(bool(codes))
+        self.empty_button.setEnabled(bool(codes))
+        self.legacy_button.setEnabled(bool(old))
+
+    def _confirm(self, text: str) -> bool:
+        return QMessageBox.question(self, "Trained models", text) == QMessageBox.Yes
+
+    def remove_models(self) -> None:
+        from . import models
+
+        code = self.choice.currentData()
+        if code and self._confirm(f"Remove the trained models of {languages.name(code)}? Its stock model is used "
+                                  "again; the pool stays, so they can be trained again."):
+            models.remove(code)
+            self.refresh()
+
+    def empty_pool(self) -> None:
+        from . import pool
+
+        code = self.choice.currentData()
+        lang = pool.key_for(code) if code else None
+        if lang and self._confirm(f"Empty the training pool of {languages.name(lang)}? The corrections stay in their "
+                                  "projects and are added again the next time each is trained."):
+            pool.remove_language(lang)
+            self.refresh()
+
+    def remove_legacy(self) -> None:
+        from . import models
+
+        if self._confirm("Remove the per-book models made by earlier versions? Their books are read with the "
+                         "language's trained model instead."):
+            for code in models.legacy():
+                models.remove_legacy(code)
+            self.refresh()
 
 
 class KrakenModelsPanel(QWidget):
@@ -1132,6 +1236,7 @@ class MainWindow(QMainWindow):
         self.langs = LanguageButton()
         self.langs.changed.connect(self._languages_changed)
         self.langs.add_requested.connect(self.add_languages)
+        self.langs.models_requested.connect(lambda: ModelsDialog(self).exec())
         bar.addWidget(self.langs)
         self.split = QCheckBox("Split two-page spreads")
         self.split.toggled.connect(self._split_changed)
@@ -1403,49 +1508,51 @@ class MainWindow(QMainWindow):
             return
         plan = self.project.trainable()
         if not plan:
+            from .training import MIN_ITEMS
+
             lines, words = self.project.corrected_lines(), self.project.corrected_words()
             QMessageBox.information(self, "Train OCR model",
-                                    f"Correct at least {train.MIN_LINES} lines in the Review tab first ({lines} so far).\n\n"
-                                    "Each line you correct is saved with its image as training data. Training then teaches "
-                                    "the OCR model this book's type, so the next reading makes fewer of the same mistakes.\n\n"
-                                    f"Words in another script (Hebrew, Greek) train that language's model: correct at least "
-                                    f"{train.MIN_WORDS} of them ({words} so far), with the language ticked.")
+                                    f"Each language needs at least {MIN_ITEMS} corrected lines or words to train on "
+                                    f"(this book: {lines} lines, {words} words in other scripts).\n\n"
+                                    "Every line or word you correct in Review, in any project, goes into that language's "
+                                    "training pool, so what is learned from one book carries over to the next. Lines "
+                                    "set in your fonts can be added too (Train Hebrew and Greek.bat, or "
+                                    "ectype train-synthetic).")
             return
-        book = self.project.settings.name or self.project.workspace.name
-        which = "\n".join(f"• {languages.name(base)}, on {n} corrected {'words' if unit == 'kraken' else unit}" for base, unit, n in plan)
+        which = "\n".join(f"• {languages.name(code)}: {n} images in its pool" for code, n in plan)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
-        box.setText(f"Train these models on your corrections?\n\n{which}")
+        box.setText(f"Train these languages?\n\n{which}")
         box.setInformativeText(
-            "Ectype fine-tunes a copy of each model on them (and on text it read confidently, so it keeps what "
-            "it does well), checks it on corrections kept aside, and saves it as a new language for this book, "
-            f"e.g. \"{languages.name(plan[0][0])}, trained on {book}\". It takes a few minutes each; the first time, "
-            "each trainable model (about 15 MB) is downloaded. Your corrections are kept when the pages are read again.")
+            "Each language's model is trained on its whole pool (this book's corrections with every other "
+            "project's), then checked on images kept aside: it replaces the model in use only if it makes fewer "
+            "errors and no book does worse. Typeface families with enough material get models of their own, "
+            "chosen automatically for each book. This can take from minutes to a few hours; the first time, "
+            "each trainable stock model (about 15 MB) is downloaded.")
         go = box.addButton("Train", QMessageBox.AcceptRole)
         box.addButton(QMessageBox.Cancel)
         box.exec()
         if box.clickedButton() is go:
-            self._start(lambda progress: self.project.train_model(progress), self._trained, "Training the OCR model")
+            self._start(lambda progress: self.project.train_model(progress), self._trained, "Training the OCR models")
 
-    def _trained(self, results) -> None:
+    def _trained(self, reports) -> None:
         self.langs.set_languages(self.project.languages())
-        report = []
-        for r in results:
-            text = f"\"{languages.name(r.model)}\", on {r.lines} corrected {r.unit}."
-            if r.cer_before is not None and r.cer_after is not None:
-                text += (f" On {r.held_out} kept aside, character errors went from "
-                         f"{100 * r.cer_before:.1f}% to {100 * r.cer_after:.1f}%.")
-            if r.skipped:
-                text += f" {r.skipped} {r.unit} with characters the model doesn't know (another script) were left out."
-            report.append(text)
+        lines = []
+        for r in reports:
+            lines += r["lines"]
+            if r.get("chosen"):
+                lines.append(f"  For this book: {r['chosen']}.")
+        for line in lines:
+            self.log.appendPlainText(line)
+        changed = any(r["general"]["installed"] or any(f["kept"] for f in r["families"].values()) for r in reports)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
-        box.setText("Trained " + ("a new model." if len(results) == 1 else f"{len(results)} new models."))
-        box.setInformativeText("\n\n".join(report) + "\n\nRead the pages again with them now? Your corrections are kept.")
-        again = box.addButton("Read again", QMessageBox.AcceptRole)
-        box.addButton("Later", QMessageBox.RejectRole)
+        box.setText("Training finished." + ("" if changed else " The models in use were kept: the new ones weren't better."))
+        box.setInformativeText("\n".join(lines) + ("\n\nRead the pages again now? Your corrections are kept." if changed else ""))
+        again = box.addButton("Read again", QMessageBox.AcceptRole) if changed else None
+        box.addButton("Later" if changed else "OK", QMessageBox.RejectRole)
         box.exec()
-        if box.clickedButton() is again:
+        if again is not None and box.clickedButton() is again:
             self.run("ocr")
 
     # -- updates and about ----------------------------------------------------

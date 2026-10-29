@@ -53,7 +53,7 @@ Each export is a folder of its own, holding the IDML and its `Links`. IDML expor
 
 **Kraken** reads Greek, Hebrew and other scripts better than Tesseract does. Under **Languages → Add languages… → Kraken models**, download the Kraken engine once (an optional download that includes PyTorch), then pick a model from Kraken's repository on Zenodo, filtered by script and to printed text; each model's description says what it was trained on. A Kraken model is then an OCR language like the others: tick it with English and Tesseract reads the page, after which Kraken reads again each run of words in its script. Details: [`docs/idml.md`](docs/idml.md#kraken-greek-hebrew-and-other-scripts).
 
-**Train OCR model…** teaches the OCR this book's type: Tesseract's model is fine-tuned on the lines you corrected in Review (at least 10), checked on lines kept aside, and saved as a language of its own (e.g. "English, trained on Young") for this book's next reading. Hebrew, Greek and other scripts in the text are trained on the words you correct into them (at least 20), as "Hebrew, trained on …", adding characters the stock model lacks, such as the vowel points it can't read. Words in a Kraken model's script fine-tune that model with Kraken's own trainer. Corrections are kept when the pages are read again. Details: [`docs/idml.md`](docs/idml.md#training-the-ocr-model).
+**Train OCR model…** improves the OCR from book to book. Every correction you make in Review, in any project, goes into its language's training pool, with lines set from known text in your own fonts and lines of scanned editions matched to their text (no correcting by hand: `Train Hebrew and Greek.bat`). Each language has one model trained on its whole pool, checked on material kept aside and installed only if it does better; typeface families with enough material get models of their own beside it, and Ectype picks the one that reads each book best. The Languages menu shows only languages. Details: [`docs/idml.md`](docs/idml.md#training-the-ocr-models).
 
 Everything the app does is also available on the command line.
 
@@ -70,7 +70,11 @@ This runs every stage below in one workspace: preprocess, ocr, segment, then eit
 ```
 ectype languages [--all]              # installed OCR languages (--all: and those that can be added)
 ectype languages --add grc lat heb    # download languages
-ectype train reports/work-young       # fine-tune the OCR model on the lines corrected in Review
+ectype train reports/work-young       # train the languages' models from their pools, with this project's corrections
+ectype train-synthetic --fonts C:\Fonts --script hebrew greek   # lines set from known text in your fonts
+ectype train-scans letteris.pdf --text hebrew-bible --edition "Letteris 1866"   # a scanned edition, matched to its text
+ectype train-all                      # all of it, from training.ini (what Train Hebrew and Greek.bat runs)
+ectype models                         # the trained models and pools; --remove, --remove-pool, --remove-legacy
 ectype textlayer reports/work-young   # the scan with an invisible OCR text layer
 ectype idml reports/work-young --mode reflow|facsimile [-o out/book.idml] [--page-markers] [--profile NAME]
 ```

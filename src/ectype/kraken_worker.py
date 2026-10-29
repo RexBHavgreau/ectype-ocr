@@ -14,6 +14,8 @@ Commands (results as JSON on stdout; progress as "progress <done> <total>" lines
     serve                      read lines: one JSON request a line on stdin, one answer a
                                line on stdout, until stdin closes (see `_read`)
     train <ketos args...>      `ketos train` with the given arguments
+    pack <base> <trained> <out>     a family's model as its changes from the general one
+    compose <base> <pack> <out>     the family's model rebuilt from them
 """
 
 from __future__ import annotations
@@ -130,18 +132,97 @@ def get(doi: str, folder: str) -> dict:
     return {"folder": str(path), "files": files, "model": weights[0] if weights else None}
 
 
+PACK_FORMAT = "1"
+
+
+def _split_name(name: str) -> tuple[str, str]:
+    """A layer's name without the model's own id that Kraken puts in front: (id, rest)."""
+    head, _, rest = name.partition(".")
+    return (head, rest) if rest and len(head) >= 32 and head.count("-") == 4 else ("", name)
+
+
+def make_pack(base: str, trained: str, out: str) -> dict:
+    """A typeface family's model as the changes from the general model it was trained from:
+    each changed layer as 8-bit steps of the difference (one scale a row), layers whose shape
+    changed (new characters) whole, and unchanged layers left out. A small fraction of a
+    full copy; `compose` rebuilds the model from the general one and the pack."""
+    import torch
+    from safetensors import safe_open
+    from safetensors.torch import load_file, save_file
+
+    old = {_split_name(n)[1]: t for n, t in load_file(base).items()}
+    new = load_file(trained)
+    with safe_open(trained, framework="pt") as f:
+        metadata = f.metadata() or {}
+    tensors, delta, whole, prefix = {}, 0, 0, ""
+    for name, t in new.items():
+        prefix, rest = _split_name(name)
+        b = old.get(rest)
+        if b is None or b.shape != t.shape or not t.is_floating_point():
+            tensors[f"{rest}::full"] = t.contiguous()
+            whole += 1
+            continue
+        d = t.float() - b.float()
+        if float(d.abs().max()) < 1e-8:
+            tensors[f"{rest}::same"] = torch.zeros(1, dtype=torch.int8)
+            continue
+        rows = d.reshape(d.shape[0], -1) if d.dim() > 1 else d.reshape(1, -1)
+        scale = rows.abs().amax(dim=1, keepdim=True).clamp_min(1e-12) / 127
+        q = torch.round(rows / scale).clamp(-127, 127).to(torch.int8)
+        tensors[f"{rest}::q"] = q.contiguous()
+        tensors[f"{rest}::s"] = scale.float().contiguous()
+        delta += 1
+    save_file(tensors, out, metadata={"ectype_pack": PACK_FORMAT, "prefix": prefix,
+                                      "model_metadata": json.dumps(metadata)})
+    return {"bytes": os.path.getsize(out), "layers_changed": delta, "layers_whole": whole,
+            "full_bytes": os.path.getsize(trained)}
+
+
+def compose(base: str, pack: str, out: str) -> str:
+    """The family model, rebuilt from the general model and its pack (see make_pack)."""
+    from safetensors import safe_open
+    from safetensors.torch import load_file, save_file
+
+    old = {_split_name(n)[1]: t for n, t in load_file(base).items()}
+    tensors = {}
+    with safe_open(pack, framework="pt") as f:
+        meta = f.metadata() or {}
+        prefix = meta.get("prefix", "")
+        full = (lambda rest: f"{prefix}.{rest}" if prefix else rest)  # noqa: E731
+        for key in f.keys():
+            rest, kind = key.rsplit("::", 1)
+            if kind == "full":
+                tensors[full(rest)] = f.get_tensor(key)
+            elif kind == "same":
+                tensors[full(rest)] = old[rest]
+            elif kind == "q":
+                b = old[rest]
+                q, scale = f.get_tensor(key).float(), f.get_tensor(f"{rest}::s")
+                tensors[full(rest)] = (b.float() + (q * scale).reshape(b.shape)).to(b.dtype).contiguous()
+    save_file(tensors, out, metadata=json.loads(meta.get("model_metadata") or "{}"))
+    return out
+
+
 class Reader:
-    """Recognition models, loaded once each and kept."""
+    """Recognition models, loaded once each and kept (a family's: the general model with the
+    family's pack laid over it)."""
 
     def __init__(self):
         self.models = {}
+        self.tmp = None
 
-    def model(self, path: str):
-        if path not in self.models:
+    def model(self, path: str, pack: str | None = None):
+        key = (path, pack)
+        if key not in self.models:
             from kraken.tasks import RecognitionTaskModel
 
-            self.models[path] = RecognitionTaskModel.load_model(path)
-        return self.models[path]
+            if pack:
+                import tempfile
+
+                self.tmp = self.tmp or tempfile.TemporaryDirectory(prefix="ectype-kraken-")
+                path = compose(path, pack, os.path.join(self.tmp.name, f"m{len(self.models)}.safetensors"))
+            self.models[key] = RecognitionTaskModel.load_model(path)
+        return self.models[key]
 
     def read(self, request: dict) -> dict:
         """Read boxed lines of one image with one model. Request: {"model", "image", "lines":
@@ -151,7 +232,7 @@ class Reader:
         from kraken.containers import BBoxLine, Segmentation
         from PIL import Image
 
-        model = self.model(request["model"])
+        model = self.model(request["model"], request.get("pack"))
         image = Image.open(request["image"])
         lines = [BBoxLine(id=f"l{i}", bbox=tuple(int(v) for v in box)) for i, box in enumerate(request["lines"])]
         seg = Segmentation(type="bbox", imagename=request["image"], text_direction="horizontal-lr",
@@ -220,6 +301,10 @@ def main(argv: list[str] | None = None) -> int:
             serve()
         elif command == "train":
             return train(rest)
+        elif command == "pack":
+            _out(make_pack(rest[0], rest[1], rest[2]))
+        elif command == "compose":
+            _out({"model": compose(rest[0], rest[1], rest[2])})
         else:
             print(f"unknown command {command!r}", file=sys.stderr)
             return 2

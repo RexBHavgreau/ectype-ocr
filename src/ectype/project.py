@@ -160,9 +160,17 @@ class Project:
         return stages[stages.index("ocr") + 1]
 
     def languages(self) -> list[str]:
+        """The OCR languages chosen. A per-book model of an earlier version counts as the
+        language it was trained for: the trained models now stand behind the languages."""
         from .languages import split
+        from .models import stock_code
 
-        return split(self.settings.lang)
+        out = []
+        for code in split(self.settings.lang):
+            code = stock_code(code)
+            if code not in out:
+                out.append(code)
+        return out
 
     def set_languages(self, codes: list[str]) -> None:
         """OCR languages, in order (the first is the main one). Pages are read again on
@@ -192,76 +200,59 @@ class Project:
         self.save_settings()
 
     def corrected_lines(self) -> int:
-        """Lines corrected in Review: the training data for the OCR model."""
+        """Lines corrected in Review."""
         from .train import training_pairs
 
         return len(training_pairs(self.workspace))
 
-    def base_language(self) -> str:
-        """The main OCR language, as a stock model (a trained one's base)."""
-        from .train import trained_models
-
-        main = self.languages()[0]
-        return trained_models().get(main, {}).get("base", main)
-
-    def trainable(self) -> list[tuple[str, str, int]]:
-        """What training can run on now: (stock language, "lines" or "words", count) for the main
-        language with enough corrected lines, and each other-script language with enough
-        corrected words (Hebrew, Greek... are trained on words, their lines mixing scripts)."""
-        from .scripts import script_of
-        from .train import MIN_LINES, MIN_WORDS, script_words, trained_models
-
-        out = []
-        lines = self.corrected_lines()
-        if lines >= MIN_LINES:
-            out.append((self.base_language(), "lines", lines))
-        from .kraken import installed_models, is_model
-
-        models = trained_models()
-        for code in self.languages()[1:]:
-            if is_model(code):  # a Kraken model, trained with Kraken's own trainer
-                base = installed_models().get(code, {}).get("base", code)
-                unit = "kraken"
-            else:
-                base = models.get(code, {}).get("base", code)
-                unit = "words"
-            if script_of(base) != "Latin":
-                n = len(script_words(self.workspace, base))
-                if n >= MIN_WORDS:
-                    out.append((base, unit, n))
-        return out
-
     def corrected_words(self) -> int:
-        """Words corrected into another script than the main text's, saved for training."""
+        """Words corrected into another script than the main text's."""
         from .train import training_pairs
 
         return len(training_pairs(self.workspace, words=True))
 
-    def train_model(self, progress: Progress | None = None) -> list:
-        """Fine-tune each language there is enough correction for (see trainable), and use the
-        new models for this book from the next reading on."""
-        from .kraken import installed_models
-        from .train import MIN_LINES, TrainingError, train, train_kraken, trained_models
+    def base_language(self) -> str:
+        """The main OCR language."""
+        return self.languages()[0]
+
+    def book(self) -> str:
+        return self.settings.name or self.workspace.name
+
+    def sync_pool(self) -> dict[str, int]:
+        """Add this project's corrections to the languages' training pools (pool.py)."""
+        from .pool import sync_workspace
+
+        return sync_workspace(self.workspace, self.book(), self.languages())
+
+    def trainable(self) -> list[tuple[str, int]]:
+        """The chosen languages with enough in their pools to train: (code, images)."""
+        from .training import MIN_ITEMS, trainable
+
+        self.sync_pool()
+        out = []
+        for code in self.languages():
+            n = trainable(code)
+            if n >= MIN_ITEMS:
+                out.append((code, n))
+        return out
+
+    def train_model(self, progress: Progress | None = None) -> list[dict]:
+        """Train the chosen languages' models from their pools (training.py): each language's
+        general model, and its typeface families'. Then find which reads this book best."""
+        from .train import TrainingError
+        from .training import MIN_ITEMS, choose_for_workspace, train_language
 
         progress = progress or (lambda stage, msg: None)
+        say = lambda msg: progress("train", msg)  # noqa: E731
         plan = self.trainable()
         if not plan:
-            raise TrainingError(f"Correct at least {MIN_LINES} lines in Review first ({self.corrected_lines()} so far). "
-                                "Each corrected line becomes training data.")
-        book = self.settings.name or self.workspace.name
-        say = lambda msg: progress("train", msg)  # noqa: E731
-        results = [train_kraken(self.workspace, base, book, progress=say) if unit == "kraken"
-                   else train(self.workspace, base, book, progress=say, words=unit == "words")
-                   for base, unit, _ in plan]
-        models = {**trained_models(), **installed_models()}
-        new = {r.base: r.model for r in results}
-        codes = []
-        for code in self.languages():
-            code = new.get(models.get(code, {}).get("base", code), code)
-            if code not in codes:
-                codes.append(code)
-        self.set_languages(codes)
-        return results
+            raise TrainingError(f"Nothing to train yet: each language needs at least {MIN_ITEMS} corrected lines or "
+                                "words in its pool. Correct more in Review (every project's corrections count).")
+        reports = [train_language(code, say) for code, _ in plan]
+        chosen = choose_for_workspace(self.workspace, self.book(), self.languages(), say)
+        for r in reports:
+            r["chosen"] = chosen.get(r["code"])
+        return reports
 
     def has_corrections(self) -> bool:
         return any((self.workspace / "corrections").glob("*.json"))

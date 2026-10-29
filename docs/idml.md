@@ -49,7 +49,7 @@ A book in English with Greek and Hebrew words needs all three languages ticked; 
 - **The engine.** Kraken needs PyTorch, which is large, so it runs in a process of its own (`kraken_worker.py`; `kraken.py` talks to it). In the Windows app it is an optional download, the Kraken engine (`Ectype-OCR-Kraken-<version>-win64.zip`, a few hundred megabytes), from the app's own release, checked against the release's SHA-256 digest and unpacked into the user's folder. From source it is the `kraken` extra, or any environment named by `ECTYPE_KRAKEN`.
 - **Models.** **Languages → Add languages… → Kraken models** lists the repository's recognition models (through Kraken's own repository client; the list is kept for a week). They can be filtered by script and to printed text, and searched; each model's description, authors, languages, reported error rate and licence are shown. The user chooses: no model is built in or preferred, since the right one depends on the book (period, typeface, how dark and clean the scan is). A downloaded model is an OCR language with a code like `kraken_7051645`, named e.g. "Hebrew (Kraken): <title>".
 - **Reading.** With a Kraken model ticked, Tesseract reads the page with the Tesseract languages ticked. Then words in the model's script are read again by Kraken, a run of neighbouring words at a time, as one line (Kraken reads lines). A word is in the script when most of its letters are, or when the script detector puts it there. With a Kraken model chosen, the detector also checks words Tesseract read confidently but that aren't plain words, since Tesseract without Hebrew reads it as confident figures ("13723" for וּבָרְכוּ). A figure or mark between two Hebrew words goes with them. Ticking Tesseract's Hebrew too helps find the Hebrew words: the combined reading gets most of them into Hebrew letters, and Kraken then reads them again.
-- **Training.** Words corrected into a Kraken model's script (20 or more) fine-tune that model with Kraken's trainer, `ketos train`, continuing from it (`--resize union` adds characters it lacks). A fifth is kept aside to compare the old and new model. The result is a Kraken model of its own, "Hebrew (Kraken), trained on <book>", replacing the one it came from for the book. On a small test model trained here from synthetic lines, two epochs on 32 corrected words cut the error rate on the 8 kept aside from 51% to 10%.
+- **Training.** A Kraken model learns from its script's pool like Tesseract's language does (see Training below), with Kraken's trainer, `ketos train` (`--resize union` adds characters it lacks). Its typeface families' models are packs of their changes from the general model (below).
 - **Comparing models.** `tools/kraken_eval.py` (run in CI, which can reach Zenodo) reads Genesis 1:1–4, pointed and unpointed, and John 1:1–5 in several fonts with each printed Greek and Hebrew model and with Tesseract's `heb` and `grc`, and prints the character error rates. Set type isn't a book's type, so this checks the models work and how they compare; it doesn't choose one.
 
   First results (October 29; character error rates, %; lines lightly blurred and speckled; 52 recognition models in the repository):
@@ -67,32 +67,94 @@ A book in English with Greek and Hebrew words needs all three languages ticked; 
   - **Pointed Hebrew:** no model in the repository reads vowel points in print; they drop them (about 40% of the characters). Tesseract does better but lacks four of the points. For a pointed text, a model has to be trained on the book itself: correct its Hebrew words in Review and train, either engine.
   - Two "Party" models (whole-page recognition) can't be used to read lines; the app refuses them with a message.
 
-## Training the OCR model
+## Training the OCR models
 
-**Train OCR model…** in the app (it shows how many lines and other-script words you have corrected), or `ectype train <workspace>`. Each word corrected in Review saves its line, image and corrected text, in `training/`. Training fine-tunes a copy of the book's main language on those lines (`train.py`):
+Training improves the models from book to book: what is learned from one project carries over to the next, and nothing is lost when another is added.
 
-1. **Base model.** The trainable float model of the language (from `tessdata_best`, about 15 MB) is downloaded once. The shipped models are integer models and can't be trained further.
-2. **Training lines.** The corrected lines, plus as many lines the OCR read with high confidence (every word at 90 or more), so the model keeps what it already does well. Lines with letters of another script, such as Hebrew in an English line, are left out and counted. Each line becomes Tesseract's training file (`.lstmf`) from its image and a box file with its text.
-   - **New characters.** Characters of the model's own script that it lacks are added to it, as tesstrain does: a new character set (the model's plus the new ones) and a starter model with the old model's word lists, which training continues from (`--old_traineddata`).
-3. **Training.** A fifth of the corrected lines (at least two) is kept aside. `lstmtraining` continues the base model on the rest: 30 iterations a line, between 300 and 3,000.
-4. **Check.** The lines kept aside are read with the old and the new model, and the report gives both character error rates.
-5. **Install.** The new model is saved as a language of its own, e.g. `eng_young` ("English, trained on Young"), beside the downloaded ones. It replaces the main language for this book, and can be chosen for others in the Languages menu. The app offers to read the pages again with it, keeping the corrections.
+### One pool per language
 
-At least 10 corrected lines are needed. Training again later starts from the stock model with all the corrections so far.
+Every language has a training pool in the user's folder (`pool.py`), shared by all projects and both engines. Into it go:
+- **Corrections** from every project: a corrected line goes to the main language's pool, a word corrected into Hebrew or Greek to that language's pool. They are added when a project is trained (`Project.sync_pool`); a line corrected again replaces its earlier version.
+- **Confidently read lines** of each project (every word at 90 or more, at most 300 a project): trained on, never tested on, so training on corrections doesn't unlearn what a model already reads well.
+- **Lines set in your fonts** (below).
+- **Lines of scanned editions matched to their known text** (below).
 
-### Hebrew, Greek and other scripts in the book
+A fifth of each source's items is kept aside for testing, chosen by the item's id, so it never changes. For lines set in fonts, whole fonts are kept aside instead (a fifth of them, at least one of two or more), so the test is on type the model never saw.
 
-Their words are trained on separately, word by word, since their lines mix scripts. A word corrected into Hebrew (or Greek…) is also saved by itself in `training/words/`. With 20 or more for a language that is ticked, training fine-tunes that language too, on those words and on words of its script read with confidence 90 or more, e.g. `heb_treatise` ("Hebrew, trained on Treatise"). It replaces the stock language for the book.
+### One model per language, with typeface families beside it
 
-This is the route for the pointed Hebrew in the Treatise (`corpus/Treatise 01.pdf`). The stock Hebrew model has no holam, tsere, hataf segol or shin dot at all, so it can't give אֱלֹהִים, and it reads this book's type poorly: short pointed words come out as Latin look-alikes in the combined reading ("3223)") and as wrong letters when read again in Hebrew alone. Script detection can only send a word to the right model; only training on this book's own Hebrew will fix the reading.
+The Languages menu shows languages, not models: "Hebrew", "Greek (Ancient)", a Kraken model. Behind each one (`models.py`) is:
+- the **stock model** (Tesseract's language, or the Kraken model downloaded);
+- a **general model**, trained on the language's whole pool. It replaces the stock model once there is one;
+- **family models**, for typeface families with enough material.
 
-Right-to-left text is trained in visual order, its characters reversed: Tesseract's Hebrew model reads that way and turns its readings round. Trained in reading order, it learns the words backwards. Like tesstrain, the character set is built with normalisation mode 3 and a pass-through recoder, as the stock model has.
+**Typeface families** (`families.py`): a book's type in one script gets a fingerprint, measured on its letters scaled to one height: stroke weight, thick-thin contrast, how much of each letter is ink, width and slant. Books and fonts whose fingerprints lie close together form a family. On the fonts at hand the serifs fall together, the sans faces together, and bold and italic apart. The same font at another size stays in its family; heavy blur, like dark ink, makes type look bolder and can move it.
 
-On a test of 150 synthetic pointed Hebrew words and phrases (FreeSerif), training on 120 cut the character error rate on the 30 kept aside from 32% to 16%. The new model reads tsere and the other added points (וּרְאֵה, וּמַלְּטִי); dropped points cause most of the remaining errors.
+**Which model reads a book** is Ectype's choice, not the user's:
+1. the model found best on the book's own corrections (each language's models are tried on them after training);
+2. else the family model nearest the book's fingerprint, if one is near enough (a book's first reading measures its type on its first three pages, then reads with the model that suits it);
+3. else the general model;
+4. else the stock model.
 
-On a test of 80 synthetic lines in an italic face, training on 64 took 32 seconds and cut the character error rate on the 16 kept aside from 1.1% to 0.16%.
+The Log says which was used.
 
-Training needs Tesseract's training tools (`lstmtraining`, `combine_tessdata`; to add characters, also `unicharset_extractor`, `merge_unicharsets`, `combine_lang_model` and `dawg2wordlist`). They come with Tesseract in Linux packages; the Windows build log says whether they are in the app.
+**Storage.** A Tesseract family model is a model of its own in compact (integer) form, a few megabytes. A Kraken family model is a *pack*: only its changes from the general model, each layer's difference in 8-bit steps with a scale for each row (`kraken_worker.make_pack`). When reading, the engine lays the pack over the general model in memory. On a test model a pack was a quarter of a full copy (4.0 against 16 MB), and the rebuilt model read 30 test lines exactly as the full one did. Compressing packs further would save only 13%.
+
+### Training a language
+
+**Train OCR model…** in the app (`ectype train <project>`, or `ectype train --lang heb grc` without a project) trains each chosen language with at least 20 images in its pool (`training.py`):
+1. **General model.** Trained afresh from the stock model on a balanced sample of the whole pool: at most 4,000 images, every source represented, confidently read lines no more than a third. Starting from the stock model each time keeps it from drifting as books are added; the sample keeps the time bounded as the pool grows.
+2. **The check.** The new model and the one in use read every source's test images. The new one is installed only if it makes fewer errors overall and no source does clearly worse (more than 10%, or half a point). Otherwise the old one stays, and the report says which source got worse.
+3. **Families.** A family with 200 or more training images gets a model trained further from the general model on its images. It is kept only if it makes at least 3% fewer errors on the family's test images than the general model does. When fonts in a family weren't kept aside, a tenth of its images is held back for this.
+4. **This book.** The language's models are tried on the book's own corrections, and the best is remembered for it. Training again ends that choice, since the models have changed.
+
+The report goes to the Log; the app offers to read the pages again.
+
+**Trained models…** in the Languages menu lists each language's models and pool, and can remove a language's trained models (back to the stock model; the pool stays) or empty its pool. It also removes the per-book models made by earlier versions ("English, trained on Young"). Projects that used one read with the language's trained model instead. `ectype models` does the same from the command line.
+
+### Training without correcting by hand
+
+**Lines set in your fonts** (`synthtrain.py`, `ectype train-synthetic --fonts <folder> --script hebrew greek`). For each font in the folder (and its subfolders) that has the script's letters:
+- Passages of a known text are cut into lines of 3 to 9 words and set in the font at several sizes. Hebrew is set right to left, with its points placed by Pillow's raqm layout.
+- Each line is made to look scanned: a slight tilt, blur, ink lighter or heavier, paper tone and noise, specks.
+- The image and its exact text go into the pool as the font's own source, with its typeface fingerprint, so fonts and real books fall into families together.
+- Fonts are read where they are and never copied.
+- Running again replaces a font's lines; fonts that haven't changed are skipped.
+
+**Known texts** (`texts.py`), downloaded once into the user's folder:
+- the Hebrew Bible: the Westminster Leningrad Codex, public domain, via the Open Scriptures Hebrew Bible, CC BY 4.0;
+- the Greek New Testament: the SBL Greek New Testament, CC BY 4.0;
+- any UTF-8 text file of an edition (for example Westcott–Hort), one passage a line.
+
+Hebrew accents (cantillation, meteg, paseq) are left out. Consonants, vowel points, dagesh, shin and sin dots, maqaf and sof pasuq are kept. Greek keeps its accents and breathings.
+
+**Scanned editions matched to their text** (`align.py`, `ectype train-scans <scan> --text hebrew-bible --edition "Letteris 1866"`). The scan is read as a project of its own in the user's folder, with the language's current model. Then each line the OCR found is looked for in the text:
+- Its words, reduced to bare letters, vote for where in the text they stand.
+- They are paired with the text's words there. Unpaired words at the ends, such as verse and chapter numbers, are cut off the image.
+- The line is kept only if 85% of its letters agree. The known text, with its points, is then the line's true text.
+- Doubtful lines are skipped, not guessed, since an edition may differ from the known text in places.
+
+On test pages set in FreeSerif, 23 of 24 Greek lines (Matthew 1) and 21 of 25 Hebrew lines (Genesis 1, pointed) were matched, with their verse numbers cut off.
+
+**The batch file.** `Train Hebrew and Greek.bat`, in the program folder and the Start menu, runs all of it: `ectype train-all --config training.ini`.
+- The first time, it makes the settings file in the user's folder (`%LOCALAPPDATA%\Ectype OCR\training.ini`) and opens it in Notepad. There you give the fonts folder, the scripts, the lines per font (400 by default), and any scanned editions with their texts.
+- It then sets the lines, matches each edition (skipping those already matched), and trains each language of those scripts: Tesseract's, and every Kraken model installed for them.
+- It writes `training-report.txt` beside the settings.
+- Steps already done are skipped, so it can be stopped and run again.
+
+On the fonts at hand, 40 lines in each of seven Greek fonts trained a general Greek model in under a minute. It read the held-out font with 1.0% character errors. The family models made no further gain on these clean, computer-set lines, so none were kept. The gains will come from real books' type.
+
+### How Tesseract and Kraken are trained (`train.py`)
+
+- **Tesseract** continues its float model (`tessdata_best`, downloaded once, about 15 MB; the shipped models are integer models and can't be trained further). Each image becomes a training file (`.lstmf`) with a box file of its text. Images with letters of another script (Hebrew in an English line) are left out.
+  - **New characters.** Characters of the model's own script that it lacks are added, as tesstrain does: the stock Hebrew model has no holam, tsere, hataf segol or shin dot. Training continues from a starter model with the new character set and the old word lists (`--old_traineddata`).
+  - **Right-to-left text** is trained in visual order, its characters reversed: Tesseract's Hebrew model reads that way and turns its readings round. It uses normalisation mode 3 and a pass-through recoder, as the stock model has.
+  - **Saving.** The result is saved in float form (to train further) and integer form (to read with; smaller).
+- **Kraken** uses `ketos train`, run by the Kraken engine. It loads data in its own process (no worker processes, which a packaged program can't easily start), on all but one core, and doesn't compile the network (that needs a C++ compiler).
+
+Earlier tests: 150 generated pointed Hebrew words in FreeSerif. Training on 120 cut errors on the 30 held out from 32% to 16%, and the model read the added points (וּרְאֵה, וּמַלְּטִי). On a small Kraken model, two epochs on 32 words cut errors on 8 held out from 51% to 10%.
+
+Training needs Tesseract's training tools: `lstmtraining` and `combine_tessdata`, and to add characters also `unicharset_extractor`, `merge_unicharsets`, `combine_lang_model` and `dawg2wordlist`. They come with Tesseract in Linux packages, and in the Windows app.
 
 ## IDML export
 
