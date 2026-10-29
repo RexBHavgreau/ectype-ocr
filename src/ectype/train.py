@@ -477,6 +477,6 @@ def _kraken_cer(model_file: str, pairs: list[tuple[Path, str]]) -> float | None:
             with Image.open(png) as im:
                 box = [0, 0, im.width, im.height]
             got = session.read(model_file, png, [box])[0]["text"]
-            errors += Levenshtein.distance(got.strip(), text)
+            errors += Levenshtein.distance(unicodedata.normalize("NFC", got.strip()), unicodedata.normalize("NFC", text))
             total += len(text)
     return round(errors / total, 4) if total else None

@@ -22,8 +22,12 @@ for package in ("kraken", "torchvision", "htrmopo", "lightning", "lightning_fabr
     except Exception:
         continue
     datas, binaries, hidden = datas + d, binaries + b, hidden + h
-# Versions read through importlib.metadata.
-for dist in ("kraken", "torch", "torchvision", "lightning", "torchmetrics", "htrmopo", "safetensors"):
+# Versions read through importlib.metadata (Lightning also checks for optional packages, such as
+# rich for its progress bar, by their metadata).
+for dist in ("kraken", "torch", "torchvision", "lightning", "lightning-utilities", "torchmetrics", "htrmopo",
+             "safetensors", "rich", "click", "numpy", "pillow", "scipy", "scikit-image", "scikit-learn", "shapely",
+             "pyarrow", "jsonschema", "jinja2", "requests", "protobuf", "coremltools", "packaging", "regex",
+             "platformdirs", "iso639-lang", "threadpoolctl", "pyyaml", "fsspec", "tqdm"):
     try:
         datas += copy_metadata(dist)
     except Exception:

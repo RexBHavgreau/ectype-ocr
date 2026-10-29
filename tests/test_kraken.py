@@ -178,3 +178,12 @@ def test_worker_reads_a_line():
         img.save(png)
         (result,) = session.read(MODEL, png, [[0, 0, 600, 80]])
     assert result["text"].strip() and all(len(c) == 3 for c in result["chars"])
+
+
+def test_accents_join_their_letters():
+    from ectype.ocr import Char, Word
+
+    result = {"chars": [["η", [10, 0, 10, 40], 99.0], ["̓", [14, 0, 14, 40], 90.0], ["͂", [16, 0, 16, 40], 95.0],
+                        ["ν", [20, 0, 26, 40], 99.0]]}
+    (word,) = kraken._words(result, [0, 100, 40, 140], Char, Word)
+    assert word.text == "ἦν" and [c.text for c in word.chars] == ["ἦ", "ν"] and word.chars[0].conf == 90.0

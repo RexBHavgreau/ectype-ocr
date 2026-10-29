@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import zipfile
 from pathlib import Path
 from typing import Callable
@@ -388,6 +389,12 @@ def _words(result: dict, box: list[int], Char, Word) -> list:
     for text, (x0, y0, x1, y1), conf in result.get("chars", []):
         if text.isspace():
             flush()
+            continue
+        if chars and unicodedata.combining(text):  # Kraken gives accents and points apart from their letter
+            last = chars[-1]
+            last.text = unicodedata.normalize("NFC", last.text + text)
+            last.box[2] = max(last.box[2], int(x1))
+            last.conf = min(last.conf, float(conf))
             continue
         chars.append(Char(text=text, box=[int(x0), box[1], max(int(x1), int(x0) + 1), box[3]], conf=float(conf)))
     flush()
