@@ -190,3 +190,20 @@ def test_accents_join_their_letters():
                         ["ν", [20, 0, 26, 40], 99.0]]}
     (word,) = kraken._words(result, [0, 100, 40, 140], Char, Word)
     assert word.text == "ἦν" and [c.text for c in word.chars] == ["ἦ", "ν"] and word.chars[0].conf == 90.0
+
+
+@needs_kraken
+def test_a_family_pack_over_the_general_model(tmp_path):
+    """A pack of no changes, laid over the model, reads exactly as the model does."""
+    if not MODEL.endswith(".safetensors"):
+        pytest.skip("packs are over .safetensors models")
+    info = kraken._run(["pack", MODEL, MODEL, str(tmp_path / "f1.pack.safetensors")])
+    assert info["bytes"] < info["full_bytes"] / 10, "unchanged layers aren't stored"
+    font = ImageFont.truetype(str(__import__("ectype.synth", fromlist=["find_font"]).find_font("FreeSerif")), 40)
+    img = Image.new("L", (600, 80), 255)
+    ImageDraw.Draw(img).text((20, 56), "λόγος", font=font, fill=0, anchor="ls")
+    img.save(tmp_path / "line.png")
+    with kraken.Session() as session:
+        plain = session.read(MODEL, tmp_path / "line.png", [[0, 0, 600, 80]])
+        packed = session.read(MODEL, tmp_path / "line.png", [[0, 0, 600, 80]], str(tmp_path / "f1.pack.safetensors"))
+    assert plain == packed

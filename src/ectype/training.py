@@ -118,8 +118,10 @@ def _items_for(code: str, split: str) -> list[pool.Item]:
 
 
 def trainable(code: str) -> int:
-    """How many images (not counting confidently read lines) a language could train on."""
-    return sum(1 for i in _items_for(models.stock_code(code), "train") if i.source != "confident")
+    """How many images a language's pool has (not counting confidently read lines), those kept
+    aside for testing included."""
+    code = models.stock_code(code)
+    return sum(1 for split in ("train", "test") for i in _items_for(code, split) if i.source != "confident")
 
 
 # -- Tesseract ------------------------------------------------------------------------
@@ -254,9 +256,8 @@ def train_language(code: str, progress: Say | None = None, iterations: int | Non
     engine = models.engine_of(code)
     lang = pool.key_for(code)
     train_items = _items_for(code, "train")
-    real = [i for i in train_items if i.source != "confident"]
-    if len(real) < MIN_ITEMS:
-        raise TrainingError(f"{_name(code)}: {len(real)} images to train on; at least {MIN_ITEMS} are needed. "
+    if trainable(code) < MIN_ITEMS:
+        raise TrainingError(f"{_name(code)}: {trainable(code)} images to train on; at least {MIN_ITEMS} are needed. "
                             "Correct more in Review, or add generated lines (train-synthetic).")
     tests = _tests(_items_for(code, "test"))
     report: dict = {"code": code, "engine": engine, "families": {}, "lines": []}

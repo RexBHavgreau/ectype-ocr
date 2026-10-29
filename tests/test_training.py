@@ -191,3 +191,29 @@ def test_training_a_language_from_its_pool(data, tmp_path):
         reg = models.registry()["eng"]
         assert set(reg["general"]["books"]) == {"Young", "Warfield"}
     assert json.dumps(r["lines"])
+
+
+def test_trained_models_window(data):
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from ectype.gui import ModelsDialog
+    from ectype.resources import user_tessdata_dir
+
+    user_tessdata_dir().mkdir(parents=True)
+    (user_tessdata_dir() / "grc_ectype.traineddata").write_bytes(b"x" * 1000)
+    models.save_registry({"grc": {"engine": "tesseract", "general": {"items": 120, "trained": "2026-10-29 10:00",
+                                                                      "books": ["Young", "font: Porson"]}}})
+    with pool.Writer("grc") as w:
+        w.add(b"png", "λόγος", "Young", "word", "correction")
+    app = qt.QApplication.instance() or qt.QApplication([])
+    dialog = ModelsDialog()
+    text = dialog.text.toPlainText()
+    assert "120 images from 2 sources" in text and "Young (correction): 1" in text
+    monkey = dialog._confirm
+    dialog._confirm = lambda text: True
+    dialog.remove_models()
+    assert models.resolve("grc").which == "stock" and "No trained models yet." in dialog.text.toPlainText()
+    dialog._confirm = monkey
+    app.processEvents()
