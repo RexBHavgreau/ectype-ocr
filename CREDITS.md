@@ -41,6 +41,8 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | PySide6 (Qt for Python) | The desktop app (optional `gui` extra), used as an unmodified library | LGPL-3.0 |
 | docx-to-idml | Reflow's layout: run as a separate installed program, not shipped; in the tests, run from source, and its checker validates every IDML export against Adobe's IDML schema (jing) | MIT |
 | lxml | Writing IDML (docx-to-idml's writer) | BSD-3-Clause |
+| Kraken | The second OCR engine (Greek, Hebrew and other scripts) and its trainer (`ketos`), run in a process of its own: the optional `kraken` extra, or in the Windows app the Kraken engine, an optional download | Apache-2.0 |
+| PyTorch, PyTorch Lightning, torchvision, coremltools, htrmopo | Kraken's dependencies, in the Kraken engine only | BSD-3-Clause (PyTorch, torchvision, coremltools), Apache-2.0 (Lightning, htrmopo) |
 | PyInstaller | Packaging the Windows app (build only; its bootloader is GPL-2.0 with an exception allowing distribution of packaged programs) | GPL-2.0 with bootloader exception |
 | Inno Setup | Building the Windows installer (build only) | Inno Setup licence (free, including commercial use) |
 | pytest | Test runner (development only) | MIT |
@@ -57,6 +59,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | Tesseract and its libraries, with `eng` and `osd` data (bundled with the Windows app, UB Mannheim build) | OCR | Tesseract contributors; Leptonica, libpng, libjpeg, libtiff, zlib and others | Apache-2.0 (Tesseract); each library's licence is in the app's `tesseract` folder |
 | Tesseract language data (tessdata), downloaded on request | OCR in further languages | Tesseract contributors | Apache-2.0 |
 | Tesseract's trainable models (tessdata_best), downloaded on request | The base of a model trained on a book's corrections | Tesseract contributors | Apache-2.0 |
+| Kraken models from Kraken's repository on Zenodo, chosen and downloaded by the user | OCR of Greek, Hebrew and other scripts; the base of a Kraken model trained on a book's corrections | Each model's authors, named in its record (shown in the app) | Each model's own licence, shown in the app before download |
 | Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
 | DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
 

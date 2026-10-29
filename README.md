@@ -24,6 +24,8 @@ pip install -e ".[dev,gui]"
 pytest
 ```
 
+Kraken, the second engine, is optional: `pip install torch --index-url https://download.pytorch.org/whl/cpu` and `pip install -e ".[kraken]"`, or set `ECTYPE_KRAKEN` to a command running `python -m ectype.kraken_worker` in another environment.
+
 ## The desktop app
 
 ```
@@ -49,7 +51,9 @@ The app has four tabs:
 
 Each export is a folder of its own, holding the IDML and its `Links`. IDML export needs only the OCR, plus the analysis that finds italics, running heads and the fonts (segmentation and glyph grouping, run if needed). It doesn't need glyph tracing, so text-layer mode is enough. Edits made in InDesign don't come back to Ectype, so they don't add training data; corrections made in the Review tab still do.
 
-**Train OCR model…** teaches the OCR this book's type: Tesseract's model is fine-tuned on the lines you corrected in Review (at least 10), checked on lines kept aside, and saved as a language of its own (e.g. "English, trained on Young") for this book's next reading. Hebrew, Greek and other scripts in the text are trained on the words you correct into them (at least 20), as "Hebrew, trained on …", adding characters the stock model lacks, such as the vowel points it can't read. Corrections are kept when the pages are read again. Details: [`docs/idml.md`](docs/idml.md#training-the-ocr-model).
+**Kraken** reads Greek, Hebrew and other scripts better than Tesseract does. Under **Languages → Add languages… → Kraken models**, download the Kraken engine once (an optional download that includes PyTorch), then pick a model from Kraken's repository on Zenodo, filtered by script and to printed text; each model's description says what it was trained on. A Kraken model is then an OCR language like the others: tick it with English and Tesseract reads the page, after which Kraken reads again each run of words in its script. Details: [`docs/idml.md`](docs/idml.md#kraken-greek-hebrew-and-other-scripts).
+
+**Train OCR model…** teaches the OCR this book's type: Tesseract's model is fine-tuned on the lines you corrected in Review (at least 10), checked on lines kept aside, and saved as a language of its own (e.g. "English, trained on Young") for this book's next reading. Hebrew, Greek and other scripts in the text are trained on the words you correct into them (at least 20), as "Hebrew, trained on …", adding characters the stock model lacks, such as the vowel points it can't read. Words in a Kraken model's script fine-tune that model with Kraken's own trainer. Corrections are kept when the pages are read again. Details: [`docs/idml.md`](docs/idml.md#training-the-ocr-model).
 
 Everything the app does is also available on the command line.
 
