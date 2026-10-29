@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import unicodedata
@@ -135,8 +136,10 @@ def main() -> int:
                 continue
             for name, lines in test_sets(script).items():
                 sets[f"{name}, {family}"] = render(lines, font, rtl, args.out / "lines" / script / f"{name}-{family}")
-        candidates = [r for r in records if script in (r.get("script") or []) and kraken.printed(r) is not False]
-        candidates.sort(key=lambda r: r.get("date", ""), reverse=True)
+        # Printed models first, newest first; then the others (a manuscript model may still read
+        # print, and for some scripts there is no printed model).
+        candidates = [r for r in records if script in (r.get("script") or [])]
+        candidates.sort(key=lambda r: (kraken.printed(r) is False, -int(re.sub(r"\D", "", r.get("date") or "")[:8] or 0)))
         rows = []
         lang = TESSERACT[script]
         row = {"model": f"Tesseract {lang}", "doi": "", "cer": {}}
@@ -146,7 +149,8 @@ def main() -> int:
                 row["cer"][label] = cer(list(zip(got, (t for _, t in lines))))
         rows.append(row)
         for r in candidates[: args.max]:
-            row = {"model": r.get("summary") or r["doi"], "doi": r["doi"], "date": r.get("date"),
+            kind = {True: "printed", False: "manuscripts", None: ""}[kraken.printed(r)]
+            row = {"model": (r.get("summary") or r["doi"]) + (f" [{kind}]" if kind else ""), "doi": r["doi"], "date": r.get("date"),
                    "license": r.get("license"), "reported_cer": r.get("cer"), "cer": {}}
             try:
                 code = kraken.install_model(r)

@@ -119,6 +119,14 @@ def get(doi: str, folder: str) -> dict:
     path = Path(get_model(doi, path=folder, callback=callback))
     files = sorted(str(p) for p in path.iterdir() if p.is_file())
     weights = [f for f in files if f.endswith((".mlmodel", ".safetensors"))]
+    if weights:
+        # Some repository models (Party's page models) need other software: say so now.
+        from kraken.tasks import RecognitionTaskModel
+
+        try:
+            RecognitionTaskModel.load_model(weights[0])
+        except Exception as exc:
+            raise ValueError(f"Kraken can't use this model to read lines ({str(exc).splitlines()[0][:200]})") from exc
     return {"folder": str(path), "files": files, "model": weights[0] if weights else None}
 
 

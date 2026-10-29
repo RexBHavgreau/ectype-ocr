@@ -259,11 +259,17 @@ def printed(record: dict) -> bool | None:
 
 def install_model(record: dict, progress: Callable[[int, int], None] | None = None) -> str:
     """Download a repository model and make it an OCR language. Returns its code."""
+    import shutil
+
     code = code_for(record["doi"])
     folder = models_dir() / code
-    got = _run(["get", record["doi"], str(folder)], timeout=1800, progress=progress)
-    if not got or not got.get("model"):
-        raise KrakenError(f"{record['doi']} has no model file Kraken can read.")
+    try:
+        got = _run(["get", record["doi"], str(folder)], timeout=1800, progress=progress)
+        if not got or not got.get("model"):
+            raise KrakenError(f"{record['doi']} has no model file Kraken can read.")
+    except KrakenError:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
     register(code, {"title": record.get("summary") or record["doi"], "doi": record["doi"], "file": got["model"],
                     "scripts": record.get("script") or [], "languages": record.get("language") or [],
                     "license": record.get("license", ""), "cer": record.get("cer")})

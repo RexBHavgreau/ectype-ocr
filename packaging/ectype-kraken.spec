@@ -15,7 +15,7 @@ root = here.parent
 datas = [(str(root / name), ".") for name in ("LICENSE", "NOTICE", "CREDITS.md")]
 binaries, hidden = [], ["ectype.kraken_worker"]
 # Kraken and the packages it loads by name or reads data files from.
-for package in ("kraken", "htrmopo", "lightning", "lightning_fabric", "torchmetrics", "coremltools", "safetensors",
+for package in ("kraken", "torchvision", "htrmopo", "lightning", "lightning_fabric", "torchmetrics", "coremltools", "safetensors",
                 "shapely", "sickle"):
     try:
         d, b, h = collect_all(package)
