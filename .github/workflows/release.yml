@@ -11,12 +11,18 @@ on:
     paths: ["packaging/**", ".github/workflows/release.yml", "src/ectype/resources.py", "src/ectype/kraken_worker.py",
             "src/ectype/train.py", "src/ectype/training.py", "src/ectype/synthtrain.py"]
   workflow_dispatch:
+    inputs:
+      engine_for_release:
+        description: "Build only the Kraken engine and attach it to this existing release (e.g. v0.3.0)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
 jobs:
   installer:
+    if: github.event.inputs.engine_for_release == '' || github.event.inputs.engine_for_release == null
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -125,8 +131,11 @@ jobs:
       - name: Version from the tag
         id: version
         shell: bash
+        env:
+          ENGINE_FOR: ${{ github.event.inputs.engine_for_release }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          if [[ -n "$ENGINE_FOR" ]]; then v="${ENGINE_FOR#v}"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Python packages (PyTorch for the CPU, then Kraken)
@@ -162,7 +171,8 @@ jobs:
           path: Ectype-OCR-Kraken-*-win64.zip
 
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.engine_for_release != ''
         uses: softprops/action-gh-release@v2
         with:
           files: Ectype-OCR-Kraken-*-win64.zip
+          tag_name: ${{ github.event.inputs.engine_for_release || github.ref_name }}

@@ -19,6 +19,9 @@ LINES = ["Ἐν ἀρχῇ ἦν ὁ λόγος", "καὶ ὁ λόγος ἦν 
          "πάντα δι’ αὐτοῦ ἐγένετο", "ἐν αὐτῷ ζωὴ ἦν", "τὸ φῶς τῶν ἀνθρώπων", "ἡ σκοτία αὐτὸ οὐ κατέλαβεν"]
 
 
+PREFERRED = "10.5281/zenodo.21788405"  # PP-OCRv6 (small) multilingual
+
+
 def run(engine: str, *args: str, stdin: str | None = None) -> object:
     out = subprocess.run([engine, *args], input=stdin, capture_output=True, text=True, encoding="utf-8")
     if out.returncode != 0:
@@ -32,9 +35,12 @@ def main() -> int:
     work.mkdir(parents=True, exist_ok=True)
     records = run(engine, "list")
     print(f"{len(records)} recognition models")
+    # The same model every time (the listing's order varies), so the check is repeatable:
+    # PP-OCRv6 small, which reads Greek well; else the first printed Greek model.
+    preferred = [r for r in records if r["doi"] == PREFERRED]
     greek = [r for r in records if "Grek" in (r.get("script") or [])]
     printed = [r for r in greek if "print" in (r.get("summary", "") + " ".join(r.get("keywords", []))).lower()]
-    record = (printed or greek or records)[0]
+    record = (preferred or printed or greek or records)[0]
     print("model:", record["doi"], record.get("summary"))
     got = run(engine, "get", record["doi"], str(work / "model"))
     model = got["model"]
