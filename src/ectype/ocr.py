@@ -23,6 +23,7 @@ from PIL import Image
 
 from . import report
 from .resources import subprocess_flags
+from .scripts import clean
 
 
 @dataclass
@@ -63,6 +64,7 @@ class OcrPage:
     dpi: float
     lines: list[Line] = field(default_factory=list)
     dropped: list[dict] = field(default_factory=list)  # words removed as noise, kept for review
+    unread_scripts: dict[str, int] = field(default_factory=dict)  # words in scripts the languages don't cover
 
     def words(self):
         for line in self.lines:
@@ -226,11 +228,11 @@ def parse_hocr(hocr: str, engine: str = "tesseract", lang: str = "eng", dpi: flo
             chars = []
             for c_el in word_el.findall("h:span[@class='ocrx_cinfo']", ns):
                 cprops = _title(c_el)
-                text = "".join(c_el.itertext())
+                text = clean("".join(c_el.itertext()))
                 if not text or "x_bboxes" not in cprops:
                     continue
                 chars.append(Char(text=text, box=_box(cprops, "x_bboxes"), conf=round(float(cprops.get("x_conf", ["0"])[0]), 2)))
-            text = "".join(c.text for c in chars) if chars else "".join(word_el.itertext()).strip()
+            text = "".join(c.text for c in chars) if chars else clean("".join(word_el.itertext())).strip()
             if not text.strip():
                 continue
             line.words.append(Word(
@@ -263,7 +265,20 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
         image = Image.open(png)
         gray = np.asarray(image.convert("L"))
         eng = get_engine(engine, threads=threads) if engine == "tesseract" else get_engine(engine)
-        page = drop_margin_noise(eng.recognize(gray, dpi=report.image_dpi(image), lang=lang))
+        dpi = report.image_dpi(image)
+        page = drop_margin_noise(eng.recognize(gray, dpi=dpi, lang=lang))
+        if engine == "tesseract":
+            # Unsure words in another script: read again in their own language, or counted
+            # when no chosen language covers their script (scripts.py).
+            from .scripts import check_words
+
+            word_engine = TesseractEngine(psm=8, threads=threads)
+            page.unread_scripts = dict(check_words(
+                gray, page, lang.split("+"), lambda crop, one: list(word_engine.recognize(crop, dpi=dpi, lang=one).words())))
+        # Corrections made in Review, carried over to the new reading.
+        from .review import carry_corrections
+
+        carry_corrections(out_dir.parent, png.stem, page)
         report.write_json(target, page.to_json())
         Image.fromarray(draw_overlay(gray, page, low_conf)).save(out_dir / f"{png.stem}.overlay.png")
     words = list(page.words())
@@ -273,6 +288,7 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
         "mean_conf": round(float(np.mean([w.conf for w in words])), 1) if words else None,
         "low_conf_words": [w.text for w in words if w.conf < low_conf],
         "dropped": len(page.dropped),
+        "unread_scripts": page.unread_scripts,
     }
 
 
@@ -294,7 +310,15 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
     threads = 1 if jobs > 1 else 0
     with ThreadPoolExecutor(max_workers=jobs) as pool:
         rows = list(pool.map(lambda p: _ocr_one(p, out_dir, engine, lang, low_conf, threads, force), pngs))
-    summary = {"engine": engine, "lang": lang, "low_conf_threshold": low_conf, "pages": rows}
+    from .scripts import suggest
+
+    unread: dict[str, int] = {}
+    for r in rows:
+        for script, n in (r.get("unread_scripts") or {}).items():
+            unread[script] = unread.get(script, 0) + n
+    summary = {"engine": engine, "lang": lang, "low_conf_threshold": low_conf, "pages": rows,
+               "unread_scripts": unread,
+               "suggest_languages": suggest(unread, lang.split("+"), [r.get("unread_scripts") or {} for r in rows])}
     report.write_json(out_dir / "ocr.json", summary)
     _write_html(summary, out_dir / "index.html")
     return summary

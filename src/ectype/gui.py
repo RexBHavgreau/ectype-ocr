@@ -105,6 +105,33 @@ class ImageView(QGraphicsView):
             self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
 
+def source_pages(path: Path) -> int:
+    """How many pages a selected scan has (a page image has one)."""
+    if Path(path).suffix.lower() != ".pdf":
+        return 1
+    import pypdfium2 as pdfium
+
+    try:
+        doc = pdfium.PdfDocument(str(path))
+    except Exception:
+        return 0
+    try:
+        return len(doc)
+    finally:
+        doc.close()
+
+
+def _source_preview(path: Path, dpi: float = 60) -> QImage | None:
+    """The first page of a selected scan, small, before it has been read."""
+    if Path(path).suffix.lower() == ".pdf":
+        try:
+            return _pdf_page_image(Path(path), 0, dpi)
+        except Exception:
+            return None
+    image = QImage(str(path))
+    return None if image.isNull() else image.scaledToWidth(min(image.width(), 900))
+
+
 def _pdf_page_image(pdf: Path, index: int, dpi: float = 150) -> QImage | None:
     import pypdfium2 as pdfium
 
@@ -200,7 +227,17 @@ class SpreadsTab(QWidget):
             self.list.setCurrentRow(min(row, len(self.sources) - 1))
             self.show_source(self.list.currentRow())
         else:
-            self.note.setText("Open a scan and press Run to see its pages here.")
+            source = self.project.settings.source
+            if source and Path(source).is_file():
+                n = source_pages(Path(source))
+                self.note.setText(f"<b>Selected: {Path(source).name}</b> ({n} page{'s' if n != 1 else ''}). "
+                                  "Press <b>Run</b> to read it; its pages appear here, ready to check how spreads split.")
+                preview = _source_preview(Path(source))
+                if preview is not None:
+                    self.view.show_image(preview)
+                    self.view.fit()
+            else:
+                self.note.setText("Choose <b>Select PDF…</b> to pick a scanned book, then press <b>Run</b>.")
 
     def _current(self) -> dict | None:
         row = self.list.currentRow()
@@ -790,8 +827,12 @@ class MainWindow(QMainWindow):
         bar = QToolBar("Main")
         self.addToolBar(bar)
         self.actions: dict[str, QAction] = {}
-        for key, text, slot in (("open_scan", "Open scan…", self.open_scan), ("open_project", "Open project…", self.open_project)):
+        for key, text, slot in (("open_scan", "Select PDF…", self.open_scan), ("open_project", "Open project…", self.open_project)):
             self.actions[key] = bar.addAction(text, slot)
+        self.actions["open_scan"].setToolTip("Choose the scanned book (a PDF, or page images) to read")
+        self.source_label = QLabel()
+        self.source_label.setContentsMargins(8, 0, 8, 0)
+        bar.addWidget(self.source_label)
         bar.addSeparator()
         self.mode = QComboBox()
         self.mode.addItems([label for _, label in MODES])
@@ -812,6 +853,7 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
         for key, text, slot in (("run", "Run", lambda: self.run("preprocess")),
                                 ("update", "Update after corrections", lambda: self.run(self.project.update_stage())),
+                                ("train", "Train OCR model…", self.train_model),
                                 ("export", "Export PDF…", self.export),
                                 ("export_idml", "Export IDML…", self.export_idml)):
             self.actions[key] = bar.addAction(text, slot)
@@ -856,6 +898,7 @@ class MainWindow(QMainWindow):
         self.split.blockSignals(False)
         source = Path(project.settings.source).name if project.settings.source else "no scan yet"
         self.setWindowTitle(f"Ectype OCR — {source}")
+        self._show_source()
         self.refresh()
         if project.pages():
             self.tabs.setCurrentWidget(self.review)
@@ -867,6 +910,9 @@ class MainWindow(QMainWindow):
         has_pdf = self.project.output_pdf() is not None
         self.actions["export"].setEnabled(has_pdf)
         self.actions["export_idml"].setEnabled(any((self.project.workspace / "ocr").glob("*.ocr.json")))
+        lines = self.project.corrected_lines()
+        self.actions["train"].setText(f"Train OCR model ({lines} lines)…" if lines else "Train OCR model…")
+        self.actions["train"].setToolTip("Teach the OCR model this book's type from the lines you corrected in Review")
         self.actions["update"].setEnabled(bool(self.project.pages()))
         self.actions["run"].setEnabled(bool(self.project.settings.source))
 
@@ -884,7 +930,7 @@ class MainWindow(QMainWindow):
         self.project.set_languages(codes)
         msg = "OCR languages: " + ", ".join(languages.name(c) for c in codes) + ". Run to read the pages again."
         if self.project.has_corrections():
-            msg += " Corrections made so far are lost when the pages are read again."
+            msg += " Corrections made so far are carried over to the new reading."
         self.statusBar().showMessage(msg)
 
     def add_languages(self) -> None:
@@ -946,11 +992,28 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.review)
         self.review.select_word(page, line, word)
 
+    def _show_source(self) -> None:
+        """The selected scan in the toolbar, and Run in bold until it has been read."""
+        source = self.project.settings.source
+        if source and Path(source).is_file():
+            n = source_pages(Path(source))
+            state = "read" if self.project.pages() else "not read yet: press Run"
+            self.source_label.setText(f"<b>PDF:</b> {Path(source).name} ({n} page{'s' if n != 1 else ''}) · {state}")
+            self.source_label.setToolTip(source)
+        else:
+            self.source_label.setText("<i>No PDF selected</i>")
+            self.source_label.setToolTip("")
+        font = self.actions["run"].font()
+        font.setBold(bool(source) and not self.project.pages())
+        self.actions["run"].setFont(font)
+
     def open_scan(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open a scan", "", "Scans (*.pdf *.png *.tif *.tiff *.jpg *.jpeg)")
+        path, _ = QFileDialog.getOpenFileName(self, "Select a scanned PDF", "",
+                                              "Scanned books (*.pdf *.png *.tif *.tiff *.jpg *.jpeg);;PDF (*.pdf)")
         if path:
             self.load(Project.for_scan(Path(path)))
-            self.statusBar().showMessage("Press Run to process the scan.")
+            self.tabs.setCurrentWidget(self.spreads)
+            self.statusBar().showMessage(f"Selected {Path(path).name}. Press Run to read it.")
 
     def open_project(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Open an Ectype project folder")
@@ -977,13 +1040,102 @@ class MainWindow(QMainWindow):
         for a in self.actions.values():
             a.setEnabled(True)
         self.refresh()
+        self._show_source()
         self.tabs.setCurrentWidget(self.review)
+        self.offer_languages()
+
+    def offer_languages(self) -> None:
+        """Words in a script none of the OCR languages covers (Greek or Hebrew in an English
+        book): offer to add the languages, downloading them if needed, and read the pages again."""
+        codes = self.project.language_suggestions()
+        if not codes:
+            return
+        unread = self.project.unread_scripts()
+        found = ", ".join(f"{script} ({n} words)" for script, n in unread.items())
+        names = ", ".join(languages.name(c) for c in codes)
+        missing = [c for c in codes if c not in languages.installed()]
+        box = QMessageBox(self)
+        box.setWindowTitle("Other scripts found")
+        box.setText(f"This scan has words in scripts the OCR languages don't read: {found}.")
+        box.setInformativeText(f"Add {names} to the OCR languages and read the pages again?"
+                               + (" (They'll be downloaded first, a few megabytes each.)" if missing else ""))
+        add = box.addButton("Add and read again", QMessageBox.AcceptRole)
+        never = box.addButton("Not for this book", QMessageBox.RejectRole)
+        box.addButton("Not now", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is never:
+            self.project.decline_languages(codes)
+        elif box.clickedButton() is add:
+            def work(progress):
+                if missing:
+                    languages.download(missing, lambda code, got, total: progress(
+                        "languages", f"{languages.name(code)}: {got / 1e6:.1f} of {total / 1e6:.1f} MB" if total else languages.name(code)))
+                return codes
+
+            def added(_codes):
+                codes_now = self.project.languages() + [c for c in codes if c not in self.project.languages()]
+                self.project.set_languages(codes_now)
+                self.langs.set_languages(codes_now)
+                self.run("ocr")
+
+            self._start(work, added, "Adding " + names)
 
     def _failed(self, error: str) -> None:
         self.log.appendPlainText(error)
         for a in self.actions.values():
             a.setEnabled(True)
         QMessageBox.warning(self, "Ectype OCR", error.strip().splitlines()[-1])
+
+    # -- training --------------------------------------------------------------
+
+    def train_model(self) -> None:
+        from . import train
+
+        problem = train.available()
+        if problem:
+            QMessageBox.warning(self, "Train OCR model", problem + " Training needs them; reinstall Ectype OCR.")
+            return
+        lines = self.project.corrected_lines()
+        if lines < train.MIN_LINES:
+            QMessageBox.information(self, "Train OCR model",
+                                    f"Correct at least {train.MIN_LINES} lines in the Review tab first ({lines} so far).\n\n"
+                                    "Each line you correct is saved with its image as training data. Training then teaches "
+                                    "the OCR model this book's type, so the next reading makes fewer of the same mistakes.")
+            return
+        base = self.project.base_language()
+        book = self.project.settings.name or self.project.workspace.name
+        box = QMessageBox(self)
+        box.setWindowTitle("Train OCR model")
+        box.setText(f"Train the {languages.name(base)} model on the {lines} lines you corrected?")
+        box.setInformativeText(
+            "Ectype fine-tunes a copy of the model on those lines (and on lines it read confidently, so it keeps what "
+            "it does well), checks it on lines kept aside, and saves it as a new language for this book, "
+            f"\"{languages.name(base)}, trained on {book}\". It takes a few minutes; the first time, the trainable "
+            "model (about 15 MB) is downloaded. Your corrections are kept when the pages are read again.")
+        go = box.addButton("Train", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        if box.clickedButton() is go:
+            self._start(lambda progress: self.project.train_model(progress), self._trained, "Training the OCR model")
+
+    def _trained(self, result) -> None:
+        self.langs.set_languages(self.project.languages())
+        if result.cer_before is not None and result.cer_after is not None:
+            check = (f"On {result.held_out} corrected lines kept aside, character errors went from "
+                     f"{100 * result.cer_before:.1f}% to {100 * result.cer_after:.1f}%.")
+        else:
+            check = ""
+        skipped = (f" {result.skipped} lines with characters the model doesn't know (another script) were left out."
+                   if result.skipped else "")
+        box = QMessageBox(self)
+        box.setWindowTitle("Train OCR model")
+        box.setText(f"Trained \"{languages.name(result.model)}\" on {result.lines} corrected lines.")
+        box.setInformativeText(f"{check}{skipped}\n\nRead the pages again with it now? Your corrections are kept.")
+        again = box.addButton("Read again", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is again:
+            self.run("ocr")
 
     # -- updates and about ----------------------------------------------------
 

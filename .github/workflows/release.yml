@@ -81,6 +81,10 @@ jobs:
           & $ectype idml smoke\work3 -o smoke\facsimile.idml --mode facsimile
           if (-not (Test-Path smoke\facsimile\facsimile.idml)) { throw "IDML missing" }
           if (-not (Test-Path smoke\facsimile\Links\p001.jpg)) { throw "IDML links missing" }
+          # Training the OCR model needs Tesseract's training tools inside the app.
+          $tools = Get-ChildItem -Recurse "dist\Ectype OCR" -Include lstmtraining.exe, combine_tessdata.exe | Select-Object -ExpandProperty Name
+          Write-Host "Training tools in the app: $($tools -join ', ')"
+          if (-not ($tools -contains "lstmtraining.exe")) { Write-Host "::warning::lstmtraining.exe is not in the app: Train OCR model won't work" }
 
       - name: Installer (Inno Setup)
         shell: pwsh

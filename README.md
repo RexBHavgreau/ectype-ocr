@@ -30,12 +30,12 @@ pytest
 ectype gui [scan.pdf | project folder]       # or: ectype-gui
 ```
 
-Open a scan and press **Run**. The project folder is created beside the scan (`<scan>.ectype/`). The toolbar chooses what Run makes:
+Choose **Select PDF…** to pick the scanned book (a PDF, or page images), then press **Run**. The toolbar shows the selected PDF and its page count, and the Spreads tab previews it until it has been read. The project folder is created beside the scan (`<scan>.ectype/`). The toolbar chooses what Run makes:
 - **Traced:** fonts traced from the scan.
 - **Substitute:** a real font in place of the scan's type.
 - **Text layer only:** the scan with invisible, searchable OCR text over it. This is the fastest, with no glyph tracing. Its page image can be grayscale, or black and white for the smallest file.
 
-**Languages** lists the installed OCR languages; tick as many as the book uses. **Add languages…** at the bottom of that list downloads more from the Tesseract project's language data. They are stored in your user folder and shared by every project. Changing the languages reads the pages again on the next Run.
+**Languages** lists the installed OCR languages; tick as many as the book uses (English, Greek and Hebrew together, for instance). If the scan has words in a script none of them reads, the app says so after the run and offers to add the language. **Add languages…** at the bottom of that list downloads more from the Tesseract project's language data. They are stored in your user folder and shared by every project. Changing the languages reads the pages again on the next Run.
 
 The app has four tabs:
 - **Spreads:** each scan page, upright, with its split line. Drag the red line to where the pages meet, untick "Split this spread" to keep a page whole, or rotate a page. "Split two-page spreads" in the toolbar sets the default for the whole document. Changes apply on the next Run.
@@ -48,6 +48,8 @@ The app has four tabs:
 - **Facsimile:** each text block sits where it stands on the scan, line for line, in the installed fonts most like the scan's. They are chosen automatically and shown before the export, and you can change them. The scan goes on a locked layer underneath that doesn't print.
 
 Each export is a folder of its own, holding the IDML and its `Links`. IDML export needs only the OCR, plus the analysis that finds italics, running heads and the fonts (segmentation and glyph grouping, run if needed). It doesn't need glyph tracing, so text-layer mode is enough. Edits made in InDesign don't come back to Ectype, so they don't add training data; corrections made in the Review tab still do.
+
+**Train OCR model…** teaches the OCR this book's type: Tesseract's model is fine-tuned on the lines you corrected in Review (at least 10), checked on lines kept aside, and saved as a language of its own (e.g. "English, trained on Young") for this book's next reading. Corrections are kept when the pages are read again. Details: [`docs/idml.md`](docs/idml.md#training-the-ocr-model).
 
 Everything the app does is also available on the command line.
 
@@ -64,6 +66,7 @@ This runs every stage below in one workspace: preprocess, ocr, segment, then eit
 ```
 ectype languages [--all]              # installed OCR languages (--all: and those that can be added)
 ectype languages --add grc lat heb    # download languages
+ectype train reports/work-young       # fine-tune the OCR model on the lines corrected in Review
 ectype textlayer reports/work-young   # the scan with an invisible OCR text layer
 ectype idml reports/work-young --mode reflow|facsimile [-o out/book.idml] [--page-markers] [--profile NAME]
 ```

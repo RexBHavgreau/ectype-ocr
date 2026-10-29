@@ -26,7 +26,37 @@ The **Languages** menu lists the installed Tesseract languages, each with a chec
 
 - **Where they go.** Tesseract reads from one folder, so the first download creates the user's own folder and copies the shipped languages and Tesseract's output configs beside the new ones. The folder is `%LOCALAPPDATA%\Ectype OCR\tessdata` on Windows, `~/.local/share/ectype/tessdata` on Linux, or `ECTYPE_DATA_DIR` if set.
 - **Command line:** `ectype languages --add grc lat`.
-- **Changing languages** reads the pages again on the next run. Previously, a page's cached OCR was reused regardless of language. Corrections made in the Review tab belong to the old reading and are lost; the app says so.
+- **Changing languages** reads the pages again on the next run. Corrections made in the Review tab are carried over to the new reading: each goes to the new word at the same place on the page (`review.carry_corrections`).
+
+### Other scripts in the text
+
+A book in English with Greek and Hebrew words needs all three languages ticked; Tesseract then reads each page with them together. On a test page this reads unpointed Hebrew and most polytonic Greek correctly. Two things help further (`scripts.py`):
+
+- **Each word Tesseract was unsure of** (confidence under 60, at most 40 a page) goes to Tesseract's script detector, the orientation and script data the app ships, with the word's image repeated so the detector has enough to go on.
+  - A word in a script a chosen language covers, but read as something else, is read again by itself in that language alone. Pointed Hebrew read as "O°7>8" becomes Hebrew. It is then marked unsure, for Review.
+  - Words in a script no chosen language covers are counted. When at least two are on one page, the app offers to add the language: Greek → Ancient Greek, Hebrew → Hebrew, Cyrillic → Russian, and so on. It downloads the language if needed and reads the pages again; "Not for this book" stops the offer for that project. The command line prints the suggestion. Isolated guesses on smudged English words are ignored: the English Young chapter gets no suggestion.
+- **Right-to-left words** (Hebrew, Arabic, Syriac) come from Tesseract in reading order, with character boxes running right to left.
+  - Segmentation pairs their characters with the ink in visual order.
+  - In the PDFs, the glyphs are set in visual order with the word's text in reading order attached (ActualText), so the word copies and searches correctly.
+  - In substitute mode, a word the chosen font can't set (Hebrew in EB Garamond) is left as the scan, with invisible searchable text over it.
+  - Some viewers still reverse the order of the words in a multi-word Hebrew phrase when copying, or mirror a bracket next to it. The OCR text, the Word manuscript and the IDML have it right.
+- Tesseract's direction marks (U+200E around right-to-left words) are removed from the text.
+
+## Training the OCR model
+
+**Train OCR model…** in the app (it shows how many lines you have corrected), or `ectype train <workspace>`. Each word corrected in Review saves its line, image and corrected text, in `training/`. Training fine-tunes a copy of the book's main language on those lines (`train.py`):
+
+1. **Base model.** The trainable float model of the language (from `tessdata_best`, about 15 MB) is downloaded once. The shipped models are integer models and can't be trained further.
+2. **Training lines.** The corrected lines, plus as many lines the OCR read with high confidence (every word at 90 or more), so the model keeps what it already does well. Lines with characters the model doesn't know, such as Hebrew in an English line, are left out and counted. Each line becomes Tesseract's training file (`.lstmf`) from its image and a box file with its text.
+3. **Training.** A fifth of the corrected lines (at least two) is kept aside. `lstmtraining` continues the base model on the rest: 30 iterations a line, between 300 and 3,000.
+4. **Check.** The lines kept aside are read with the old and the new model, and the report gives both character error rates.
+5. **Install.** The new model is saved as a language of its own, e.g. `eng_young` ("English, trained on Young"), beside the downloaded ones. It replaces the main language for this book, and can be chosen for others in the Languages menu. The app offers to read the pages again with it, keeping the corrections.
+
+At least 10 corrected lines are needed. Training again later starts from the stock model with all the corrections so far.
+
+On a test of 80 synthetic lines in an italic face, training on 64 took 32 seconds and cut the character error rate on the 16 kept aside from 1.1% to 0.16%.
+
+Training needs Tesseract's training tools (`lstmtraining`, `combine_tessdata`). They come with Tesseract in Linux packages; the Windows build log says whether they are in the app.
 
 ## IDML export
 

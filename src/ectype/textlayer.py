@@ -26,6 +26,7 @@ from . import report
 from .ocr import OcrPage
 from .pdfwrite import EmbeddedFont, GlyphRun, PageSpec, write_pdf
 from .preprocess import binarize
+from .scripts import is_rtl
 
 UPM = 1000
 ADVANCE = 500
@@ -71,9 +72,15 @@ def place_words(ocr: OcrPage, cid: dict[str, int], font_key: str = "F1") -> list
             size = max(4.0, (baseline - line.box[1]) * UPM / ASCENT)
             natural = len(cids) * ADVANCE / UPM * size
             scale = max(0.05, (x1 - x0) / natural)
+            actual = None
+            if is_rtl(text):
+                # Right to left: glyphs in visual order, the text in reading order.
+                cids = cids[::-1]
+                actual = text + (" " if wi < len(line.words) - 1 else "")
             if wi < len(line.words) - 1 and " " in cid:
                 cids.append(cid[" "])  # keeps words apart when the text is copied out
-            runs.append(GlyphRun(font_key, size, x0, baseline, cids, horizontal_scale=scale, invisible=True))
+            runs.append(GlyphRun(font_key, size, x0, baseline, cids, horizontal_scale=scale, invisible=True,
+                                 actual_text=actual))
     return runs
 
 

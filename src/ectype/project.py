@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -33,6 +33,7 @@ class Settings:
     font: str = ""  # substitute mode; empty = default serif
     lang: str = "eng"  # Tesseract languages, e.g. "eng+grc"
     page_image: str = "gray"  # text mode: "gray" or "bw" (black and white, smallest)
+    declined_languages: list = field(default_factory=list)  # languages the user chose not to add when offered
     name: str = ""  # output file name without .pdf
 
 
@@ -168,6 +169,50 @@ class Project:
         self.settings.lang = join(codes)
         self.save_settings()
 
+    def unread_scripts(self) -> dict[str, int]:
+        """Words found in scripts none of the OCR languages covers, by script (last OCR run)."""
+        path = self.workspace / "ocr" / "ocr.json"
+        return json.loads(path.read_text(encoding="utf-8")).get("unread_scripts", {}) if path.is_file() else {}
+
+    def language_suggestions(self) -> list[str]:
+        """Languages to offer for those scripts (not ones chosen, or declined for this project)."""
+        from .scripts import suggest
+
+        path = self.workspace / "ocr" / "ocr.json"
+        pages = [r.get("unread_scripts") or {} for r in json.loads(path.read_text(encoding="utf-8"))["pages"]] \
+            if path.is_file() else []
+        return [lang for lang in suggest(self.unread_scripts(), self.languages(), pages)
+                if lang not in self.settings.declined_languages]
+
+    def decline_languages(self, codes: list[str]) -> None:
+        self.settings.declined_languages = sorted(set(self.settings.declined_languages) | set(codes))
+        self.save_settings()
+
+    def corrected_lines(self) -> int:
+        """Lines corrected in Review: the training data for the OCR model."""
+        from .train import training_pairs
+
+        return len(training_pairs(self.workspace))
+
+    def base_language(self) -> str:
+        """The main OCR language, as a stock model (a trained one's base)."""
+        from .train import trained_models
+
+        main = self.languages()[0]
+        return trained_models().get(main, {}).get("base", main)
+
+    def train_model(self, progress: Progress | None = None):
+        """Fine-tune the main OCR language on this book's corrected lines (train.py), and use
+        the new model for this book from the next reading on."""
+        from .train import train
+
+        progress = progress or (lambda stage, msg: None)
+        result = train(self.workspace, self.base_language(), self.settings.name or self.workspace.name,
+                       progress=lambda msg: progress("train", msg))
+        codes = [result.model] + [c for c in self.languages()[1:] if c != result.model]
+        self.set_languages(codes)
+        return result
+
     def has_corrections(self) -> bool:
         return any((self.workspace / "corrections").glob("*.json"))
 
@@ -193,6 +238,13 @@ class Project:
 
                 out = ocr_pages(ws / "pages", ws / "ocr", lang=s.lang)
                 msg = f"{sum(r['words'] for r in out['pages'])} words"
+                if out["unread_scripts"]:
+                    from .languages import name
+
+                    found = ", ".join(f"{script} ({n} words)" for script, n in out["unread_scripts"].items())
+                    msg += f"; words in scripts the OCR languages don't cover: {found}"
+                    if out["suggest_languages"]:
+                        msg += "; add " + ", ".join(name(c) for c in out["suggest_languages"])
             elif stage == "segment":
                 from .segment import segment_workspace
 

@@ -18,6 +18,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | smoothscan (GPL-3.0) | Grouping repeated symbols, vectorizing them and embedding them as a font | https://github.com/ncraun/smoothscan |
 | Leptonica jbclass and jbig2enc | Symbol classification by correlation; averaging every instance of a class into one composite template | http://www.leptonica.org/ , https://github.com/agl/jbig2enc |
 | OCRmyPDF and Tesseract's PDF renderer ("GlyphLessFont") | An invisible text layer set in a font of empty glyphs, mapped to Unicode | https://github.com/ocrmypdf/OCRmyPDF |
+| tesstrain (Apache-2.0) | Fine-tuning Tesseract on line images with their text: box files for whole lines, .lstmf files, lstmtraining continued from a tessdata_best model. Followed as documented; no code copied | https://github.com/tesseract-ocr/tesstrain |
 | Ocular OCR; DeepVecFont, Im2Vec | Learned font models and vector-font reconstruction, for later work on damaged or rare glyphs | — |
 
 ## Dependencies
@@ -55,6 +56,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | EB Garamond (bundled with the Windows app; the default substitute font) | Substitute mode | Georg Duffner, Octavio Pardo | SIL OFL 1.1 (`fonts/EBGaramond-OFL.txt` in the app) |
 | Tesseract and its libraries, with `eng` and `osd` data (bundled with the Windows app, UB Mannheim build) | OCR | Tesseract contributors; Leptonica, libpng, libjpeg, libtiff, zlib and others | Apache-2.0 (Tesseract); each library's licence is in the app's `tesseract` folder |
 | Tesseract language data (tessdata), downloaded on request | OCR in further languages | Tesseract contributors | Apache-2.0 |
+| Tesseract's trainable models (tessdata_best), downloaded on request | The base of a model trained on a book's corrections | Tesseract contributors | Apache-2.0 |
 | Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
 | DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
 

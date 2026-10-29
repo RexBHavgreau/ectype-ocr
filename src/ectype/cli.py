@@ -60,9 +60,23 @@ def cmd_ocr(args: argparse.Namespace) -> int:
     from .ocr import ocr_pages
 
     ws = Path(args.workspace)
-    s = ocr_pages(ws / "pages", ws / "ocr", engine=args.engine, lang=args.lang)
+    lang = args.lang
+    if lang is None:  # the project's languages (the app's choice, or a trained model), else English
+        from .project import Project
+
+        lang = Project(ws).settings.lang if (ws / "project.json").is_file() else "eng"
+    s = ocr_pages(ws / "pages", ws / "ocr", engine=args.engine, lang=lang)
     words = sum(r["words"] for r in s["pages"])
-    print(f"{len(s['pages'])} pages, {words} words. Report: {ws / 'ocr' / 'index.html'}")
+    print(f"{len(s['pages'])} pages, {words} words ({lang}). Report: {ws / 'ocr' / 'index.html'}")
+    if s.get("unread_scripts"):
+        from .languages import name
+
+        found = ", ".join(f"{script} ({n} words)" for script, n in s["unread_scripts"].items())
+        print(f"Words in scripts the OCR languages don't cover: {found}.")
+        if s.get("suggest_languages"):
+            codes = s["suggest_languages"]
+            print(f"Add {', '.join(name(c) for c in codes)}: ectype languages --add {' '.join(codes)}, "
+                  f"then ectype ocr {ws} --lang {lang}+{'+'.join(codes)}")
     return 0
 
 
@@ -185,6 +199,24 @@ def cmd_idml(args: argparse.Namespace) -> int:
     if args.mode == "facsimile":
         for name, face in out["styles"].items():
             print(f"  {name}: {face}")
+    return 0
+
+
+def cmd_train(args: argparse.Namespace) -> int:
+    """Fine-tune the main OCR language on the workspace's corrected lines."""
+    from .project import Project
+    from .train import TrainingError
+
+    project = Project(Path(args.workspace))
+    try:
+        r = project.train_model(lambda stage, msg: print(f"{stage}: {msg}"))
+    except TrainingError as exc:
+        print(exc)
+        return 1
+    print(f"Trained {r.model} on {r.lines} corrected lines (+{r.confident} confidently read), {r.iterations} iterations.")
+    if r.cer_before is not None:
+        print(f"Character errors on {r.held_out} lines kept aside: {100 * r.cer_before:.1f}% -> {100 * r.cer_after:.1f}%")
+    print(f"OCR languages for this book: {project.settings.lang}. Run `ectype ocr` (or Run in the app) to read the pages again.")
     return 0
 
 
@@ -346,7 +378,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("ocr", help="OCR <workspace>/pages into <workspace>/ocr")
     p.add_argument("workspace")
     p.add_argument("--engine", default="tesseract", help="tesseract (default) or kraken")
-    p.add_argument("--lang", default="eng", help="engine language(s), e.g. eng or eng+grc")
+    p.add_argument("--lang", help="engine language(s), e.g. eng or eng+grc (default: the project's, else eng)")
     p.set_defaults(func=cmd_ocr)
 
     p = sub.add_parser("segment", help="tie OCR characters to their ink: <workspace>/segment")
@@ -427,6 +459,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
     p.set_defaults(func=cmd_rebuild)
+
+    p = sub.add_parser("train", help="train the OCR model on the lines corrected in Review (Tesseract fine-tuning)")
+    p.add_argument("workspace")
+    p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("update", help="check for a newer version (and install it, with --install)")
     p.add_argument("--install", action="store_true", help="download and run the new installer (installed Windows app)")

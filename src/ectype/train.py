@@ -1,0 +1,284 @@
+"""Train the OCR model on a book's corrections (Tesseract fine-tuning).
+
+Every correction made in Review saves its line as a training pair in <workspace>/training/
+(the line's image, <name>.png, and its corrected text, <name>.gt.txt). Training fine-tunes a
+copy of the book's main OCR language on those lines, so the next reading makes fewer of the
+same mistakes:
+
+1. The base model in Tesseract's float form (tessdata_best: the shipped models are integer
+   models, which can't be trained further) is downloaded once into the user's folder.
+2. The corrected lines, plus as many lines the OCR read with high confidence (so the model
+   keeps what it already does well), become Tesseract's training files (.lstmf), each from
+   a line image and a box file holding its text. Lines with characters the model doesn't
+   know (a Hebrew word in an English model's line) are left out and counted.
+3. A fifth of the corrected lines (at least two) is kept aside. lstmtraining continues the
+   base model on the rest for a number of iterations that grows with the lines; the result
+   is saved as a new language, `<base>_<book>` (e.g. eng_young), beside the downloaded ones,
+   so it can be chosen in the Languages menu for this book or others.
+4. The lines kept aside are read with the old model and the new one, and the character
+   error rates compared, so the report says whether training helped.
+
+The new model replaces the base language among the book's OCR languages; reading the pages
+again uses it, and corrections already made are carried over to the new reading.
+
+Needs Tesseract's training tools (lstmtraining, combine_tessdata), which come with
+Tesseract on Windows (UB Mannheim) and in Linux packages.
+"""
+
+from __future__ import annotations
+
+import json
+import random
+import re
+import shutil
+import subprocess
+import tempfile
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+from .resources import subprocess_flags, tesseract_cmd, tesseract_env, user_data_dir, user_tessdata_dir
+
+BEST_URL = "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/{code}.traineddata"
+MIN_LINES = 10  # corrected lines needed to train at all
+
+
+class TrainingError(RuntimeError):
+    """A plain message for the user."""
+
+
+@dataclass
+class TrainResult:
+    model: str  # the new language code
+    base: str
+    lines: int  # corrected lines trained on
+    confident: int  # confidently read lines added
+    skipped: int  # lines with characters the base model doesn't know
+    iterations: int
+    cer_before: float | None  # on the lines kept aside
+    cer_after: float | None
+    held_out: int
+
+
+def tool(name: str) -> str | None:
+    """A Tesseract training tool: beside tesseract (the app's own, or the system's), or on PATH."""
+    cmd = tesseract_cmd()
+    if cmd:
+        for candidate in (Path(cmd).with_name(name + ".exe"), Path(cmd).with_name(name)):
+            if candidate.is_file():
+                return str(candidate)
+    return shutil.which(name)
+
+
+def available() -> str | None:
+    """None when training can run; else what's missing, for the user."""
+    missing = [t for t in ("lstmtraining", "combine_tessdata") if tool(t) is None]
+    if tesseract_cmd() is None:
+        return "Tesseract isn't installed."
+    if missing:
+        return f"Tesseract's training tools ({', '.join(missing)}) aren't installed."
+    return None
+
+
+def model_name(base: str, book: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "", book.lower())[:24] or "book"
+    return f"{base}_{slug}"
+
+
+def training_pairs(workspace: Path) -> list[tuple[Path, str]]:
+    folder = Path(workspace) / "training"
+    out = []
+    for gt in sorted(folder.glob("*.gt.txt")):
+        png = gt.with_name(gt.name[: -len(".gt.txt")] + ".png")
+        text = gt.read_text(encoding="utf-8").strip()
+        if png.is_file() and text:
+            out.append((png, text))
+    return out
+
+
+def _run(args: list[str], cwd: Path | None = None, timeout: float = 3600) -> subprocess.CompletedProcess:
+    return subprocess.run(args, capture_output=True, text=True, cwd=cwd, timeout=timeout, env=tesseract_env(),
+                          **subprocess_flags())
+
+
+def best_model(base: str, progress: Callable[[str], None] | None = None) -> Path:
+    """The base language's float model (tessdata_best), downloaded once."""
+    folder = user_data_dir() / "tessdata_best"
+    path = folder / f"{base}.traineddata"
+    if path.is_file():
+        return path
+    folder.mkdir(parents=True, exist_ok=True)
+    if progress:
+        progress(f"downloading the trainable {base} model (tessdata_best)")
+    part = path.with_suffix(".part")
+    try:
+        with urllib.request.urlopen(BEST_URL.format(code=base), timeout=120) as r, open(part, "wb") as out:
+            shutil.copyfileobj(r, out)
+        part.replace(path)
+    except Exception as exc:
+        part.unlink(missing_ok=True)
+        raise TrainingError(f"Couldn't download the trainable {base} model ({exc}). Check the connection and try again.") from exc
+    return path
+
+
+def _unicharset(best: Path, work: Path, base: str) -> set[str]:
+    """The characters the base model knows."""
+    out = _run([tool("combine_tessdata"), "-u", str(best), str(work / f"{base}.")])
+    if out.returncode != 0:
+        raise TrainingError(f"Couldn't unpack the {base} model: {out.stderr.strip()[-200:]}")
+    chars = set()
+    lines = (work / f"{base}.lstm-unicharset").read_text(encoding="utf-8").splitlines()[1:]
+    for line in lines:
+        token = line.split(" ", 1)[0]
+        chars.add(" " if token == "NULL" else token)
+    return chars
+
+
+def _box(png: Path, text: str, dest: Path) -> None:
+    """A box file for a whole line: its text in WordStr form over the full image, as
+    Tesseract's line training reads it."""
+    from PIL import Image
+
+    with Image.open(png) as im:
+        w, h = im.size
+    dest.write_text(f"WordStr 0 0 {w} {h} 0 #{text}\n\t 0 0 {w} {h} 0\n", encoding="utf-8")
+
+
+def _lstmf(png: Path, text: str, work: Path, n: int) -> Path | None:
+    """Tesseract's training file for one line, or None if it couldn't make one."""
+    stem = work / f"line{n:05d}"
+    shutil.copyfile(png, stem.with_suffix(".png"))
+    _box(png, text, stem.with_suffix(".box"))
+    out = _run([tesseract_cmd(), str(stem.with_suffix(".png")), str(stem), "--psm", "13", "lstm.train"])
+    lstmf = stem.with_suffix(".lstmf")
+    return lstmf if out.returncode == 0 and lstmf.is_file() else None
+
+
+def confident_lines(workspace: Path, limit: int, min_conf: float = 90.0, seed: int = 0) -> list[tuple[Path, str]]:
+    """Lines the OCR read with every word at min_conf or more, as training pairs (cropped
+    into a temporary folder in the workspace), to keep the model's other skills."""
+    from PIL import Image
+
+    from .ocr import OcrPage
+
+    workspace = Path(workspace)
+    found = []
+    for path in sorted((workspace / "ocr").glob("*.ocr.json")):
+        page = path.name[: -len(".ocr.json")]
+        ocr = OcrPage.from_json(json.loads(path.read_text(encoding="utf-8")))
+        for li, line in enumerate(ocr.lines):
+            if len(line.words) >= 3 and all(w.conf >= min_conf for w in line.words):
+                found.append((page, li, line))
+    random.Random(seed).shuffle(found)
+    out_dir = workspace / "training" / "confident"
+    if out_dir.is_dir():
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True)
+    out = []
+    for page, li, line in found[:limit]:
+        with Image.open(workspace / "pages" / f"{page}.png") as image:
+            x0, y0, x1, y1 = line.box
+            pad = max(4, (y1 - y0) // 4)
+            crop = image.crop((max(0, x0 - 10), max(0, y0 - pad), min(image.width, x1 + 10), min(image.height, y1 + pad)))
+            png = out_dir / f"{page}-l{li:03d}.png"
+            crop.save(png)
+        out.append((png, " ".join(w.text for w in line.words)))
+    return out
+
+
+def _cer(model_dir: Path, lang: str, pairs: list[tuple[Path, str]]) -> float | None:
+    """Character error rate of a model on line images."""
+    from rapidfuzz.distance import Levenshtein
+
+    errors = total = 0
+    for png, text in pairs:
+        out = _run([tesseract_cmd(), str(png), "-", "--psm", "7", "--tessdata-dir", str(model_dir), "-l", lang])
+        errors += Levenshtein.distance(out.stdout.strip(), text)
+        total += len(text)
+    return round(errors / total, 4) if total else None
+
+
+def train(workspace: Path, base: str, book: str, progress: Callable[[str], None] | None = None,
+          iterations: int | None = None, seed: int = 0) -> TrainResult:
+    """Fine-tune the base language on the workspace's corrections (see the module docstring)."""
+    progress = progress or (lambda msg: None)
+    problem = available()
+    if problem:
+        raise TrainingError(problem + " Training needs them; reinstall Ectype OCR, or install Tesseract with its training tools.")
+    corrected = training_pairs(workspace)
+    if len(corrected) < MIN_LINES:
+        raise TrainingError(f"Correct at least {MIN_LINES} lines in Review first ({len(corrected)} so far). "
+                            "Each corrected line becomes training data.")
+    best = best_model(base, progress)
+    name = model_name(base, book)
+    with tempfile.TemporaryDirectory(prefix="ectype-train-") as tmp:
+        work = Path(tmp)
+        known = _unicharset(best, work, base)
+        rng = random.Random(seed)
+        rng.shuffle(corrected)
+        held = corrected[: max(2, len(corrected) // 5)]
+        train_pairs = corrected[len(held):]
+        extra = confident_lines(workspace, limit=len(train_pairs), seed=seed)
+        skipped = 0
+        files = []
+        progress(f"preparing {len(train_pairs)} corrected and {len(extra)} confidently read lines")
+        for n, (png, text) in enumerate(train_pairs + extra):
+            if any(c not in known for c in text if not c.isspace()):
+                skipped += 1
+                continue
+            lstmf = _lstmf(png, text, work, n)
+            if lstmf is not None:
+                files.append(lstmf)
+        if len(files) < MIN_LINES // 2:
+            raise TrainingError("Too few lines could be prepared for training "
+                                f"({len(files)}; {skipped} had characters the {base} model doesn't know).")
+        (work / "list.txt").write_text("\n".join(str(f) for f in files) + "\n", encoding="utf-8")
+        iterations = iterations or min(3000, max(300, 30 * len(files)))
+        progress(f"training on {len(files)} lines, {iterations} iterations (a few minutes)")
+        out = _run([tool("lstmtraining"), "--model_output", str(work / "model"), "--continue_from", str(work / f"{base}.lstm"),
+                    "--traineddata", str(best), "--train_listfile", str(work / "list.txt"),
+                    "--max_iterations", str(iterations), "--target_error_rate", "0.01"], cwd=work)
+        checkpoint = work / "model_checkpoint"
+        if not checkpoint.is_file():
+            raise TrainingError("Training didn't finish: " + (out.stderr or out.stdout).strip()[-300:])
+        model_dir = work / "models"
+        model_dir.mkdir()
+        new = model_dir / f"{name}.traineddata"
+        out = _run([tool("lstmtraining"), "--stop_training", "--continue_from", str(checkpoint),
+                    "--traineddata", str(best), "--model_output", str(new)], cwd=work)
+        if not new.is_file():
+            raise TrainingError("Couldn't save the trained model: " + (out.stderr or out.stdout).strip()[-300:])
+        progress("comparing the old and new model on lines kept aside")
+        shutil.copyfile(best, model_dir / f"{base}.traineddata")
+        before = _cer(model_dir, base, held)
+        after = _cer(model_dir, name, held)
+        # Install beside the other languages (the user's folder, with the shipped ones copied in).
+        from .languages import _seed
+
+        target = user_tessdata_dir()
+        _seed(target)
+        shutil.copyfile(new, target / new.name)
+    _record(name, base, book)
+    return TrainResult(name, base, len(train_pairs), len(extra), skipped, iterations, before, after, len(held))
+
+
+def _record(name: str, base: str, book: str) -> None:
+    """Remember what each trained model is, for its name in the Languages menu."""
+    path = user_data_dir() / "models.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    data[name] = {"base": base, "book": book}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def trained_models() -> dict[str, dict]:
+    try:
+        return json.loads((user_data_dir() / "models.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+

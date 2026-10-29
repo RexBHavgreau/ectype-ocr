@@ -168,3 +168,21 @@ def test_help_menu_and_update_check(project, tmp_path, monkeypatch):
     assert said and __version__ in said[0]
     w.close()
     app.processEvents()
+
+
+def test_select_pdf_shows_the_selection_and_training_route(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    scan = _spread_pdf(tmp_path)
+    w = MainWindow(Project.for_scan(scan))
+    app.processEvents()
+    assert w.actions["open_scan"].text() == "Select PDF…"
+    assert "book.pdf" in w.source_label.text() and "1 page" in w.source_label.text()
+    assert "not read yet" in w.source_label.text() and w.actions["run"].font().bold()
+    assert "Selected: book.pdf" in w.spreads.note.text()
+    assert w.actions["train"].text() == "Train OCR model…"
+    w.offer_languages()  # no other scripts found: nothing asked
+    w.close()

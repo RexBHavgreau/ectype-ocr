@@ -80,6 +80,50 @@ def correct(workspace: Path, page: str, line: int, word: int, text: str) -> dict
     return {**entry, "training": str(pair.relative_to(workspace))}
 
 
+def carry_corrections(workspace: Path, page_name: str, page: OcrPage) -> int:
+    """Carry the page's corrections over to a new reading of it (other languages, a trained
+    model): each corrected word's text goes to the new word that covers the same place on the
+    page. The new reading becomes the page's original, and the log points at the new words.
+    Returns how many corrections were carried over."""
+    import copy
+
+    workspace = Path(workspace)
+    log_path = workspace / "corrections" / f"{page_name}.json"
+    original = workspace / "ocr" / f"{page_name}.ocr.original.json"
+    if not log_path.is_file() or not original.is_file():
+        return 0
+    old = OcrPage.from_json(json.loads(original.read_text(encoding="utf-8")))
+    raw = copy.deepcopy(page)
+    log = json.loads(log_path.read_text(encoding="utf-8"))
+    words = [(li, wi, w.box) for li, line in enumerate(page.lines) for wi, w in enumerate(line.words)]
+
+    def overlap(a, b):
+        ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+        iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+        inter = ix * iy
+        union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+        return inter / union if union > 0 else 0.0
+
+    carried = 0
+    for e in log:
+        try:
+            box = old.lines[e["line"]].words[e["word"]].box
+        except IndexError:
+            e["lost"] = True
+            continue
+        best = max(words, key=lambda t: overlap(box, t[2]), default=None)
+        if best is None or overlap(box, best[2]) < 0.3:
+            e["lost"] = True
+            continue
+        apply_correction(page, best[0], best[1], e["new"])
+        e["line"], e["word"] = best[0], best[1]
+        e.pop("lost", None)
+        carried += 1
+    original.write_text(json.dumps(raw.to_json(), ensure_ascii=False), encoding="utf-8")
+    report.write_json(log_path, log)
+    return carried
+
+
 def _flags(workspace: Path) -> dict[str, set[tuple[int, int]]]:
     """Words holding a probable misreading, per page, from the cluster report."""
     path = workspace / "cluster" / "clusters.json"

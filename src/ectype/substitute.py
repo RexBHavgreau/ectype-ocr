@@ -26,6 +26,7 @@ from .background import erase_text, smooth_paper
 from .ocr import OcrPage
 from .pdfwrite import FontMetrics, GlyphRun, PageSpec, subset_font, write_pdf
 from .preprocess import binarize
+from .scripts import is_rtl
 from .segment import X_LETTERS, Segmentation, fit_baselines
 
 
@@ -104,6 +105,8 @@ def place_words(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid:
             chars = [c.text for c in word.chars] or list(word.text)
             text = "".join(chars)
             gids = [char_cid[c] for c in text if c in char_cid]
+            if is_rtl(text):
+                gids = gids[::-1]
             missing = "".join(c for c in text if c not in char_cid)
             if not gids:
                 continue
@@ -134,9 +137,28 @@ def place_words(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid:
         x = left - first_left * word_x
         a, b = base.get(li, (ink[3], 0.0))
         y = a + b * (ink[0] + ink[2]) / 2 - growth
-        cids = gids + ([space_cid] if space and space_cid is not None and wi < len(line.words) - 1 else [])
-        placed.append(PlacedWord(li, wi, text, ink, GlyphRun(font_key, size, x, y, cids, tc, word_x), missing))
+        last = wi == len(line.words) - 1
+        # A right-to-left word's glyphs are in visual order (reversed when measured); its
+        # text goes with them in reading order.
+        actual = (text + ("" if last else " ")) if is_rtl(text) else None
+        cids = gids + ([space_cid] if space and space_cid is not None and not last else [])
+        placed.append(PlacedWord(li, wi, text, ink, GlyphRun(font_key, size, x, y, cids, tc, word_x, actual_text=actual), missing))
     return placed
+
+
+def _hidden_runs(ocr: OcrPage, words: set[tuple[int, int]], cid: dict[str, int], key: str) -> list[GlyphRun]:
+    """Invisible text for the words left as the scan, in the glyphless font (any script)."""
+    from .textlayer import place_words as hidden_words
+
+    runs = []
+    for li, line in enumerate(ocr.lines):
+        keep = [wi for wi in range(len(line.words)) if (li, wi) in words]
+        if keep:
+            sub = OcrPage(ocr.engine, ocr.lang, ocr.size_px, ocr.dpi,
+                          [type(line)(line.box, line.baseline, line.x_size, line.ascenders, line.descenders,
+                                      [line.words[wi] for wi in keep])])
+            runs += hidden_words(sub, cid, key)
+    return runs
 
 
 def measure_overlay(rendered: np.ndarray, placed: list[PlacedWord], pad: int = 3) -> dict:
@@ -211,6 +233,9 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
         loaded.append((name, gray, dpi, ocr, seg, labels))
 
     embedded, char_cid, metrics = subset_font(Path(font), text + " ")
+    from .textlayer import glyphless_font
+
+    hidden, hidden_cid = glyphless_font(sorted(set(text) | {" "}), key="F2")
     pages_out, text_only, rows, all_placed = [], [], [], []
     for name, gray, dpi, ocr, seg, labels in loaded:
         h, w = gray.shape
@@ -222,11 +247,18 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
             continue
         sizes = [line.x_size for line in ocr.lines if line.x_size]
         x_size = float(np.median(sizes)) if sizes else 30.0
-        background, mask = erase_text(gray, seg, labels, x_size)
+        # A word with a character the font lacks (Hebrew in EB Garamond) stays as the scan,
+        # with its text laid invisibly over it: only the words set in the font are erased.
+        everything = place_words(seg, ocr, metrics, char_cid, embedded.key)
+        placed = [p for p in everything if not p.missing]
+        kept = {(p.line, p.word) for p in everything if p.missing} | {
+            (li, wi) for li, line in enumerate(ocr.lines) for wi, wd in enumerate(line.words)
+            if not any(c in char_cid for c in wd.text)}
+        set_units = [u for u in seg.units if (u.line, u.word) not in kept]
+        background, mask = erase_text(gray, Segmentation(seg.size_px, seg.components, set_units, seg.unassigned), labels, x_size)
         background = smooth_paper(background)
-        placed = place_words(seg, ocr, metrics, char_cid, embedded.key)
         ink_gray = float(np.median(gray[mask & (gray < 128)])) / 255 if (mask & (gray < 128)).any() else 0.1
-        runs = [p.run for p in placed]
+        runs = [p.run for p in placed] + _hidden_runs(ocr, kept, hidden_cid, hidden.key)
         pages_out.append(PageSpec(w, h, dpi, background=background, background_dpi=background_dpi,
                                   runs=runs, fill_gray=round(ink_gray, 3)))
         text_only.append(PageSpec(w, h, dpi, runs=runs))
@@ -234,11 +266,12 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
         all_placed.append(placed)
         rows.append({"page": name, "words": len(placed),
                      "size_pt": round(float(np.median([p.run.size_px for p in placed])) * 72 / dpi, 2) if placed else None,
-                     "missing": "".join(sorted({c for p in placed for c in p.missing}))})
+                     "missing": "".join(sorted({c for p in everything for c in p.missing})),
+                     "kept_as_scan": len(kept)})
 
     pdf_name = (out_name or workspace.name) + ".pdf"
-    write_pdf(out / pdf_name, pages_out, [embedded])
-    write_pdf(out / "text-only.pdf", text_only, [embedded])
+    write_pdf(out / pdf_name, pages_out, [embedded, hidden])
+    write_pdf(out / "text-only.pdf", text_only, [embedded, hidden])
 
     doc = pdfium.PdfDocument(str(out / pdf_name))
     extracted = [doc[i].get_textpage().get_text_bounded() for i in range(len(doc))]

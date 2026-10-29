@@ -53,7 +53,14 @@ NOT_LANGUAGES = {"osd", "equ"}
 
 
 def name(code: str) -> str:
-    return LANGUAGES.get(code, code)
+    if code in LANGUAGES:
+        return LANGUAGES[code]
+    from .train import trained_models
+
+    model = trained_models().get(code)
+    if model:
+        return f"{LANGUAGES.get(model['base'], model['base'])}, trained on {model['book']}"
+    return code
 
 
 def split(lang: str) -> list[str]:
