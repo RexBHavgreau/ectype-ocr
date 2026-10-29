@@ -92,12 +92,17 @@ def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], N
 
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
+    killed = []
+    timer = threading.Timer(timeout, lambda: (killed.append(True), proc.kill()))
+    timer.start()
     try:
-        out, _ = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise KrakenError(f"Kraken took longer than {timeout:.0f} seconds ({args[0]}).") from None
-    watcher.join(5)
+        out = proc.stdout.read()  # stdout here, stderr in the watcher: neither pipe fills up
+        proc.wait()
+    finally:
+        timer.cancel()
+    watcher.join(10)
+    if killed:
+        raise KrakenError(f"Kraken took longer than {timeout:.0f} seconds ({args[0]}).")
     if proc.returncode != 0:
         message = next((e for e in reversed(errors) if e.strip()), "no message")
         raise KrakenError(f"Kraken failed ({args[0]}): {message.removeprefix('error: ')}")

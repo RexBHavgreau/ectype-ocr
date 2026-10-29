@@ -52,6 +52,21 @@ A book in English with Greek and Hebrew words needs all three languages ticked; 
 - **Training.** Words corrected into a Kraken model's script (20 or more) fine-tune that model with Kraken's trainer, `ketos train`, continuing from it (`--resize union` adds characters it lacks). A fifth is kept aside to compare the old and new model. The result is a Kraken model of its own, "Hebrew (Kraken), trained on <book>", replacing the one it came from for the book. On a small test model trained here from synthetic lines, two epochs on 32 corrected words cut the error rate on the 8 kept aside from 51% to 10%.
 - **Comparing models.** `tools/kraken_eval.py` (run in CI, which can reach Zenodo) reads Genesis 1:1–4, pointed and unpointed, and John 1:1–5 in several fonts with each printed Greek and Hebrew model and with Tesseract's `heb` and `grc`, and prints the character error rates. Set type isn't a book's type, so this checks the models work and how they compare; it doesn't choose one.
 
+  First results (October 29; character error rates, %; lines lightly blurred and speckled; 52 recognition models in the repository):
+
+  | | Polytonic Greek (5 fonts) | Hebrew, unpointed (4 fonts) | Hebrew, pointed (4 fonts) |
+  | --- | --- | --- | --- |
+  | Tesseract `grc` / `heb` | 0.4–3.9 | 2.8–3.3 | 22.6–28.8 |
+  | CLLG Polytonic Greek (printed) | 0.4–1.1 | | |
+  | PP-OCRv6 multilingual, medium (printed and handwritten) | 0.4 in every font | 2.8–3.3 | 39.7–41.4 |
+  | PP-OCRv6 multilingual, small / tiny | 0.0–0.7 / 1.1–3.2 | 2.8–4.4 / 2.8–6.6 | 39.7–45.9 / 40.4–44.9 |
+  | BiblIA medieval Hebrew manuscripts (4 models) | | 12.2–47.5 | 45.2–65.4 |
+
+  - **Greek:** the Kraken models read polytonic Greek at least as well as Tesseract, and more evenly across typefaces (Tesseract: 3.9% in GFS Didot).
+  - **Unpointed Hebrew:** the printed multilingual models are level with Tesseract. The manuscript models don't suit print.
+  - **Pointed Hebrew:** no model in the repository reads vowel points in print; they drop them (about 40% of the characters). Tesseract does better but lacks four of the points. For a pointed text, a model has to be trained on the book itself: correct its Hebrew words in Review and train, either engine.
+  - Two "Party" models (whole-page recognition) can't be used to read lines; the app refuses them with a message.
+
 ## Training the OCR model
 
 **Train OCR model…** in the app (it shows how many lines and other-script words you have corrected), or `ectype train <workspace>`. Each word corrected in Review saves its line, image and corrected text, in `training/`. Training fine-tunes a copy of the book's main language on those lines (`train.py`):
