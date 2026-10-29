@@ -162,6 +162,12 @@ def test_models_panel(data, monkeypatch):
     panel.download()
     wait()
     assert installed == ["10.5281/zenodo.9"] and dialog.downloaded == ["kraken_9"]
+    import gc
+
+    dialog.deleteLater()  # freed on the interface thread, not later from a worker thread
+    del dialog, panel
+    app.processEvents()
+    gc.collect()
 
 
 # -- with the Kraken engine and a model ------------------------------------------------

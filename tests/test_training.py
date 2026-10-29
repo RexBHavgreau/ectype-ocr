@@ -216,4 +216,11 @@ def test_trained_models_window(data):
     dialog.remove_models()
     assert models.resolve("grc").which == "stock" and "No trained models yet." in dialog.text.toPlainText()
     dialog._confirm = monkey
+    # Freed here, on the interface thread: collected later from a worker thread, Qt would crash.
+    import gc
+
+    dialog.close()
+    dialog.deleteLater()
+    del dialog
     app.processEvents()
+    gc.collect()
