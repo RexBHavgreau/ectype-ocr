@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image, ImageDraw, ImageFont, features
+from PIL import Image, ImageDraw, ImageFont
 
 from ectype import kraken, scripts
 from ectype.ocr import Char, Line, OcrPage, Word
@@ -48,7 +48,7 @@ class FakeSession:
     def __init__(self, answers):
         self.answers, self.requests = answers, []
 
-    def read(self, model, image, boxes):
+    def read(self, model, image, boxes, pack=None):
         self.requests.append(boxes)
         return [self.answers.pop(0) for _ in boxes]
 
@@ -63,7 +63,7 @@ def test_runs_of_a_script_are_read_by_kraken(data):
                                                     for i, c in enumerate("דָּבָר אֵת אָמַר")]}
     second = {"text": "א", "chars": [["א", [505, 100, 520, 140], 80.0]]}
     session = FakeSession([first, second])
-    assert kraken.read_runs(page, Path("p.png"), {"Hebrew": "heb.safetensors"}, session) == 4
+    assert kraken.read_runs(page, Path("p.png"), {"Hebrew": ("heb.safetensors", None)}, session) == 4
     assert [w.text for w in line.words] == ["in", "דָּבָר", "אֵת", "אָמַר", "and", "א"], \
         "the figure between two Hebrew words went with them"
     assert len(session.requests[0]) == 2, "one request for the page's runs"
@@ -82,17 +82,20 @@ def test_detected_words_are_left_for_kraken(data):
     assert not hasattr(page.lines[0].words[0], "script"), "plain words aren't sent to the detector"
 
 
-def test_kraken_training_is_planned_for_its_words(data, tmp_path):
+def test_kraken_models_train_on_their_scripts_pool(data, tmp_path):
+    from ectype import pool
     from ectype.project import Project
 
     folder = tmp_path / "ws" / "training" / "words"
     folder.mkdir(parents=True)
     for i in range(21):
-        Image.new("L", (40, 20), 255).save(folder / f"w{i}.png")
+        Image.new("L", (40 + i, 20), 255).save(folder / f"w{i}.png")
         (folder / f"w{i}.gt.txt").write_text("שָׁלוֹם\n", encoding="utf-8")
     project = Project(tmp_path / "ws")
     project.set_languages(["eng", "kraken_123"])
-    assert project.trainable() == [("kraken_123", "kraken", 21)]
+    assert pool.key_for("kraken_123") == "heb", "a Kraken Hebrew model learns from the Hebrew pool"
+    assert project.trainable() == [("kraken_123", 21)]
+    assert pool.summary("heb")["ws"]["source"] == "correction"
 
 
 def test_engine_download_is_found_in_the_release(monkeypatch):
@@ -159,6 +162,12 @@ def test_models_panel(data, monkeypatch):
     panel.download()
     wait()
     assert installed == ["10.5281/zenodo.9"] and dialog.downloaded == ["kraken_9"]
+    import gc
+
+    dialog.deleteLater()  # freed on the interface thread, not later from a worker thread
+    del dialog, panel
+    app.processEvents()
+    gc.collect()
 
 
 # -- with the Kraken engine and a model ------------------------------------------------
@@ -187,3 +196,20 @@ def test_accents_join_their_letters():
                         ["ν", [20, 0, 26, 40], 99.0]]}
     (word,) = kraken._words(result, [0, 100, 40, 140], Char, Word)
     assert word.text == "ἦν" and [c.text for c in word.chars] == ["ἦ", "ν"] and word.chars[0].conf == 90.0
+
+
+@needs_kraken
+def test_a_family_pack_over_the_general_model(tmp_path):
+    """A pack of no changes, laid over the model, reads exactly as the model does."""
+    if not MODEL.endswith(".safetensors"):
+        pytest.skip("packs are over .safetensors models")
+    info = kraken._run(["pack", MODEL, MODEL, str(tmp_path / "f1.pack.safetensors")])
+    assert info["bytes"] < info["full_bytes"] / 10, "unchanged layers aren't stored"
+    font = ImageFont.truetype(str(__import__("ectype.synth", fromlist=["find_font"]).find_font("FreeSerif")), 40)
+    img = Image.new("L", (600, 80), 255)
+    ImageDraw.Draw(img).text((20, 56), "λόγος", font=font, fill=0, anchor="ls")
+    img.save(tmp_path / "line.png")
+    with kraken.Session() as session:
+        plain = session.read(MODEL, tmp_path / "line.png", [[0, 0, 600, 80]])
+        packed = session.read(MODEL, tmp_path / "line.png", [[0, 0, 600, 80]], str(tmp_path / "f1.pack.safetensors"))
+    assert plain == packed

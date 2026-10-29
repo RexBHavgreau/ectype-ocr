@@ -36,9 +36,11 @@ Name: "addtopath"; Description: "Add the ectype command-line tool to PATH"; Grou
 
 [Files]
 Source: "..\dist\{#AppName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "Train Hebrew and Greek.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppName}.exe"
+Name: "{group}\Train Hebrew and Greek"; Filename: "{app}\Train Hebrew and Greek.bat"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppName}.exe"; Tasks: desktopicon
 

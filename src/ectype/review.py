@@ -55,7 +55,7 @@ def save_training_line(workspace: Path, page: str, ocr: OcrPage, line: int) -> P
     out.mkdir(parents=True, exist_ok=True)
     stem = out / f"{page}-l{line:03d}"
     crop.save(stem.with_suffix(".png"))
-    stem.with_suffix(".gt.txt").write_text(" ".join(w.text for w in ln.words) + "\n", encoding="utf-8")
+    stem.with_suffix(".gt.txt").write_text(" ".join(w.text for w in ln.words) + "\n", encoding="utf-8", newline="\n")
     return stem.with_suffix(".png")
 
 
@@ -76,7 +76,7 @@ def save_training_word(workspace: Path, page: str, ocr: OcrPage, line: int, word
     out.mkdir(parents=True, exist_ok=True)
     stem = out / f"{page}-l{line:03d}-w{word:03d}"
     crop.save(stem.with_suffix(".png"))
-    stem.with_suffix(".gt.txt").write_text(w.text + "\n", encoding="utf-8")
+    stem.with_suffix(".gt.txt").write_text(w.text + "\n", encoding="utf-8", newline="\n")
     return stem.with_suffix(".png")
 
 
@@ -87,7 +87,7 @@ def correct(workspace: Path, page: str, line: int, word: int, text: str) -> dict
     original = workspace / "ocr" / f"{page}.ocr.original.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     if not original.is_file():
-        original.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        original.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8", newline="\n")
     ocr = OcrPage.from_json(data)
     old = apply_correction(ocr, line, word, text)
     report.write_json(path, ocr.to_json())
@@ -141,7 +141,7 @@ def carry_corrections(workspace: Path, page_name: str, page: OcrPage) -> int:
         e["line"], e["word"] = best[0], best[1]
         e.pop("lost", None)
         carried += 1
-    original.write_text(json.dumps(raw.to_json(), ensure_ascii=False), encoding="utf-8")
+    original.write_text(json.dumps(raw.to_json(), ensure_ascii=False), encoding="utf-8", newline="\n")
     report.write_json(log_path, log)
     return carried
 

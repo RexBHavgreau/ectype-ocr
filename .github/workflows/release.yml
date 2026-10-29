@@ -8,7 +8,8 @@ on:
   push:
     tags: ["v*"]  # tag pushes ignore the path filter below: every v* tag builds
     branches: ["**"]
-    paths: ["packaging/**", ".github/workflows/release.yml", "src/ectype/resources.py", "src/ectype/kraken_worker.py"]
+    paths: ["packaging/**", ".github/workflows/release.yml", "src/ectype/resources.py", "src/ectype/kraken_worker.py",
+            "src/ectype/train.py", "src/ectype/training.py", "src/ectype/synthtrain.py"]
   workflow_dispatch:
 
 permissions:
@@ -81,6 +82,14 @@ jobs:
           & $ectype idml smoke\work3 -o smoke\facsimile.idml --mode facsimile
           if (-not (Test-Path smoke\facsimile\facsimile.idml)) { throw "IDML missing" }
           if (-not (Test-Path smoke\facsimile\Links\p001.jpg)) { throw "IDML links missing" }
+          # Training: lines set in Windows' own fonts (Hebrew needs Pillow's raqm layout in the app),
+          # then a short training of Greek from the pool, read with afterwards.
+          $env:ECTYPE_DATA_DIR = "$PWD\smoke\data"
+          New-Item -ItemType Directory -Force smoke\fonts | Out-Null
+          Copy-Item C:\Windows\Fonts\times.ttf, C:\Windows\Fonts\arial.ttf, C:\Windows\Fonts\georgia.ttf smoke\fonts
+          & $ectype train-synthetic --fonts smoke\fonts --script hebrew greek --lines 20
+          & $ectype train --lang grc --iterations 40
+          & $ectype models
           # Training the OCR model needs Tesseract's training tools inside the app.
           $tools = Get-ChildItem -Recurse "dist\Ectype OCR" -Include lstmtraining.exe, combine_tessdata.exe, unicharset_extractor.exe, merge_unicharsets.exe, combine_lang_model.exe, dawg2wordlist.exe | Select-Object -ExpandProperty Name
           Write-Host "Training tools in the app: $($tools -join ', ')"

@@ -203,21 +203,122 @@ def cmd_idml(args: argparse.Namespace) -> int:
 
 
 def cmd_train(args: argparse.Namespace) -> int:
-    """Fine-tune the OCR languages on the workspace's corrected lines and words."""
-    from .project import Project
+    """Train the OCR languages' models from their pools, with this project's corrections added
+    (or, with --lang and no workspace, just those languages)."""
     from .train import TrainingError
 
-    project = Project(Path(args.workspace))
+    say = lambda msg: print(f"train: {msg}", flush=True)  # noqa: E731
     try:
-        results = project.train_model(lambda stage, msg: print(f"{stage}: {msg}"))
+        if args.workspace:
+            from .project import Project
+
+            reports = Project(Path(args.workspace)).train_model(lambda stage, msg: say(msg))
+        else:
+            from .training import train_language
+
+            if not args.lang:
+                print("Give a project folder, or the languages to train (--lang heb grc).")
+                return 2
+            reports = [train_language(code, say) for code in args.lang]
     except TrainingError as exc:
         print(exc)
         return 1
-    for r in results:
-        print(f"Trained {r.model} on {r.lines} corrected {r.unit} (+{r.confident} confidently read), {r.iterations} iterations.")
-        if r.cer_before is not None:
-            print(f"  Character errors on {r.held_out} {r.unit} kept aside: {100 * r.cer_before:.1f}% -> {100 * r.cer_after:.1f}%")
-    print(f"OCR languages for this book: {project.settings.lang}. Run `ectype ocr` (or Run in the app) to read the pages again.")
+    for r in reports:
+        for line in r["lines"]:
+            print(line)
+        if r.get("chosen"):
+            print(f"  For this book: {r['chosen']}.")
+    return 0
+
+
+def cmd_train_synthetic(args: argparse.Namespace) -> int:
+    """Lines set from known text in a folder of fonts, into the training pools."""
+    from .synthtrain import generate
+
+    r = generate(Path(args.fonts), args.script, args.lines, progress=lambda m: print(m, flush=True))
+    for script, names in r["fonts"].items():
+        print(f"{script}: {len(names)} fonts: {', '.join(names)}")
+    for name, why in r["skipped"].items():
+        print(f"  {name}: {why}")
+    print("Added:", ", ".join(f"{lang} {n} lines" for lang, n in r["added"].items()) or "nothing new")
+    print("Train with: ectype train --lang " + " ".join(r["added"]))
+    return 0
+
+
+def _pages(spec: str | None) -> list[int] | None:
+    if not spec:
+        return None
+    out = []
+    for part in spec.split(","):
+        a, _, b = part.partition("-")
+        out += list(range(int(a), int(b or a) + 1))
+    return out
+
+
+def cmd_train_scans(args: argparse.Namespace) -> int:
+    """A scanned edition read and matched to its known text, into the training pools."""
+    from .align import read_and_align
+
+    r = read_and_align(Path(args.scan), args.text, args.edition, args.lang, _pages(args.pages),
+                       progress=lambda m: print(m, flush=True))
+    print(f"{r['edition']}: {r['kept']} lines matched to the text and added to the {r['lang']} pool; {r['skipped']} skipped.")
+    return 0
+
+
+def cmd_train_all(args: argparse.Namespace) -> int:
+    from .resources import user_data_dir
+    from .train import TrainingError
+    from .trainall import run, write_template
+
+    if args.write_config:
+        print(write_template(Path(args.write_config)))
+        return 0
+    config = Path(args.config) if args.config else user_data_dir() / "training.ini"
+    if not config.is_file():
+        print(f"No settings file at {config}. Make one with: ectype train-all --write-config \"{config}\"")
+        return 2
+    try:
+        report = run(config, progress=lambda m: print(m, flush=True), iterations=args.iterations, epochs=args.epochs)
+    except (TrainingError, FileNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"Stopped: {exc}")
+        return 1
+    print()
+    print("\n".join(report))
+    return 0
+
+
+def cmd_models(args: argparse.Namespace) -> int:
+    from . import models, pool
+    from .languages import name
+
+    if args.remove:
+        models.remove(args.remove)
+        print(f"Removed the trained models of {name(args.remove)}.")
+    if args.remove_pool:
+        pool.remove_language(args.remove_pool)
+        print(f"Emptied the training pool of {args.remove_pool}.")
+    if args.remove_legacy:
+        for code in models.legacy():
+            models.remove_legacy(code)
+            print(f"Removed {code}.")
+    reg = models.registry()
+    for code, e in sorted(reg.items()):
+        have = models.choices(code)
+        if not have:
+            continue
+        g = e.get("general", {})
+        print(f"{name(code)} [{code}]: general model trained {g.get('trained', '?')} on {g.get('items', '?')} images "
+              f"({len(g.get('books', []))} sources), {models.size_of(code) / 1e6:.1f} MB in all")
+        for fid, f in (e.get("families") or {}).items():
+            print(f"  family {fid[1:]}: {', '.join(f.get('books', []))}")
+    for lang in pool.languages():
+        books = pool.summary(lang)
+        print(f"Pool {lang}: {sum(b['train'] + b['test'] for b in books.values())} images from {len(books)} sources")
+        for book, b in sorted(books.items()):
+            print(f"  {book} ({b['source']}): {b['train']} to train, {b['test']} to test")
+    old = models.legacy()
+    if old:
+        print("Per-book models from earlier versions (remove with --remove-legacy): " + ", ".join(old))
     return 0
 
 
@@ -461,9 +562,39 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", help="output file name without .pdf")
     p.set_defaults(func=cmd_rebuild)
 
-    p = sub.add_parser("train", help="train the OCR model on the lines corrected in Review (Tesseract fine-tuning)")
-    p.add_argument("workspace")
+    p = sub.add_parser("train", help="train the OCR languages' models from their pools (with a project's corrections added)")
+    p.add_argument("workspace", nargs="?", help="a project: its corrections are added to the pools first")
+    p.add_argument("--lang", nargs="+", help="languages to train, without a project (e.g. heb grc kraken_7051645)")
+    p.add_argument("--iterations", type=int, help="Tesseract: training iterations (default: by the pool's size)")
+    p.add_argument("--epochs", type=int, help="Kraken: most epochs (default 15)")
     p.set_defaults(func=cmd_train)
+
+    p = sub.add_parser("train-synthetic", help="add lines set in your fonts from known text to the training pools")
+    p.add_argument("--fonts", required=True, help="folder of fonts (.ttf, .otf; subfolders included)")
+    p.add_argument("--script", nargs="+", default=["hebrew", "greek"], choices=["hebrew", "greek"])
+    p.add_argument("--lines", type=int, default=400, help="lines a font (default 400)")
+    p.set_defaults(func=cmd_train_synthetic)
+
+    p = sub.add_parser("train-scans", help="add lines of a scanned edition, matched to its known text, to the pools")
+    p.add_argument("scan", help="the scan (PDF or image)")
+    p.add_argument("--text", required=True, help="hebrew-bible, greek-nt, or a UTF-8 text file of the edition")
+    p.add_argument("--edition", required=True, help="the edition's name, e.g. 'Letteris 1866'")
+    p.add_argument("--lang", help="heb or grc (needed with a text file)")
+    p.add_argument("--pages", help="pages to use, e.g. 1-40")
+    p.set_defaults(func=cmd_train_scans)
+
+    p = sub.add_parser("train-all", help="all the training a settings file asks for (what the batch file runs)")
+    p.add_argument("--config", help="the settings file (default: training.ini in the user folder)")
+    p.add_argument("--write-config", metavar="PATH", help="write a settings file to fill in, and stop")
+    p.add_argument("--iterations", type=int)
+    p.add_argument("--epochs", type=int)
+    p.set_defaults(func=cmd_train_all)
+
+    p = sub.add_parser("models", help="the trained models and training pools: list, or remove")
+    p.add_argument("--remove", metavar="LANG", help="remove a language's trained models (back to the stock model)")
+    p.add_argument("--remove-pool", metavar="LANG", help="empty a language's training pool")
+    p.add_argument("--remove-legacy", action="store_true", help="remove per-book models made by earlier versions")
+    p.set_defaults(func=cmd_models)
 
     p = sub.add_parser("update", help="check for a newer version (and install it, with --install)")
     p.add_argument("--install", action="store_true", help="download and run the new installer (installed Windows app)")

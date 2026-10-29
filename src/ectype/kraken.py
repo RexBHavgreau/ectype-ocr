@@ -200,6 +200,16 @@ def register(code: str, model: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def unregister(code: str) -> None:
+    path = _registry_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if data.pop(code, None) is not None:
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 def is_model(code: str) -> bool:
     return code.startswith(PREFIX)
 
@@ -297,8 +307,9 @@ class Session:
                                      **subprocess_flags())
         self.lock = threading.Lock()
 
-    def read(self, model_file: str, image: Path, boxes: list[list[int]]) -> list[dict]:
-        request = json.dumps({"model": model_file, "image": str(image), "lines": boxes}, ensure_ascii=False)
+    def read(self, model_file: str, image: Path, boxes: list[list[int]], pack: str | None = None) -> list[dict]:
+        request = json.dumps({"model": model_file, "pack": pack, "image": str(image), "lines": boxes},
+                             ensure_ascii=False)
         with self.lock:
             if self.proc.poll() is not None:
                 raise KrakenError("The Kraken engine stopped.")
@@ -323,9 +334,9 @@ class Session:
         self.close()
 
 
-def read_runs(page, png: Path, models: dict[str, str], session: Session) -> int:
+def read_runs(page, png: Path, models: dict[str, tuple[str, str | None]], session: Session) -> int:
     """Read again with Kraken each run of neighbouring words in a script a chosen model covers
-    (models: script -> model file). A word belongs to a script when most of its letters are in
+    (models: script -> (model file, family pack or None)). A word belongs to a script when most of its letters are in
     it, or when the script detector put it there (word.script, set by scripts.check_words).
     Returns how many words were read."""
     from .ocr import Char, Word
@@ -357,7 +368,7 @@ def read_runs(page, png: Path, models: dict[str, str], session: Session) -> int:
             jobs.append((line, i, j, script))
             i = j + 1
     done = 0
-    for script, model_file in models.items():
+    for script, (model_file, pack) in models.items():
         mine = [job for job in jobs if job[3] == script]
         if not mine:
             continue
@@ -369,7 +380,7 @@ def read_runs(page, png: Path, models: dict[str, str], session: Session) -> int:
             y1 = max(line.box[3], *(w.box[3] for w in words))
             pad = max(4, (y1 - y0) // 6)
             boxes.append([max(0, x0 - pad), max(0, y0 - pad), min(page.size_px[0], x1 + pad), min(page.size_px[1], y1 + pad)])
-        results = session.read(model_file, png, boxes)
+        results = session.read(model_file, png, boxes, pack)
         # Replace the runs back to front, so earlier indexes stay right.
         for (line, i, j, _), box, result in sorted(zip(mine, boxes, results), key=lambda t: (id(t[0][0]), -t[0][1])):
             new = _words(result, box, Char, Word)
