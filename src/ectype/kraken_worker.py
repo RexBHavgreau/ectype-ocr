@@ -74,9 +74,10 @@ def list_models() -> list[dict]:
 
     out = []
     for concept, versions in get_listing(callback).items():
-        # Newest deposit of each model.
-        doi, rec = max(versions.items(), key=lambda kv: str(getattr(kv[1], "publication_date", "")))
-        item = _record(doi, rec)
+        if not versions:
+            continue
+        rec = versions[0]  # the newest deposit of each model
+        item = _record(str(getattr(rec, "doi", concept)), rec)
         if item:
             item["concept_doi"] = concept
             out.append(item)

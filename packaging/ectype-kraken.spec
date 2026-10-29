@@ -32,5 +32,8 @@ for dist in ("kraken", "torch", "torchvision", "lightning", "torchmetrics", "htr
 a = Analysis([str(here / "ectype_kraken.py")], pathex=[str(root / "src")], datas=datas, binaries=binaries,
              hiddenimports=hidden, excludes=["tkinter", "matplotlib", "IPython", "pytest", "PySide6", "ectype.gui"],
              noarchive=False)
-exe = EXE(PYZ(a.pure), a.scripts, [], exclude_binaries=True, name="ectype-kraken", console=True, upx=False)
+# UTF-8 mode: htrmopo reads its data files without naming an encoding, which fails in Windows'
+# own code page.
+exe = EXE(PYZ(a.pure), a.scripts, [("X utf8_mode=1", None, "OPTION")], exclude_binaries=True, name="ectype-kraken",
+          console=True, upx=False)
 COLLECT(exe, a.binaries, a.datas, name="Ectype OCR Kraken", upx=False)

@@ -66,13 +66,19 @@ def worker_command() -> list[str] | None:
     return None
 
 
+def _env() -> dict:
+    """The worker's environment: Python in UTF-8 mode (Kraken's repository client reads its data
+    files in the default encoding, which on Windows isn't UTF-8), and UTF-8 on its pipes."""
+    return {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+
+
 def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], None] | None = None) -> object:
     """Run one worker command; its JSON answer."""
     cmd = worker_command()
     if cmd is None:
         raise KrakenError("The Kraken engine isn't installed.")
     proc = subprocess.Popen(cmd + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            encoding="utf-8", **subprocess_flags())
+                            encoding="utf-8", errors="replace", env=_env(), **subprocess_flags())
     errors: list[str] = []
 
     def watch():
@@ -275,7 +281,8 @@ class Session:
         if cmd is None:
             raise KrakenError("The Kraken engine isn't installed.")
         self.proc = subprocess.Popen(cmd + ["serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", **subprocess_flags())
+                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=_env(),
+                                     **subprocess_flags())
         self.lock = threading.Lock()
 
     def read(self, model_file: str, image: Path, boxes: list[list[int]]) -> list[dict]:
