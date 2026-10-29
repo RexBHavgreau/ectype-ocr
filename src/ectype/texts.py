@@ -102,7 +102,7 @@ def load(source: str, progress: Callable[[str], None] | None = None) -> list[str
             say(f"downloading the {SOURCES[source]}: {book} ({k} of {len(books)})")
             verses += parse(_get(url.format(book=book)))
         cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text("\n".join(verses) + "\n", encoding="utf-8")
+        cache.write_text("\n".join(verses) + "\n", encoding="utf-8", newline="\n")
     return [without_accents(v) for v in cache.read_text(encoding="utf-8").splitlines() if v.strip()]
 
 

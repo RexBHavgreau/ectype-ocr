@@ -133,7 +133,7 @@ def _extended(best: Path, work: Path, base: str, texts: list[str]) -> Path | Non
     needed = ("unicharset_extractor", "merge_unicharsets", "combine_lang_model")
     if any(tool(t) is None for t in needed) or script_of(base) in ("Han", "Japanese", "Hangul"):
         return None  # those scripts' character sets need Tesseract's radical table
-    (work / "gt.txt").write_text("\n".join(texts) + "\n", encoding="utf-8")
+    (work / "gt.txt").write_text("\n".join(texts) + "\n", encoding="utf-8", newline="\n")
     rtl = is_rtl("".join(texts))
     norm = "3" if rtl else "1" if script_of(base) == "Latin" else "2"  # as tesstrain sets them
     _run([tool("unicharset_extractor"), "--output_unicharset", str(work / "new.unicharset"), "--norm_mode", norm,
@@ -142,7 +142,7 @@ def _extended(best: Path, work: Path, base: str, texts: list[str]) -> Path | Non
           str(work / "unicharset")], cwd=work)
     script_dir = work / "langdata"
     script_dir.mkdir(exist_ok=True)
-    (script_dir / "radical-stroke.txt").write_text("\n", encoding="utf-8")  # only Han uses it
+    (script_dir / "radical-stroke.txt").write_text("\n", encoding="utf-8", newline="\n")  # only Han uses it
     args = [tool("combine_lang_model"), "--input_unicharset", str(work / "unicharset"), "--script_dir", str(script_dir),
             "--output_dir", str(work / "starter"), "--lang", base]
     # Keep the base model's word lists, so the new model still has its dictionary.
@@ -182,7 +182,7 @@ def _box(png: Path, text: str, dest: Path) -> None:
                 units[-1] += c
             else:
                 units.append(c)
-    dest.write_text("".join(f"{c} 0 0 {w} {h} 0\n" for c in units) + f"\t 0 0 {w} {h} 0\n", encoding="utf-8")
+    dest.write_text("".join(f"{c} 0 0 {w} {h} 0\n" for c in units) + f"\t 0 0 {w} {h} 0\n", encoding="utf-8", newline="\n")
 
 
 def _lstmf(png: Path, text: str, work: Path, n: int) -> Path | None:
@@ -250,7 +250,7 @@ def fit_tesseract(start: Path, base: str, pairs: list[tuple[Path, str]], work: P
         raise TrainingError(f"Too few images could be prepared for training ({len(files)}; "
                             f"{skipped} had letters of another script than the {base} model's, or failed).")
     random.Random(0).shuffle(files)
-    (work / "list.txt").write_text("\n".join(str(f) for f in files) + "\n", encoding="utf-8")
+    (work / "list.txt").write_text("\n".join(str(f) for f in files) + "\n", encoding="utf-8", newline="\n")
     iterations = iterations or min(12000, max(600, 3 * len(files)))
     progress(f"{base}: training on {len(files)} images, {iterations} iterations")
     old = ["--old_traineddata", str(start)] if traineddata != start else []
@@ -301,9 +301,9 @@ def fit_kraken(start: str, pairs: list[tuple[Path, str]], work: Path, held: list
         folder.mkdir(exist_ok=True)
         for n, (png, text) in enumerate(chosen):  # ketos reads <image> with <image stem>.gt.txt beside it
             shutil.copyfile(png, folder / f"i{n:05d}.png")
-            (folder / f"i{n:05d}.gt.txt").write_text(text, encoding="utf-8")
+            (folder / f"i{n:05d}.gt.txt").write_text(text, encoding="utf-8", newline="\n")
         lists[part] = work / f"{part}.txt"
-        lists[part].write_text("\n".join(str(p) for p in sorted(folder.glob("*.png"))) + "\n", encoding="utf-8")
+        lists[part].write_text("\n".join(str(p) for p in sorted(folder.glob("*.png"))) + "\n", encoding="utf-8", newline="\n")
     progress(f"Kraken: training on {len(pairs)} images, up to {epochs} epochs")
     out = work / "model"
     kraken._run(["train", "-f", "path", "-i", start, "--resize", "union", "-o", str(out),
@@ -339,7 +339,7 @@ def forget_trained(name: str) -> None:
     path = user_data_dir() / "models.json"
     data = trained_models()
     if data.pop(name, None) is not None:
-        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
 
 
 def trained_models() -> dict[str, dict]:

@@ -85,7 +85,7 @@ def _load(path: Path) -> dict:
 def _save(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
     tmp.replace(path)
 
 
@@ -146,7 +146,7 @@ class Writer:
         folder = _dir(self.lang) / slug(book)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / f"{new}.png").write_bytes(image)
-        (folder / f"{new}.gt.txt").write_text(text + "\n", encoding="utf-8")
+        (folder / f"{new}.gt.txt").write_text(text + "\n", encoding="utf-8", newline="\n")
         self.data[new] = {"book": book, "unit": unit, "source": source, "origin": origin,
                           "split": "train" if source == "confident" else split or _split(new),
                           **({"stamp": stamp} if stamp else {})}
