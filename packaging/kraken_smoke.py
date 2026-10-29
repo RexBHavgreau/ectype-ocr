@@ -20,6 +20,7 @@ LINES = ["Ἐν ἀρχῇ ἦν ὁ λόγος", "καὶ ὁ λόγος ἦν 
 
 
 PREFERRED = "10.5281/zenodo.21788405"  # PP-OCRv6 (small) multilingual
+TINY = "10.5281/zenodo.21788403"  # PP-OCRv6 (tiny) multilingual
 
 
 def run(engine: str, *args: str, stdin: str | None = None) -> object:
@@ -80,6 +81,21 @@ def main() -> int:
     print("read with the pack:", packed)
     if "lines" not in packed:
         sys.exit("couldn't read with the pack")
+
+    # Not part of the check: training PP-OCRv6 tiny once crashed here without a message.
+    # Try it, and print what happens (the engine prints a trace if PyTorch crashes).
+    if any(r["doi"] == TINY for r in records):
+        try:
+            got = run(engine, "get", TINY, str(work / "tiny"))
+            out = subprocess.run([engine, "train", "-f", "path", "-i", got["model"], "--resize", "union",
+                                  "-o", str(work / "tiny-trained"), "-t", str(work / "train.txt"), "-e",
+                                  str(work / "eval.txt"), "-N", "1", "-q", "fixed"],
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
+            print(f"diagnostic: training PP-OCRv6 tiny ended with code {out.returncode}")
+            if out.returncode:
+                print(out.stderr[-6000:])
+        except SystemExit as exc:
+            print(f"diagnostic: {exc}")
     return 0
 
 
