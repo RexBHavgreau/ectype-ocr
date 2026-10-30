@@ -120,3 +120,34 @@ def test_marks_and_broken_pieces_join_their_letters():
     groups, left = _join_marks([([0], [0]), ([1], [1])], [2, 3], chars, clusters, stats, x_size=30)
     assert groups == [([0], [0, 2]), ([1], [1, 3])] and left == []
     assert "7" not in NO_DESCENDER and "1" in NO_DESCENDER
+
+
+def test_raised_note_numbers_read_again():
+    """A figure set small above the line at a word's end is read again and stored as a
+    superscript; a letter whose box holds only the top of its arm (a y) is not raised."""
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+
+    from ectype.ocr import Char, Line, OcrPage, Word
+    from ectype.raised import raised_runs, reread_raised
+    from ectype.synth import find_font
+
+    img = Image.new("L", (700, 120), 255)
+    draw = ImageDraw.Draw(img)
+    big, small = ImageFont.truetype(str(find_font("FreeSerif")), 60), ImageFont.truetype(str(find_font("FreeSerif")), 30)
+    draw.text((20, 90), "present", font=big, fill=0, anchor="ls")
+    x = 20 + big.getlength("present")
+    draw.text((x + 2, 62), "1", font=small, fill=0, anchor="ls")  # raised: its foot well above the line
+    draw.text((400, 90), "clearly", font=big, fill=0, anchor="ls")
+    gray = np.asarray(img)
+    y_end = 400 + big.getlength("clearly")
+
+    def word(text, x0, boxes):
+        return Word(text, [x0, 30, int(boxes[-1][1]), 110], 80.0, [Char(t, [a, 30, b, 110], 80.0) for t, (a, b) in zip(text, boxes)])
+
+    w1 = word("present!", 20, [(20 + 25 * k, 45 + 25 * k) for k in range(7)] + [(int(x), int(x) + 18)])
+    w2 = word("clearly", 400, [(400 + 25 * k, 425 + 25 * k) for k in range(6)] + [(int(y_end) - 6, int(y_end))])
+    line = Line([20, 30, int(y_end), 110], [0.0, -20.0], 60.0, 18.0, 15.0, [w1, w2])  # baseline 90, x-height 27
+    page = OcrPage("tesseract", "eng", [700, 120], 300, [line])
+    assert raised_runs(gray, page) == [(0, 0, 7, 8)], "the figure, not the top of the y's arm"
+    assert reread_raised(gray, page, lambda crop: "1") == 1 and w1.text == "present¹" and w2.text == "clearly"

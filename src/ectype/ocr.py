@@ -122,7 +122,7 @@ class EngineUnavailable(RuntimeError):
 class TesseractEngine:
     name = "tesseract"
 
-    def __init__(self, psm: int = 3, oem: int = 1, threads: int = 0):
+    def __init__(self, psm: int = 3, oem: int = 1, threads: int = 0, config: tuple[str, ...] = ()):
         from .resources import tesseract_cmd
 
         self.cmd = tesseract_cmd()
@@ -130,6 +130,7 @@ class TesseractEngine:
             raise EngineUnavailable("Tesseract not found; install it (e.g. apt install tesseract-ocr), "
                                     "or set ECTYPE_TESSERACT to its path")
         self.psm, self.oem, self.threads = psm, oem, threads  # threads 0: Tesseract's own default
+        self.config = [a for c in config for a in ("-c", c)]  # e.g. tessedit_char_whitelist=0123456789
 
     def _env(self) -> dict | None:
         from .resources import tesseract_env
@@ -145,7 +146,7 @@ class TesseractEngine:
             Image.fromarray(gray).save(src)
             result = subprocess.run(
                 [self.cmd, str(src), str(Path(tmp) / "out"), "-l", lang, "--dpi", str(round(dpi)),
-                 "--psm", str(self.psm), "--oem", str(self.oem),
+                 "--psm", str(self.psm), "--oem", str(self.oem), *self.config,
                  "-c", "hocr_char_boxes=1", "-c", "hocr_font_info=1", "hocr"],
                 check=True, capture_output=True,
                 env=self._env(),
@@ -291,6 +292,13 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
                 gray, page, codes,
                 lambda crop, one: list(word_engine.recognize(crop, dpi=dpi, lang=names.get(one, one)).words()),
                 defer=frozenset(kraken)))
+            # Raised note numbers and verse parts ("!" for ¹, "%" for ᵃ): read again by themselves.
+            from .raised import ALLOWED, reread_raised, voted
+
+            small = TesseractEngine(psm=7, threads=threads, config=(f"tessedit_char_whitelist={ALLOWED}",))
+            first = names.get(codes[0], "eng")
+            reread_raised(gray, page, lambda crop: voted(crop, lambda image, factor: " ".join(
+                w.text for w in small.recognize(image, dpi=dpi * factor, lang=first).words())))
             if kraken and session is not None:
                 from .kraken import read_runs
 

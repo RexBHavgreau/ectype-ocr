@@ -78,6 +78,15 @@ is; the training pool keeps lines set again.
   among the chosen and installed fonts) sets a run of one to four words in 30% of lines and
   whole lines in 8% (`_italic_runs`, `render_runs`); the text is unchanged. Their lines are
   made again (`SCRIPT_VERSION` 3); fingerprints come from all-roman lines only.
+- *Raised characters read again* (`raised.py`, after check_words in `ocr._ocr_one`): note
+  numbers and verse parts the model read as "!", "?", "%", ">". A run of up to three at a word's
+  end (before closing punctuation), or a lone mark of one or two starting a line, is raised when
+  every separate piece of ink centred in its box ends 0.3 x-heights above the baseline (whole
+  pieces: Tesseract's box can hold only the top of a y's arm or a t's crossbar, which looked
+  raised; x-height = hOCR x_size - ascenders - descenders). Letters only a-h after a figure.
+  Read again enlarged x3/x5, plain/sharpened, digits and a-h only, until two readings agree;
+  stored as ¹ ᵃ. Treatise: all note marks and most verse parts right (13ᵇ, 547ᵈ, 27ᵇ); 171ᵃ
+  read 171⁴, who³ unchanged. About 1.8 s a page.
 
 ## Decisions Beaux made about proposals (so they aren't offered again)
 
@@ -243,8 +252,7 @@ is; the training pool keeps lines set again.
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
-  the Treatise; reread raised characters by
-  themselves (superscript figures and letters). A checked transcription of a few Treatise
+  the Treatise. A checked transcription of a few Treatise
   pages (Beaux can correct or confirm one) would give real error rates.
 - **Check the untested downloads** on Beaux's machine: Tanzil.net and eBible.org (Arabic),
   blocked from the cloud session.
