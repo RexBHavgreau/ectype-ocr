@@ -23,6 +23,10 @@ of "Planned".
   Train from fonts); fixes alone are a patch version. The version comes from the tag: no version
   number to edit in the code.
 - No force pushes. Commit messages and PRs carry no model names.
+- Beaux likes to keep tweaking on the branch before merging; they test on their own Windows
+  machine (a cloud session can't attach a Windows folder) and correct real books in Review.
+- UX: the Log is a record, not the main view. Work must not switch to the Log tab (progress has
+  its own window); a finished run brings Review forward.
 
 ## Releasing
 
@@ -61,6 +65,12 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   the WLC, other Semitic, IPA, European words) trains `eng`, adding the letters. `train._foreign`
   keeps modifier letters (ʾ ʿ ː ᵉ) and IPA θ β χ in English lines; Latin counts a letter with a
   combining mark (p̄) as one character (`_graphemes`). A partial font sets only the lines it can.
+- **False "add a language" offers** (0.5.0): on Driver's Treatise the script detector's wrong
+  guesses on smudged words (Devanagari 16, Cyrillic 9, Arabic 7 over 26 pages, three on one
+  page) made the app offer Hindi and Arabic. `scripts.suggest` now needs three on a page on
+  one page in 20 of the book (two to three pages).
+- **Review couldn't confirm a correct flagged word** (0.5.0): Save ignored unchanged text. Now
+  it confirms (green, "Confirmed", training line saved).
 - **Windows text files:** write list/box/gt files with `newline="\n"`; read tool output as UTF-8.
 - **Qt in tests:** free dialogs on the interface thread (close, deleteLater, processEvents) or a
   worker thread's garbage collection crashes the run.
@@ -96,6 +106,29 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   training images along one (`_make_room`).
 - Training from fonts is in the app (Training → Train from fonts…) as well as the batch file
   `Train Hebrew and Greek.bat` (`ectype train-all`).
+- Transliteration is a choice in Train from fonts that trains `eng` (not a language of its
+  own), off by default; Hebrew in SBL academic style is generated from the WLC by rules of
+  thumb (`translit.hebrew`), plus some in Gesenius' older style (ḳ, qᵉṭal). Generated IPA is
+  made-up words, so it reads worst.
+
+## Test material and expected results
+
+- `corpus/Pages from Treatise 01.pdf`: 26 pages of Driver's *Treatise on the Use of the Tenses
+  in Hebrew*, typical scan quality; the hard test (English, italic, Greek, pointed Hebrew with
+  stress accents, transliteration, footnotes). Stock eng+grc+heb, 207 s for a full run: English
+  roman nearly exact; Greek good even in footnotes; italic often wrong ("faken", "zs seliing");
+  superscript letters wrong (3ᵃ "3%"); transliteration wrong (Noʿŏmi "Nodmi"); pointed Hebrew
+  poor (כָּרָה "173"). `corpus/E J. Young Inspiration-1.pdf`: 17 pages, English; a full traced
+  run 106 s.
+- Transliteration training (300 lines in each of 4 fonts, 3,000 iterations): eng's character
+  errors on a 5th font 14.8% -> 4.5% (qūdšāʾ ʾabbāʾ read exactly; stock: "qiidSa' 'abba'").
+- Quick update (Hebrew, 480 lines in 4 fonts, then 27 "corrections"): afresh 75 s, quick 40 s;
+  the gain grows with the pool, since a quick update's size doesn't.
+- A stretched box (Review): a word with its first letter left out of its box came out
+  "xclamation" with the "e" left in the background; stretched and retyped, "exclamation" with
+  nothing left behind.
+- Update after corrections on Young (17 pages), 69 s: segment 2 s (only corrected pages,
+  already), cluster 43 s (collect 16, averaging 21, grouping 12), fonts 4 s, traced 20 s.
 
 ## Planned
 
@@ -104,3 +137,12 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   AppUserModelID), the installer and its uninstall entry (Inno `SetupIconFile`), and the Kraken
   engine exe. Not before 0.5.0.
 - Possibly English or Latin known texts for Train from fonts.
+- **Faster "Update after corrections"**: keep per-page cluster instances (collect), composites
+  of clusters whose members are unchanged, groupings of letters whose instances are unchanged,
+  and the erased backgrounds of untouched pages; same output. Expect ~70 s -> 15-20 s on Young.
+- **Better reading of Driver's Treatise**: train Hebrew on lines in fonts like Driver's and
+  measure on the Treatise; keep the stress accent (U+05AB ole, used as Driver's tone mark) in
+  the training text instead of stripping every accent; set some Train-from-fonts lines in each
+  font's italic (English, transliteration); superscript letters and figures. A checked
+  transcription of a few Treatise pages (Beaux can correct or confirm one) would give real
+  error rates.
