@@ -73,6 +73,11 @@ is; the training pool keeps lines set again.
   composite by the fingerprints of the instances in it (`Instance.fingerprint`); results not
   used in a run are removed. Traced's check pictures (`*.overlay.png`) are saved with fast
   compression (they took half its time). Erased backgrounds are not kept: about 1 s a book.
+- *Italic in training lines* (Treatise italic was often misread: "faken", "zs seliing"): for
+  Transliteration and Latin, a font's italic face of the same weight (`synthtrain.italic_of`,
+  among the chosen and installed fonts) sets a run of one to four words in 30% of lines and
+  whole lines in 8% (`_italic_runs`, `render_runs`); the text is unchanged. Their lines are
+  made again (`SCRIPT_VERSION` 3); fingerprints come from all-roman lines only.
 
 ## Decisions Beaux made about proposals (so they aren't offered again)
 
@@ -238,8 +243,7 @@ is; the training pool keeps lines set again.
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
-  the Treatise; set some Train-from-fonts lines in each font's italic (English,
-  transliteration), since italic is still often misread; reread raised characters by
+  the Treatise; reread raised characters by
   themselves (superscript figures and letters). A checked transcription of a few Treatise
   pages (Beaux can correct or confirm one) would give real error rates.
 - **Check the untested downloads** on Beaux's machine: Tanzil.net and eBible.org (Arabic),

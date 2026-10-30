@@ -44,6 +44,11 @@ SCRIPTS = {"hebrew": ("heb", "hebrew-bible", "Hebrew"), "greek": ("grc", "greek-
            "transliteration": ("eng", "transliteration", "Transliteration")}
 RTL_LANGUAGE = {"hebrew": "he", "syriac": "syr", "arabic": "ar"}  # for raqm's shaping (Syriac and Arabic letters join)
 VERSION = 2  # of the generation: lines made by an older one are made again (2: Hebrew accents)
+SCRIPT_VERSION = {"transliteration": 3, "latin": 3}  # 3: italic words and lines
+# Latin-alphabet lines with italic in them, as books set it: a run of italic words ("has *taken*
+# place"), or a whole line, in the font's italic face (found among the installed fonts).
+ITALIC_SCRIPTS = {"transliteration", "latin"}
+ITALIC_RUN, ITALIC_LINE = 0.3, 0.08
 # Hebrew lines: with the Codex's accents, as grammars print them (points and ֫ over a stress
 # before the last syllable), or with the points only; the rest of the share is the last.
 HEBREW_FORMS = (("accents", 0.35), ("grammar", 0.3))
@@ -56,6 +61,8 @@ class FontInfo:
     path: Path
     name: str
     index: int = 0  # face in a collection
+    family: str = ""
+    style: str = ""
 
 
 def fonts_in(*folders: Path) -> list[FontInfo]:
@@ -81,7 +88,7 @@ def fonts_in(*folders: Path) -> list[FontInfo]:
             name = f"{family} {style}".strip()
             if name not in seen:  # the same font copied twice (in two subfolders) counts once
                 seen.add(name)
-                out.append(FontInfo(path, name, i))
+                out.append(FontInfo(path, name, i, family, style))
     return out
 
 
@@ -247,9 +254,59 @@ def render(text: str, font: FontInfo, size: int, rtl: bool, language: str | None
     return img.crop((max(0, x0 - m), max(0, y0 - m), min(img.width, x1 + m), min(img.height, y1 + m)))
 
 
-def _stamp(font: FontInfo, lines: int) -> str:
+def _stamp(font: FontInfo, lines: int, script: str = "") -> str:
     st = font.path.stat()
-    return hashlib.sha1(f"{font.path.name}:{font.index}:{st.st_size}:{st.st_mtime_ns}:{lines}:{VERSION}".encode()).hexdigest()[:12]
+    version = SCRIPT_VERSION.get(script, VERSION)
+    return hashlib.sha1(f"{font.path.name}:{font.index}:{st.st_size}:{st.st_mtime_ns}:{lines}:{version}".encode()).hexdigest()[:12]
+
+
+def italic_of(font: FontInfo, pool: list[FontInfo]) -> FontInfo | None:
+    """The italic face of the font's family and weight (Regular -> Italic, Bold -> Bold Italic),
+    among the fonts in the pool; None if it has none, or is italic itself."""
+    style = (font.style or "").lower()
+    if not font.family or any(k in style for k in ("italic", "oblique")):
+        return None
+    weight = "" if style in ("", "regular", "book", "roman", "normal", "plain") else style
+    wanted = {f"{weight} {k}".strip() for k in ("italic", "oblique")}
+    return next((f for f in pool if f.family.lower() == font.family.lower() and f.style.lower() in wanted), None)
+
+
+def render_runs(runs: list[tuple[str, FontInfo]], size: int) -> Image.Image | None:
+    """Words set left to right, each run in its own font (roman and italic), on one baseline."""
+    faces = [ImageFont.truetype(str(f.path), size, index=f.index) for _, f in runs]
+    try:
+        space = faces[0].getlength(" ")
+        widths = [face.getlength(text) for (text, _), face in zip(runs, faces)]
+    except (KeyError, OSError, ValueError):
+        return None
+    pad = int(size * 0.6)
+    img = Image.new("L", (int(sum(widths) + space * (len(runs) - 1)) + 2 * pad, int(size * 2.0)), 255)
+    draw = ImageDraw.Draw(img)
+    x = float(pad)
+    for (text, _), face, width in zip(runs, faces, widths):
+        draw.text((x, int(size * 1.35)), text, font=face, fill=0, anchor="ls")
+        x += width + space
+    box = Image.eval(img, lambda v: 255 - v).getbbox()
+    if box is None:
+        return None
+    x0, y0, x1, y1 = box
+    m = max(4, size // 5)
+    return img.crop((max(0, x0 - m), max(0, y0 - m), min(img.width, x1 + m), min(img.height, y1 + m)))
+
+
+def _italic_runs(text: str, font: FontInfo, italic: FontInfo, rng: random.Random) -> list[tuple[str, FontInfo]] | None:
+    """The line split into roman and italic runs: a run of one to four italic words, or the
+    whole line in italic; None for an all-roman line."""
+    r = rng.random()
+    words = text.split()
+    if r < ITALIC_LINE:
+        return [(text, italic)]
+    if r >= ITALIC_LINE + ITALIC_RUN or len(words) < 3:
+        return None
+    n = rng.randint(1, min(4, len(words) - 1))
+    start = rng.randrange(len(words) - n + 1)
+    runs = [(" ".join(words[:start]), font), (" ".join(words[start:start + n]), italic), (" ".join(words[start + n:]), font)]
+    return [(t, f) for t, f in runs if t]
 
 
 def held_out(fonts: list[FontInfo]) -> set[str]:
@@ -301,10 +358,16 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
         report["fonts"][script] = [f.name + (partly if lv == LETTERS else "") for f, _, lv in usable]
         test_fonts = held_out([f for f, _, _ in usable])
         books = pool.books(lang)
+        italics: dict[str, tuple[FontInfo, set[str]] | None] = {}
+        if script in ITALIC_SCRIPTS:
+            installed = fonts + fonts_in(*system_font_folders())
+            for font, _, _ in usable:
+                face = italic_of(font, installed)
+                italics[font.name] = (face, covers(face, needed)) if face else None
         with pool.Writer(lang) as w:
             for k, (font, have, lv) in enumerate(usable, 1):
                 book = f"font: {font.name}"
-                stamp = _stamp(font, lines_per_font) + ("" if lv == FULL else "-" + lv)
+                stamp = _stamp(font, lines_per_font, script) + ("" if lv == FULL else "-" + lv)
                 if books.get(book, {}).get("stamp") == stamp and w.count(book):
                     say(f"{name}: {font.name} already done")
                     continue
@@ -326,11 +389,15 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                     if any(not c.isspace() and c not in have for c in text):
                         continue  # the font lacks a character of this line
                     size = rng.choice((30, 36, 42, 46, 50, 56))
-                    img = render(text, font, size, rtl, RTL_LANGUAGE.get(script))
+                    italic = italics.get(font.name)
+                    runs = _italic_runs(text, font, italic[0], rng) if italic else None
+                    if runs and any(not c.isspace() and c not in italic[1] for t, f in runs if f is italic[0] for c in t):
+                        runs = None  # the italic lacks a character of its words: all roman
+                    img = render_runs(runs, size) if runs else render(text, font, size, rtl, RTL_LANGUAGE.get(script))
                     if img is None:
                         continue
-                    if len(samples) < 60:
-                        samples.append(np.asarray(img))
+                    if len(samples) < 60 and not runs:
+                        samples.append(np.asarray(img))  # the roman's fingerprint, for its family
                     img = degrade(img, rng)
                     buf = io.BytesIO()
                     img.save(buf, format="PNG")
