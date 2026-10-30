@@ -107,8 +107,12 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   Models and the pool live in the user folder (`%LOCALAPPDATA%\Ectype OCR`), so upgrades keep
   them; a model trained before 0.5.0 (no `general.items.json`) is taken to know the pool images
   older than its training time, so the first training after upgrading can be quick too.
-- Known texts: Hebrew Bible (WLC) and Greek New Testament (SBLGNT). More languages need a
-  reliable public-domain text the app can download. Hebrew lines set from fonts (0.5.0,
+- Known texts: Hebrew Bible (WLC), Greek New Testament (SBLGNT), Latin Vulgate (Clementine,
+  public domain, one TSV from github.com/lukesmithxyz/vul; Train from fonts → Latin trains
+  `lat`, a quarter of its lines with word-final æ). More languages need a reliable
+  public-domain text the app can download. Syriac (Beaux asked, Peshitta): ETCBC/peshitta is
+  CC BY-NC and OT only; no public-domain digital Peshitta found on GitHub yet; eBible.org is
+  blocked from the cloud session. Hebrew lines set from fonts (0.5.0,
   `synthtrain.hebrew_form`, VERSION 2) come in three forms: the Codex's accents (35%), as
   grammars print it (30%: points, and ֫ ole over a stress before the last syllable, found
   from the Codex's accent, `texts.grammar_style`), points only (the rest, and every line of

@@ -39,7 +39,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 from . import pool, texts
 
 SCRIPTS = {"hebrew": ("heb", "hebrew-bible", "Hebrew"), "greek": ("grc", "greek-nt", "Greek"),
-           "transliteration": ("eng", "transliteration", "Transliteration")}
+           "latin": ("lat", "vulgate", "Latin"), "transliteration": ("eng", "transliteration", "Transliteration")}
 VERSION = 2  # of the generation: lines made by an older one are made again (2: Hebrew accents)
 # Hebrew lines: with the Codex's accents, as grammars print them (points and ֫ over a stress
 # before the last syllable), or with the points only; the rest of the share is the last.
@@ -142,6 +142,14 @@ def hebrew_form(line: str, rng: random.Random, have: set[str]) -> str:
     if not text or any(c in ACCENT_MARKS | {texts.STRESS} and c not in have for c in text):
         text = texts.without_accents(line)
     return text
+
+
+def with_ligatures(latin: str) -> str:
+    """Latin as older books print it: æ for a word's closing ae (terræ, aquæ), where it is always
+    the diphthong; the Vulgate's text has none."""
+    import re
+
+    return re.sub(r"(?<=\w)ae\b", "æ", re.sub(r"(?<=\w)Ae\b", "Æ", latin))
 
 
 def without_marks(text: str) -> str:
@@ -290,6 +298,8 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                 for text in candidates:
                     if rtl:
                         text = hebrew_form(text, rng, have)
+                    elif script == "latin" and rng.random() < 0.25:
+                        text = with_ligatures(text)
                     if lv == LETTERS and not by_line:
                         text = without_marks(text)
                     if made >= lines_per_font:

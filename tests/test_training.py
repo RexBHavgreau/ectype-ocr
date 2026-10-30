@@ -250,6 +250,23 @@ def test_hebrew_lines_with_accents_or_as_grammars_print_it():
     assert {synthtrain.hebrew_form(verse, rng, bare) for _ in range(20)} == {texts.without_accents(verse)}
 
 
+def test_latin_from_the_vulgate(data, monkeypatch):
+    """The Vulgate's verses (one file of tab-separated columns) set in a font train Latin."""
+    from ectype import synthtrain
+    from ectype.synth import find_font
+
+    tsv = ("Genesis\tGen\t1\t1\t1\tIn principio creavit Deus caelum et terram.\n"
+           "Genesis\tGen\t1\t1\t2\tTerra autem erat inanis et vacua, et tenebrae erant super faciem abyssi :  et "
+           "spiritus Dei ferebatur super aquas.\n")
+    verses = texts._vulgate(tsv)
+    assert verses[0] == "In principio creavit Deus caelum et terram." and "abyssi : et" in verses[1]
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: verses * 3)
+    font = synthtrain.FontInfo(Path(_font("DejaVu Serif")), "DejaVu Serif")
+    r = synthtrain.generate([font], ["latin"], lines_per_font=8)
+    assert r["fonts"]["latin"] == ["DejaVu Serif"] and r["added"]["lat"] == 8
+    assert synthtrain.with_ligatures("super faciem terrae et aquae aer") == "super faciem terræ et aquæ aer"
+
+
 def test_training_settings_file(tmp_path):
     from ectype import trainall
 

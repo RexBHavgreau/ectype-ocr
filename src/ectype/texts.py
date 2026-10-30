@@ -4,6 +4,8 @@ are matched against (`synthtrain.py`, `align.py`).
 - "hebrew-bible": the Westminster Leningrad Codex (public domain), from the Open Scriptures
   Hebrew Bible (CC BY 4.0, github.com/openscriptures/morphhb).
 - "greek-nt": the SBL Greek New Testament (CC BY 4.0, github.com/LogosBible/SBLGNT).
+- "vulgate": the Clementine Vulgate (public domain), as one file of verses from
+  github.com/lukesmithxyz/vul (public domain).
 - "transliteration": English with transliterated words (Hebrew made from the Hebrew Bible,
   other Semitic languages, IPA, European accents), generated (`translit.py`).
 - a file: any UTF-8 text, one passage a line (e.g. the Westcott-Hort text, or the text of
@@ -34,8 +36,10 @@ HEBREW_URL = "https://raw.githubusercontent.com/openscriptures/morphhb/master/wl
 GREEK_BOOKS = ("Matt Mark Luke John Acts Rom 1Cor 2Cor Gal Eph Phil Col 1Thess 2Thess 1Tim 2Tim Titus Phlm Heb "
                "Jas 1Pet 2Pet 1John 2John 3John Jude Rev").split()
 GREEK_URL = "https://raw.githubusercontent.com/LogosBible/SBLGNT/master/data/sblgnt/text/{book}.txt"
-SOURCES = {"hebrew-bible": "Hebrew Bible (Westminster Leningrad Codex)", "greek-nt": "Greek New Testament (SBLGNT)"}
-LANG = {"hebrew-bible": "heb", "greek-nt": "grc"}
+VULGATE_URL = "https://raw.githubusercontent.com/lukesmithxyz/vul/master/vul.tsv"
+SOURCES = {"hebrew-bible": "Hebrew Bible (Westminster Leningrad Codex)", "greek-nt": "Greek New Testament (SBLGNT)",
+           "vulgate": "Latin Vulgate (Clementine)"}
+LANG = {"hebrew-bible": "heb", "greek-nt": "grc", "vulgate": "lat"}
 
 # Hebrew marks left out: the accents (U+0591-U+05AF), meteg, paseq, the upper and lower dots, rafe.
 HEBREW_ACCENTS = re.compile("[֑-ֽֿ֯׀ׅׄ]")
@@ -89,6 +93,18 @@ def _greek_book(txt: str) -> list[str]:
     return out
 
 
+def _vulgate(tsv: str) -> list[str]:
+    """Verses of the vul.tsv file: book, abbreviation, book number, chapter, verse, text; the
+    spaces it puts before colons and semicolons (French style, as the Clementine prints them)
+    kept, since books quoting it print them too."""
+    out = []
+    for line in tsv.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 6 and parts[5].strip():
+            out.append(re.sub(r"\s+", " ", parts[5]).strip())
+    return out
+
+
 def load(source: str, progress: Callable[[str], None] | None = None, accents: bool = False) -> list[str]:
     """The passages of a known text (verses), accents left out (kept with accents=True: the
     Hebrew Bible's cantillation, meteg and paseq), downloaded once."""
@@ -101,9 +117,14 @@ def load(source: str, progress: Callable[[str], None] | None = None, accents: bo
     if source not in SOURCES:
         path = Path(source)
         if not path.is_file():
-            raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, greek-nt, or a text file.")
+            raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, greek-nt, vulgate, or a text file.")
         return [keep(line.strip()) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     cache = folder() / f"{source}.txt"
+    if not cache.is_file() and source == "vulgate":
+        say(f"downloading the {SOURCES[source]}")
+        verses = _vulgate(_get(VULGATE_URL))
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("\n".join(verses) + "\n", encoding="utf-8", newline="\n")
     if not cache.is_file():
         verses = []
         books, url, parse = ((HEBREW_BOOKS, HEBREW_URL, _hebrew_book) if source == "hebrew-bible"

@@ -128,6 +128,7 @@ The report goes to the Log; the app offers to read the pages again.
 **Known texts** (`texts.py`), downloaded once into the user's folder:
 - the Hebrew Bible: the Westminster Leningrad Codex, public domain, via the Open Scriptures Hebrew Bible, CC BY 4.0;
 - the Greek New Testament: the SBL Greek New Testament, CC BY 4.0;
+- the Latin Vulgate (Clementine), public domain, from the one-file text of `lukesmithxyz/vul`; it trains Latin (`lat`, Train from fonts → Latin).
 - any UTF-8 text file of an edition (for example Westcott–Hort), one passage a line.
 
 **Transliteration** (`translit.py`, `--script transliteration`) trains English, not a language of its own. Tesseract's English model knows one accented letter, é: it reads ḥ as h and ā as a, drops ʾ and ʿ, and nothing shows that anything was lost. The text is generated: English sentences of scholarly prose with transliterated words among them, sometimes in brackets or quotes, with an occasional reference or page number:
