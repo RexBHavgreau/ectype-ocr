@@ -59,6 +59,36 @@ jobs:
           Copy-Item "$src\tessdata\eng.traineddata", "$src\tessdata\osd.traineddata" "$dst\tessdata"
           Copy-Item "$src\tessdata\configs", "$src\tessdata\tessconfigs" "$dst\tessdata" -Recurse  # hocr lives here
           & "$dst\tesseract.exe" --version
+          # The libraries the programs and their DLLs import that the folder lacks (the C++
+          # runtime, for the training tools' ICU): copied in from where Windows finds them here,
+          # so the app never picks up an incompatible copy from another program on a user's PATH.
+          $objdump = (Get-Command objdump.exe -ErrorAction SilentlyContinue).Source
+          if (-not $objdump) { $objdump = "C:\mingw64\bin\objdump.exe" }
+          $sys = "$env:SystemRoot\System32"
+          $copied = @()
+          for ($pass = 0; $pass -lt 3; $pass++) {
+            foreach ($bin in Get-ChildItem $dst -Recurse -Include *.exe, *.dll) {
+              foreach ($line in (& $objdump -p $bin.FullName 2>$null)) {
+                if ($line -match 'DLL Name:\s*(\S+)') {
+                  $name = $Matches[1]
+                  if ((Test-Path "$dst\$name") -or (Test-Path "$sys\$name") -or ($name -like "api-ms-*") -or ($name -like "ext-ms-*")) { continue }
+                  $found = $env:PATH.Split(";") | Where-Object { $_ -and (Test-Path (Join-Path $_ $name)) } | Select-Object -First 1
+                  if ($found) { Copy-Item (Join-Path $found $name) $dst; $copied += "$name (from $found)" }
+                  else { Write-Host "::warning::$($bin.Name) imports $name, found nowhere" }
+                }
+              }
+            }
+          }
+          Write-Host "Libraries copied into the Tesseract folder: $($copied -join ', ')"
+          # Check the training tools start with only their own folder and Windows' to draw on, as in the app.
+          $env:PATH = "$((Resolve-Path $dst).Path);$sys;$env:SystemRoot"
+          foreach ($tool in "unicharset_extractor", "combine_lang_model", "merge_unicharsets", "lstmtraining", "combine_tessdata", "dawg2wordlist") {
+            & "$dst\$tool.exe" --version *> $null
+            $code = $LASTEXITCODE
+            # 0xC0000135 (a DLL not found), 0xC0000139 (an entry point not found): it can't start.
+            if ($code -eq -1073741515 -or $code -eq -1073741511) { Write-Host "::error::$tool.exe can't start (code $code)"; exit 1 }
+            Write-Host "$tool.exe starts (exit code $code)"
+          }
           exit 0
 
       - name: Bundle EB Garamond

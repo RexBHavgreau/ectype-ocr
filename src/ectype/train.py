@@ -236,6 +236,8 @@ def fit_tesseract(start: Path, base: str, pairs: list[tuple[Path, str]], work: P
         progress(f"{base}: adding {len(added)} characters the model lacks ({' '.join(added)})")
         traineddata = _extended(start, work, base, [text for _, text in kept])
         if traineddata is None:  # train without them
+            progress(f"{base}: couldn't add those characters (Tesseract's tools for it didn't run); "
+                     "training without them")
             kept = [(png, text) for png, text in kept if all(c in known for c in text if not c.isspace())]
             skipped = len(pairs) - len(kept)
             added, traineddata = "", start

@@ -1662,6 +1662,9 @@ def main(argv: list[str] | None = None) -> int:
     import multiprocessing
 
     multiprocessing.freeze_support()  # the packaged app's worker processes start through here
+    from .resources import quiet_windows_errors
+
+    quiet_windows_errors()
     argv = sys.argv[1:] if argv is None else argv
     app = QApplication.instance() or QApplication(sys.argv[:1])
     project = None
