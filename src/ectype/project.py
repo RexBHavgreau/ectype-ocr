@@ -361,10 +361,10 @@ class Project:
                 return True
         return bool(ocr) and min(p.stat().st_mtime for p in outs) < max(ocr)
 
-    def prepare_idml(self, progress: Progress | None = None) -> dict:
+    def prepare_idml(self, progress: Progress | None = None, match_fonts: bool = True) -> dict:
         """What an IDML export needs beyond the OCR: segmentation and glyph styles (for
-        slant, running heads and font matching), then the page layout and the fonts most
-        like the scan's. No glyph tracing. Returns {"layout", "matches"}."""
+        slant, running heads and font matching), then the page layout and (match_fonts, for
+        Facsimile) the fonts most like the scan's. No glyph tracing. Returns {"layout", "matches"}."""
         progress = progress or (lambda stage, msg: None)
         if not self.pages() or not any((self.workspace / "ocr").glob("*.ocr.json")):
             raise FileNotFoundError("no OCR yet; run the pipeline first")
@@ -387,6 +387,8 @@ class Project:
         progress("layout", "running")
         layout = build_layout(ws)
         progress("layout", f"{sum(len(p.blocks) for p in layout.pages)} text blocks on {len(layout.pages)} pages")
+        if not match_fonts:
+            return {"layout": layout, "matches": None}
         progress("fonts", "comparing the scan's letters with the installed fonts")
         matches = match_styles(ws, layout, progress=lambda msg: progress("fonts", msg))
         write_matches(ws / "cluster" / "font-matches.json", matches)

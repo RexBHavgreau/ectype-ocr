@@ -173,7 +173,7 @@ Training needs Tesseract's training tools: `lstmtraining` and `combine_tessdata`
 
 ## IDML export
 
-**Export IDML…** in the app, or `ectype idml <workspace> --mode reflow|facsimile`.
+**Export IDML…** in the app, or `ectype idml <workspace> --mode reflow|facsimile`. The app asks first: Reflow (live) or Facsimile (static), with Reflow's options. It then prepares the layout; for Facsimile it also compares the scan's typefaces with the installed fonts and shows the fonts chosen, to confirm or change, before asking where to save.
 
 Each export is a folder of its own, as docx-to-idml writes them: `<name>/<name>.idml`, with the images in `<name>/Links/`, linked relative to the IDML (`file:Links/p001.jpg`). The folder can be moved or sent on without relinking.
 

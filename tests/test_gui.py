@@ -166,8 +166,16 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     assert project.output_pdf() is not None and project.output_pdf().parent.name == "textlayer"
     w.mode.setCurrentIndex(0)
 
-    # IDML: the dialog offers both layouts, Reflow's options and the matched fonts.
+    # IDML: the choice comes first, before anything is prepared (a damaged font used to stop
+    # the export before it was shown); Facsimile's fonts follow, once compared.
+    first = IdmlDialog(None, w)
+    first.facsimile.setChecked(True)
+    assert first.table is None and first.options().mode == "facsimile" and first.options().faces == {}
+    from ectype.gui import FontChoiceDialog
+
+    assert project.prepare_idml(match_fonts=False)["matches"] is None
     prepared = project.prepare_idml()
+    assert FontChoiceDialog(prepared["matches"], w).table.rowCount() >= 1
     d = IdmlDialog(prepared, w)
     d.reflow.setChecked(True)
     assert d.reflow_box.isEnabled() and not d.fac_box.isEnabled()

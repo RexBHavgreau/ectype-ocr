@@ -141,7 +141,9 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   footnotes become InDesign footnotes where a superscript reference matching the note's
   number was found on its page, the rest gathered under "Notes"). Unicode superscripts from
   the OCR go to both as plain characters with superscript formatting (`plain_superscripts`);
-  the PDF's text keeps the Unicode ones.
+  the PDF's text keeps the Unicode ones. The dialog asks Reflow or Facsimile **first**
+  (0.5.0): it used to come after the layout and font matching, so in 0.4.0 Beaux never saw
+  the choice (and a damaged font stopped the export before it); Reflow skips font matching.
 - Training from fonts is in the app (Training → Train from fonts…) as well as the batch file
   `Train Hebrew and Greek.bat` (`ectype train-all`).
 - Transliteration is a choice in Train from fonts that trains `eng` (not a language of its

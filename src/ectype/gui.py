@@ -1424,26 +1424,71 @@ class KrakenModelsPanel(QWidget):
 # IDML export
 
 
-class IdmlDialog(QDialog):
-    """Reflow or facsimile, and their options, before the IDML is written."""
+class FontTable(QTableWidget):
+    """Each type style on the scan with the installed font most like it, to change if wished."""
 
-    def __init__(self, prepared: dict, parent=None):
-        from . import converter
+    def __init__(self, matches: dict, parent=None):
         from .fontmatch import installed_faces
 
-        super().__init__(parent)
-        self.setWindowTitle("Export IDML")
-        self.resize(640, 600)
-        self.matches = prepared["matches"]
+        super().__init__(0, 3, parent)
+        self.matches = matches
         faces = installed_faces()
         self.faces_by_family: dict[str, list] = {}
         for f in faces:
             self.faces_by_family.setdefault(f.family, []).append(f)
+        self.setHorizontalHeaderLabels(["Type on the scan", "Font", "Size"])
+        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.verticalHeader().hide()
+        self.style_boxes: dict[int, QComboBox] = {}
+        rows = [m for m in sorted(matches.values(), key=lambda m: -m.instances) if m.face is not None]
+        self.setRowCount(len(rows))
+        for r, m in enumerate(rows):
+            what = {"head": "Running head", "foot": "Running foot"}.get(m.zone, "Text" if m.size_class == 1.0 else
+                                                                         "Notes" if m.size_class < 1 else "Headings")
+            what += ", italic" if m.italic else ""
+            what += ", bold" if m.bold else ""
+            self.setItem(r, 0, QTableWidgetItem(f"{what} ({m.instances:,} letters)"))
+            box = QComboBox()
+            box.setEditable(True)
+            labels = [m.face.label] + [label for label, _ in m.runners_up]
+            labels += sorted({f.label for f in faces if f.italic == m.italic} - set(labels), key=str.lower)
+            box.addItems(labels)
+            self.setCellWidget(r, 1, box)
+            self.setItem(r, 2, QTableWidgetItem(f"{m.point_size:g} pt" if m.point_size else ""))
+            self.style_boxes[m.style] = box
+
+    def faces(self) -> dict:
+        """The fonts changed from the matches: glyph style -> Face."""
+        from .idml import Face
+
+        out = {}
+        for sid, box in self.style_boxes.items():
+            m = self.matches[sid]
+            label = box.currentText()
+            if label != m.face.label:
+                face = next((f for fs in self.faces_by_family.values() for f in fs if f.label == label), None)
+                out[sid] = Face(face.family, face.style) if face else Face(label, "Regular")
+        return out
+
+
+class IdmlDialog(QDialog):
+    """Reflow or facsimile, and their options, asked before anything is prepared (the layout,
+    and for Facsimile the font matching, take a while; they used to come first, and a damaged
+    font stopped the export before the choice was ever shown). With `prepared`, Facsimile's
+    fonts are shown too."""
+
+    def __init__(self, prepared: dict | None = None, parent=None):
+        from . import converter
+
+        super().__init__(parent)
+        self.setWindowTitle("Export IDML")
+        self.resize(640, 600 if prepared else 360)
         layout = QVBoxLayout(self)
 
-        self.reflow = QRadioButton("Reflow: the text laid out as a book by docx-to-idml (masters, running heads, "
-                                   "footnotes), in the fonts of its layout profile")
-        self.facsimile = QRadioButton("Facsimile: the text where it stands on the scan, line for line, "
+        self.reflow = QRadioButton("Reflow (live): the text laid out as a book by docx-to-idml: masters, running "
+                                   "heads, real footnotes, in the fonts of its layout profile")
+        self.facsimile = QRadioButton("Facsimile (static): the text where it stands on the scan, line for line, "
                                       "in the installed fonts most like the scan's")
         group = QButtonGroup(self)
         group.addButton(self.reflow)
@@ -1479,29 +1524,14 @@ class IdmlDialog(QDialog):
         layout.addWidget(self.facsimile)
         self.fac_box = QGroupBox()
         fl = QVBoxLayout(self.fac_box)
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Type on the scan", "Font", "Size"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.verticalHeader().hide()
-        self.style_boxes: dict[int, QComboBox] = {}
-        rows = [m for m in sorted(self.matches.values(), key=lambda m: -m.instances) if m.face is not None]
-        self.table.setRowCount(len(rows))
-        for r, m in enumerate(rows):
-            what = {"head": "Running head", "foot": "Running foot"}.get(m.zone, "Text" if m.size_class == 1.0 else
-                                                                         "Notes" if m.size_class < 1 else "Headings")
-            what += ", italic" if m.italic else ""
-            what += ", bold" if m.bold else ""
-            self.table.setItem(r, 0, QTableWidgetItem(f"{what} ({m.instances:,} letters)"))
-            box = QComboBox()
-            box.setEditable(True)
-            labels = [m.face.label] + [label for label, _ in m.runners_up]
-            labels += sorted({f.label for f in faces if f.italic == m.italic} - set(labels), key=str.lower)
-            box.addItems(labels)
-            self.table.setCellWidget(r, 1, box)
-            self.table.setItem(r, 2, QTableWidgetItem(f"{m.point_size:g} pt" if m.point_size else ""))
-            self.style_boxes[m.style] = box
-        fl.addWidget(self.table)
+        self.table = FontTable(prepared["matches"]) if prepared and prepared.get("matches") else None
+        if self.table is not None:
+            fl.addWidget(self.table)
+        else:
+            later = QLabel("The scan's typefaces are compared with your installed fonts next; you can change "
+                           "the fonts chosen before the IDML is written.")
+            later.setWordWrap(True)
+            fl.addWidget(later)
         self.scan_layer = QCheckBox("Place the scan under the text, on a locked layer that doesn't print")
         self.scan_layer.setChecked(True)
         fl.addWidget(self.scan_layer)
@@ -1510,7 +1540,7 @@ class IdmlDialog(QDialog):
         self.reflow.toggled.connect(self._mode_changed)
         self._mode_changed()
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
-        buttons.addButton("Export…", QDialogButtonBox.AcceptRole)
+        buttons.addButton("Export…" if prepared else "Continue", QDialogButtonBox.AcceptRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1520,19 +1550,34 @@ class IdmlDialog(QDialog):
         self.fac_box.setEnabled(self.facsimile.isChecked())
 
     def options(self):
-        from .idml import Face, IdmlOptions
+        from .idml import IdmlOptions
 
         if self.reflow.isChecked():
             return IdmlOptions(mode="reflow", page_markers=self.markers.isChecked(),
                                check_below=70.0 if self.check.isChecked() else 0.0, profile=self.profile.currentData())
-        faces = {}
-        for sid, box in self.style_boxes.items():
-            m = self.matches[sid]
-            label = box.currentText()
-            if label != m.face.label:
-                face = next((f for fs in self.faces_by_family.values() for f in fs if f.label == label), None)
-                faces[sid] = Face(face.family, face.style) if face else Face(label, "Regular")
-        return IdmlOptions(mode="facsimile", faces=faces, include_scan=self.scan_layer.isChecked())
+        return IdmlOptions(mode="facsimile", faces=self.table.faces() if self.table is not None else {},
+                           include_scan=self.scan_layer.isChecked())
+
+
+class FontChoiceDialog(QDialog):
+    """Facsimile: the installed fonts most like the scan's type styles, to confirm or change."""
+
+    def __init__(self, matches: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export IDML: fonts")
+        self.resize(640, 480)
+        layout = QVBoxLayout(self)
+        intro = QLabel("Each type style on the scan, with the installed font most like it. Change any you like; "
+                       "each becomes a character style in InDesign, so a font can also be changed there later.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.table = FontTable(matches)
+        layout.addWidget(self.table, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        buttons.addButton("Export…", QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
 
 # ---------------------------------------------------------------------------
@@ -1976,13 +2021,22 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def export_idml(self) -> None:
-        self._start(lambda progress: self.project.prepare_idml(progress), self._idml_prepared, "Preparing the IDML export")
-
-    def _idml_prepared(self, prepared: dict) -> None:
-        dialog = IdmlDialog(prepared, self)
+        """Reflow or Facsimile first; then the layout (and for Facsimile the font matching, then
+        the fonts to confirm); then where to save it."""
+        dialog = IdmlDialog(None, self)
         if not dialog.exec():
             return
         options = dialog.options()
+        fonts = options.mode == "facsimile"
+        self._start(lambda progress: self.project.prepare_idml(progress, match_fonts=fonts),
+                    lambda prepared: self._idml_prepared(prepared, options), "Preparing the IDML export")
+
+    def _idml_prepared(self, prepared: dict, options) -> None:
+        if options.mode == "facsimile" and prepared.get("matches"):
+            fonts = FontChoiceDialog(prepared["matches"], self)
+            if not fonts.exec():
+                return
+            options.faces = fonts.table.faces()
         default = str(Path(self.project.settings.source or self.project.workspace).with_name(
             (self.project.settings.name or "output") + f"-{options.mode}.idml"))
         path, _ = QFileDialog.getSaveFileName(self, "Export IDML (saved in a folder of its own, with its Links)",
