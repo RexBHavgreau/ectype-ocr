@@ -35,6 +35,33 @@ Merge to `main`, Beaux tags it, `release.yml` builds and attaches `Ectype-OCR-<v
 check it passes (bundling, packaged-app smoke test, installer, Kraken engine) before asking to
 merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 
+## What each version brought (for release notes and for knowing what is where)
+
+**0.5.0** (this session, from Beaux's testing of 0.4.0 on Driver's *Treatise*):
+- *Reading more scripts and characters.* Train from fonts now has Latin (Clementine Vulgate),
+  Syriac (Peshitta OT, ETCBC), Arabic (Qurʾān from Tanzil.net and the Smith–Van Dyck Bible)
+  and Transliteration (trains English: SBL Hebrew made from the WLC, other Semitic, IPA,
+  European accented letters, superscript note numbers and verse parts). Hebrew lines come with
+  the Codex's accents, as grammars print them (֫ stress mark), or pointed only.
+- *Training.* Quick update when little is new (minutes, not hours); Train afresh as a box;
+  prepared lines cached, preparation and checks run side by side; upgrades keep models and
+  the first training after upgrading can be quick.
+- *Review.* Save unchanged confirms a word (green); punctuation at a word's edges is a box of
+  its own; bigger correction text; stretch a word's box over a missed letter; Add a word;
+  special characters (Ω: recent ones, and a floating character pane with search).
+- *Traced PDF.* Every word drawn as type (doubtful words traced letter by letter, not left as
+  grey images); italic i dots and broken letters kept; level baselines with old-style
+  figures (footnote text no longer copies interleaved).
+- *IDML.* Reflow (live) or Facsimile (static) asked first; Reflow skips font matching;
+  Facsimile shows its fonts to confirm; Unicode superscripts set as superscript formatting;
+  a damaged installed font no longer stops the export.
+- *Smaller.* No false "add Hindi/Arabic" offers; work doesn't switch to the Log tab; a known
+  text that can't be downloaded leaves only its language unavailable.
+- Not in 0.5.0, though planned for it: the Ectype icon (see Planned).
+
+**0.4.0**: Train from fonts in the app; the updater installs over the existing copy wherever it
+is; the training pool keeps lines set again.
+
 ## Lessons learned (problems and their causes)
 
 - **Tesseract's training tools on Windows** (0.3.1): in the UB Mannheim package,
@@ -190,13 +217,19 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   the exe (PyInstaller `icon=`), the app window and taskbar (Qt window icon; Windows
   AppUserModelID), the installer and its uninstall entry (Inno `SetupIconFile`), and the Kraken
   engine exe. Not before 0.5.0.
-- Possibly English or Latin known texts for Train from fonts.
+- Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Faster "Update after corrections"**: keep per-page cluster instances (collect), composites
   of clusters whose members are unchanged, groupings of letters whose instances are unchanged,
   and the erased backgrounds of untouched pages; same output. Expect ~70 s -> 15-20 s on Young.
-- **Better reading of Driver's Treatise**: train Hebrew on lines in fonts like Driver's and
-  measure on the Treatise (accents and the stress mark are in the training lines now); set
-  some Train-from-fonts lines in each
-  font's italic (English, transliteration); superscript letters and figures. A checked
-  transcription of a few Treatise pages (Beaux can correct or confirm one) would give real
-  error rates.
+- **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
+  the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
+  the Treatise; set some Train-from-fonts lines in each font's italic (English,
+  transliteration), since italic is still often misread; reread raised characters by
+  themselves (superscript figures and letters). A checked transcription of a few Treatise
+  pages (Beaux can correct or confirm one) would give real error rates.
+- **Check the untested downloads** on Beaux's machine: Tanzil.net and eBible.org (Arabic),
+  blocked from the cloud session.
+- **Lone punctuation left as image**: the 30 words the Treatise still draws as image are
+  nearly all ; : , with no ink tied to them (`traced.place_page`, "no glyph").
+- Syriac with vowels: the Peshitta text is unvowelled; vowelled Syriac is learned only from
+  corrections.
