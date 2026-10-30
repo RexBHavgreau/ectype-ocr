@@ -223,3 +223,15 @@ def test_a_font_that_fails_to_draw_is_passed_over(monkeypatch):
 
     monkeypatch.setattr(fontmatch, "_glyph_feature", broken)
     assert fontmatch._distance(face, {"a": (10, np.zeros(10), 30.0, 1.0)}) is None
+
+
+def test_unicode_superscripts_become_superscript_formatting():
+    """¹ and ᵃ read by a model trained on them go to Word and InDesign as plain characters set
+    as superscripts, so a note's number matches its reference."""
+    from ectype.docx import _note_number
+    from ectype.layout import LWord, plain_superscripts
+
+    assert plain_superscripts("present¹:", [False] * 9) == ("present1:", [False] * 7 + [True, False])
+    assert plain_superscripts("3ᵃ", [False, False]) == ("3a", [False, True])
+    text, sup = plain_superscripts("¹", [False])
+    assert _note_number([LWord(text, [0, 0, 1, 1], False, 0, sup), LWord("Though", [0, 0, 1, 1], False, 0)])[0] == 1

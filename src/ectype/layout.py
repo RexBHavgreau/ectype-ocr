@@ -182,7 +182,8 @@ def build_layout(workspace: Path) -> Layout:
                 style = _majority([i[0] for i in letters], -1)
                 classes += [i[3] for i in infos]
                 sup = _superscripts(w, units, a + b * (w.box[0] - line.box[0]), xh)
-                words.append(LWord(w.text, list(w.box), italic, style, sup))
+                text, sup = plain_superscripts(w.text, sup)
+                words.append(LWord(text, list(w.box), italic, style, sup))
             size_class = _majority(classes, None)
             if size_class is None:
                 size_class = round(xh / doc_xh, 1) if abs(xh / doc_xh - 1) >= 0.12 else 1.0
@@ -217,6 +218,25 @@ def _superscripts(word, units, baseline: float, xh: float) -> list[bool]:
     if end == 0:  # the whole word is raised: not a reference
         return [False] * len(sup)
     return [False] * end + [True] * (len(sup) - end)
+
+
+def plain_superscripts(text: str, sup: list[bool]) -> tuple[str, list[bool]]:
+    """Unicode superscript characters read by the OCR (¹, ᵃ: a model trained on them) as their
+    plain characters marked superscript, so InDesign and Word set them as superscripts in the
+    book's font, and a note's ¹ matches its reference."""
+    import unicodedata
+
+    sup = sup if len(sup) == len(text) else [False] * len(text)
+    out, flags = [], []
+    for c, s in zip(text, sup):
+        d = unicodedata.decomposition(c)
+        if d.startswith("<super> ") and len(d.split()) == 2:
+            out.append(chr(int(d.split()[1], 16)))
+            flags.append(True)
+        else:
+            out.append(c)
+            flags.append(s)
+    return "".join(out), flags
 
 
 def _kind(zone: str, size_class: float) -> str:

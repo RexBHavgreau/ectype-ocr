@@ -190,7 +190,7 @@ Reflow is laid out by [docx-to-idml](https://github.com/RexBHavgreau/docx-to-idm
 The manuscript (kept beside the IDML):
 - **Headings:** Heading 1 (the largest on its page, a chapter title), Heading 2 and 3, and an all-capitals line under a chapter title as Author.
 - **Body paragraphs** as Normal; set-off passages (quotations, verse) as Quote; centred and right-aligned lines kept so.
-- **Italics** as italic runs; raised figures as superscripts.
+- **Italics** as italic runs; raised figures as superscripts. Unicode superscripts the OCR reads (¹, ᵃ, from a model trained on them) are written as their plain characters set as superscripts, in Word and InDesign alike (`layout.plain_superscripts`), so they take the book's font and a note's ¹ matches its reference.
 - **Notes:** Word footnotes where their reference was found, i.e. a superscript figure on the same page matching the note's printed number. The others are gathered at the end under "Notes" and counted in the report, because the OCR often misses small reference figures. On the Young chapter it missed the "2" after "Inspiration." and the whole "2 Ibid., 230–31." line.
 - **"Check OCR":** a character style on words read with confidence under 70 and not corrected in Review.
 - **"Page Marker":** optionally, `{p. 172}` where each page of the scan begins, inside a paragraph when the page breaks in one.

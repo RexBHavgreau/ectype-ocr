@@ -136,6 +136,12 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   transliteration, accented Latin, combining marks, IPA, Greek, Hebrew points, Hebrew accents,
   punctuation; search by Unicode name). A click inserts at the cursor; combining marks are
   shown on ◌ and inserted without it.
+- IDML: Facsimile is the static export (frames where the text stands, lines kept, notes as
+  text in their frames); Reflow is the live one (docx-to-idml: real paragraphs, Word
+  footnotes become InDesign footnotes where a superscript reference matching the note's
+  number was found on its page, the rest gathered under "Notes"). Unicode superscripts from
+  the OCR go to both as plain characters with superscript formatting (`plain_superscripts`);
+  the PDF's text keeps the Unicode ones.
 - Training from fonts is in the app (Training → Train from fonts…) as well as the batch file
   `Train Hebrew and Greek.bat` (`ectype train-all`).
 - Transliteration is a choice in Train from fonts that trains `eng` (not a language of its
