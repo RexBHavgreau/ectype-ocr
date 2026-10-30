@@ -49,7 +49,7 @@ class FontInfo:
 def fonts_in(folder: Path) -> list[FontInfo]:
     from fontTools.ttLib import TTCollection, TTFont
 
-    out = []
+    out, seen = [], set()
     for path in sorted(Path(folder).rglob("*")):
         if path.suffix.lower() not in FONT_SUFFIXES:
             continue
@@ -64,7 +64,10 @@ def fonts_in(folder: Path) -> list[FontInfo]:
                 style = names.getDebugName(2) or ""
             except Exception:
                 family, style = path.stem, ""
-            out.append(FontInfo(path, f"{family} {style}".strip(), i))
+            name = f"{family} {style}".strip()
+            if name not in seen:  # the same font copied twice (in two subfolders) counts once
+                seen.add(name)
+                out.append(FontInfo(path, name, i))
     return out
 
 
