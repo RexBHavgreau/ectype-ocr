@@ -55,6 +55,12 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   lines are set without the points, since the typeface also appears in unpointed books.
 - **Kraken release check** uses PP-OCRv6 small (`packaging/kraken_smoke.py` PREFERRED); training
   PP-OCRv6 tiny crashed without a message and is only tried as a diagnostic.
+- **English reads only é among accented letters** (0.5.0): tessdata_best's `eng` has 112
+  characters, é the only one beyond ASCII, so ḥ ā š ü ə came out as plain letters, silently.
+  Fix: Train from fonts → Transliteration (`translit.py`: English prose with SBL Hebrew made from
+  the WLC, other Semitic, IPA, European words) trains `eng`, adding the letters. `train._foreign`
+  keeps modifier letters (ʾ ʿ ː ᵉ) and IPA θ β χ in English lines; Latin counts a letter with a
+  combining mark (p̄) as one character (`_graphemes`). A partial font sets only the lines it can.
 - **Windows text files:** write list/box/gt files with `newline="\n"`; read tool output as UTF-8.
 - **Qt in tests:** free dialogs on the interface thread (close, deleteLater, processEvents) or a
   worker thread's garbage collection crashes the run.

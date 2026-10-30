@@ -183,6 +183,53 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
         assert all(w.count(b) == 12 for b in pool.books("grc"))
 
 
+def test_transliteration_text():
+    """Hebrew in SBL academic style, and English lines with transliterated words of each kind."""
+    from ectype import translit
+
+    assert translit.hebrew("בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ") == \
+        "bərēʾšîṯ bārāʾ ʾĕlōhîm ʾēṯ haššāmayim wəʾēṯ hāʾāreṣ"
+    assert translit.hebrew("וְרוּחַ יְהוָה עַל־פְּנֵי תּוֹרָה מֶלֶךְ יִשְׂרָאֵל") == "wərûaḥ YHWH ʿal-pənê tôrâ meleḵ yiśrāʾēl"
+    assert translit.hebrew("קְטַל", older=True) == "ḳᵉṭal"
+    assert translit.hebrew("וּמִשְׁפָּטִים") == "ûmišpāṭîm"
+    lines = translit.passages(["בְּרֵאשִׁית בָּרָא אֱלֹהִים"], count=400)
+    assert lines == translit.passages(["בְּרֵאשִׁית בָּרָא אֱלֹהִים"], count=400), "the same each time"
+    chars = set("".join(lines))
+    for c in "ʾʿḥšēāəḫẓʃŋɛːüçøčō":
+        assert c in chars, c
+    assert all(any(w in translit.ENGLISH for w in line.lower().split()) for line in lines), "English around them"
+
+
+def test_transliteration_lines_set_in_fonts(data, tmp_path, monkeypatch):
+    """Lines set for English in fonts with the letters; a font with only some sets the lines it can."""
+    from fontTools import subset
+    from fontTools.ttLib import TTFont
+
+    from ectype import synthtrain, translit
+    from ectype.train import _foreign
+
+    lines = translit.passages(["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"], count=300)
+    monkeypatch.setattr(texts, "load", lambda source, progress=None: lines)
+    full = synthtrain.FontInfo(Path(_font("DejaVu Serif")), "DejaVu Serif")
+    # A font with a-z and the European accents, but no ḥ, ʾ, ə or IPA.
+    font = TTFont(_font("DejaVu Serif"))
+    keep = [u for u in font.getBestCmap() if u < 0x250]
+    sub = subset.Subsetter(subset.Options())
+    sub.populate(unicodes=keep)
+    sub.subset(font)
+    font.save(str(tmp_path / "Plain.ttf"))
+    plain = synthtrain.FontInfo(tmp_path / "Plain.ttf", "Plain Latin")
+    _, needed, _ = synthtrain.needs("transliteration")
+    assert synthtrain.level(full, needed, script="transliteration") == synthtrain.FULL
+    assert synthtrain.level(plain, needed, script="transliteration") is None, "too few of the letters"
+    r = synthtrain.generate([full], ["transliteration"], lines_per_font=12)
+    assert r["fonts"]["transliteration"] == ["DejaVu Serif"] and r["added"]["eng"] == 12
+    got = [i.text for i in pool.items("eng")]
+    assert any(c in "".join(got) for c in "ʾʿḥšəʃ")
+    assert not any(_foreign(c, "Latin") for t in got for c in t), "nothing left out of English training"
+    assert _foreign("α", "Latin") and _foreign("א", "Latin")
+
+
 def test_training_settings_file(tmp_path):
     from ectype import trainall
 
@@ -292,6 +339,7 @@ def test_train_from_fonts_window(data, monkeypatch):
     monkeypatch.setattr(synthtrain, "system_font_folders", lambda: [system])
     monkeypatch.setattr(texts, "load", lambda source, progress=None: (
         ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] if source == "hebrew-bible"
+        else ["The word ḥesed in Hebrew, ʾĕlōhîm and /ʃəˈlɔm/ über ç"] if source == "transliteration"
         else ["Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν"]))
     app = qt.QApplication.instance() or qt.QApplication([])
 
@@ -302,6 +350,7 @@ def test_train_from_fonts_window(data, monkeypatch):
         return d
 
     d = opened()
+    assert not d.lang_boxes["transliteration"].isChecked(), "Hebrew and Greek chosen at first"
     rows = {d.table.item(r, 0).text(): [d.table.item(r, c).text() for c in (1, 2)] for r in range(d.table.rowCount())}
     assert rows == {"FreeSerif Regular": ["Full", "Full"], "Plain Hebrew Regular": ["Partial", "Full"]}, \
         "only fonts with both languages (Hebrew without points too), and how far each supports them"
@@ -310,6 +359,10 @@ def test_train_from_fonts_window(data, monkeypatch):
     assert rows["DejaVu Serif Book"] == ["—", "Full"] and rows["FreeSerif Regular"] == ["Full", "Full"]
     d.lang_boxes["hebrew"].setChecked(False)
     assert d.table.columnCount() == 3 and d.table.horizontalHeaderItem(1).text() == "Greek"
+    d.lang_boxes["transliteration"].setChecked(True)
+    col = {d.table.item(r, 0).text(): d.table.item(r, 2).text() for r in range(d.table.rowCount())}
+    assert d.table.horizontalHeaderItem(2).text() == "Transliteration" and col["DejaVu Serif Book"] == "Full"
+    d.lang_boxes["transliteration"].setChecked(False)
     d.settings["folders"] = [str(mine)]
     d._scan()
     d.scanner.wait()

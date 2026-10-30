@@ -121,11 +121,26 @@ def _unicharset(best: Path, work: Path, base: str) -> set[str]:
 
 
 def _foreign(c: str, script: str) -> bool:
-    """A letter of another script than the model's (which training leaves out)."""
+    """A letter of another script than the model's (which training leaves out). Latin's take
+    in the letters of transliteration: modifier letters (ʾ ʿ ʰ ː ᵉ) and IPA's θ β χ."""
     from .scripts import UNICODE_NAME
 
     prefix = UNICODE_NAME.get(script)
-    return c.isalpha() and prefix is not None and not unicodedata.name(c, "").startswith(prefix)
+    name = unicodedata.name(c, "")
+    if script == "Latin" and (name.startswith(("MODIFIER LETTER", "SUPERSCRIPT LATIN")) or c in "θβχ"):
+        return False
+    return c.isalpha() and prefix is not None and not name.startswith(prefix)
+
+
+def _graphemes(text: str) -> list[str]:
+    """The text's characters, each letter with the marks on it (p̄, ɛ̃): how Latin models count them."""
+    units: list[str] = []
+    for c in unicodedata.normalize("NFC", text):
+        if units and unicodedata.combining(c):
+            units[-1] += c
+        else:
+            units.append(c)
+    return units
 
 
 def _extended(best: Path, work: Path, base: str, texts: list[str]) -> Path | None:
@@ -176,15 +191,7 @@ def _box(png: Path, text: str, dest: Path) -> None:
     with Image.open(png) as im:
         w, h = im.size
     text = unicodedata.normalize("NFC", text)
-    if is_rtl(text):
-        units = list(reversed(text))
-    else:
-        units = []
-        for c in text:
-            if units and unicodedata.combining(c):
-                units[-1] += c
-            else:
-                units.append(c)
+    units = list(reversed(text)) if is_rtl(text) else _graphemes(text)
     dest.write_text("".join(f"{c} 0 0 {w} {h} 0\n" for c in units) + f"\t 0 0 {w} {h} 0\n", encoding="utf-8", newline="\n")
 
 
@@ -232,15 +239,17 @@ def fit_tesseract(start: Path, base: str, pairs: list[tuple[Path, str]], work: P
     script = script_of(base)
     kept = [(png, text) for png, text in pairs if not any(_foreign(c, script) for c in text)]
     skipped = len(pairs) - len(kept)
-    added = "".join(sorted({c for _, text in kept for c in text if not c.isspace() and c not in known}))
+    units = _graphemes if script == "Latin" else list  # Latin models know p̄ as one character
+    new = sorted({u for _, text in kept for u in units(text) if not u.isspace() and u not in known})
+    added = "".join(new)
     traineddata = start
     if added:
-        progress(f"{base}: adding {len(added)} characters the model lacks ({' '.join(added)})")
+        progress(f"{base}: adding {len(new)} characters the model lacks ({' '.join(new)})")
         traineddata = _extended(start, work, base, [text for _, text in kept])
         if traineddata is None:  # train without them
             progress(f"{base}: couldn't add those characters (Tesseract's tools for it didn't run); "
                      "training without them")
-            kept = [(png, text) for png, text in kept if all(c in known for c in text if not c.isspace())]
+            kept = [(png, text) for png, text in kept if all(u in known for u in units(text) if not u.isspace())]
             skipped = len(pairs) - len(kept)
             added, traineddata = "", start
     files = []

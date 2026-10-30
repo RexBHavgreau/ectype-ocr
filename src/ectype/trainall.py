@@ -46,7 +46,8 @@ TEMPLATE = """# Ectype OCR: training settings, read by "Train Hebrew and Greek.b
 # The fonts stay where they are and are only read.
 fonts =
 
-# Which scripts to train: hebrew, greek, or both.
+# Which scripts to train: hebrew, greek, transliteration (Latin letters with marks:
+# ḥ ṭ ṣ š ʾ ʿ ā ê ə, IPA, ü é ç...; it trains English, and needs fonts with those letters).
 scripts = hebrew greek
 
 # Lines set in each font. More is better but slower; 400 is a good start.
@@ -66,7 +67,7 @@ lines per font = 400
 # language = grc
 """
 
-SCRIPT_LANG = {"hebrew": "heb", "greek": "grc"}
+SCRIPT_LANG = {"hebrew": "heb", "greek": "grc", "transliteration": "eng"}
 
 
 def write_template(path: Path) -> Path:
@@ -84,7 +85,7 @@ def read(path: Path) -> dict:
     scripts = [s.strip().lower() for s in (t.get("scripts") or "hebrew greek").replace(",", " ").split()]
     unknown = [s for s in scripts if s not in SCRIPT_LANG]
     if unknown:
-        raise ValueError(f"Unknown script(s) {', '.join(unknown)} in {path}: use hebrew, greek.")
+        raise ValueError(f"Unknown script(s) {', '.join(unknown)} in {path}: use hebrew, greek, transliteration.")
     editions = []
     for section in cp.sections():
         if section.lower().startswith("edition:"):

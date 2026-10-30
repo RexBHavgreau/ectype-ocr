@@ -114,7 +114,7 @@ The report goes to the Log; the app offers to read the pages again.
 
 ### Training without correcting by hand
 
-**Lines set in your fonts** (`synthtrain.py`, `ectype train-synthetic --fonts <folder> --script hebrew greek`). For each font in the folder (and its subfolders) that has the script's letters:
+**Lines set in your fonts** (`synthtrain.py`, `ectype train-synthetic --fonts <folder> --script hebrew greek transliteration`). For each font in the folder (and its subfolders) that has the script's letters:
 - Passages of a known text are cut into lines of 3 to 9 words and set in the font at several sizes. Hebrew is set right to left, with its points placed by Pillow's raqm layout.
 - Each line is made to look scanned: a slight tilt, blur, ink lighter or heavier, paper tone and noise, specks.
 - The image and its exact text go into the pool as the font's own source, with its typeface fingerprint, so fonts and real books fall into families together.
@@ -125,6 +125,14 @@ The report goes to the Log; the app offers to read the pages again.
 - the Hebrew Bible: the Westminster Leningrad Codex, public domain, via the Open Scriptures Hebrew Bible, CC BY 4.0;
 - the Greek New Testament: the SBL Greek New Testament, CC BY 4.0;
 - any UTF-8 text file of an edition (for example Westcott–Hort), one passage a line.
+
+**Transliteration** (`translit.py`, `--script transliteration`) trains English, not a language of its own. Tesseract's English model knows one accented letter, é: it reads ḥ as h and ā as a, drops ʾ and ʿ, and nothing shows that anything was lost. The text is generated: English sentences of scholarly prose with transliterated words among them, sometimes in brackets or quotes, with an occasional reference or page number:
+- Hebrew in SBL academic style, made from the Hebrew Bible (bərēʾšîṯ bārāʾ ʾĕlōhîm, rûaḥ, YHWH), some in the older style of Gesenius' grammar (ḳ, qᵉṭal);
+- Arabic (DMG letters such as ǧ ḫ ṯ ḏ ġ ḍ ẓ, and the kh/dh/sh spellings), Akkadian, Ugaritic, Aramaic and Syriac words;
+- IPA transcriptions in slashes or brackets (made-up words: every symbol, stress, length, some diacritics);
+- European words with accents (German, French, Latin with macrons, Spanish, Scandinavian, Czech, Polish, Hungarian, Turkish, Romanian, Portuguese, Icelandic).
+
+A font supports it fully with nine in ten of these letters, partly with a–z and half of them; a partial font sets only the lines it has every letter of. Training keeps the modifier letters (ʾ ʿ ʰ ː ᵉ) and IPA's θ β χ as English characters, and adds the letters the model lacks, a letter with a combining mark (p̄, ɛ̃) counting as one.
 
 Hebrew accents (cantillation, meteg, paseq) are left out. Consonants, vowel points, dagesh, shin and sin dots, maqaf and sof pasuq are kept. Greek keeps its accents and breathings.
 

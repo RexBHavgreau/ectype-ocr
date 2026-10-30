@@ -4,6 +4,8 @@ are matched against (`synthtrain.py`, `align.py`).
 - "hebrew-bible": the Westminster Leningrad Codex (public domain), from the Open Scriptures
   Hebrew Bible (CC BY 4.0, github.com/openscriptures/morphhb).
 - "greek-nt": the SBL Greek New Testament (CC BY 4.0, github.com/LogosBible/SBLGNT).
+- "transliteration": English with transliterated words (Hebrew made from the Hebrew Bible,
+  other Semitic languages, IPA, European accents), generated (`translit.py`).
 - a file: any UTF-8 text, one passage a line (e.g. the Westcott-Hort text, or the text of
   the edition that was scanned).
 
@@ -88,6 +90,10 @@ def _greek_book(txt: str) -> list[str]:
 def load(source: str, progress: Callable[[str], None] | None = None) -> list[str]:
     """The passages of a known text (verses), accents left out, downloaded once."""
     say = progress or (lambda msg: None)
+    if source == "transliteration":
+        from .translit import passages
+
+        return passages(load("hebrew-bible", progress))
     if source not in SOURCES:
         path = Path(source)
         if not path.is_file():

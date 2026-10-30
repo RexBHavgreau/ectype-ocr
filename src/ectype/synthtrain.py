@@ -3,7 +3,8 @@
     ectype train-synthetic --fonts <folder> --script hebrew greek
 
 For each font in the folder (and its subfolders) that has the script's letters:
-1. Passages of the known text (`texts.py`: the Hebrew Bible, the Greek New Testament) are cut
+1. Passages of the known text (`texts.py`: the Hebrew Bible, the Greek New Testament, or for
+   "transliteration", English with transliterated words, which trains English) are cut
    into lines of varied length and set in the font at several sizes, right to left for
    Hebrew (Pillow's raqm layout, which places the vowel points).
 2. Each line is made to look scanned (`degrade`): a slight blur, ink lighter or heavier,
@@ -34,7 +35,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 
 from . import pool, texts
 
-SCRIPTS = {"hebrew": ("heb", "hebrew-bible", "Hebrew"), "greek": ("grc", "greek-nt", "Greek")}
+SCRIPTS = {"hebrew": ("heb", "hebrew-bible", "Hebrew"), "greek": ("grc", "greek-nt", "Greek"),
+           "transliteration": ("eng", "transliteration", "Transliteration")}
 VERSION = 1  # of the generation: lines made by an older one are made again
 FONT_SUFFIXES = (".ttf", ".otf", ".ttc")
 
@@ -100,12 +102,20 @@ def needs(script: str, progress: Callable[[str], None] | None = None) -> tuple[l
 FULL, LETTERS = "full", "letters"  # how far a font supports a script
 
 
-def level(font: FontInfo, needed: set[str], have: set[str] | None = None) -> str | None:
+def level(font: FontInfo, needed: set[str], have: set[str] | None = None, script: str = "") -> str | None:
     """How far the font sets the script's text: FULL with nine in ten of its letters or more
     and every mark on them (Hebrew's vowel points); LETTERS with the letters but not every
-    mark (its lines are set without marks: a typeface also met unpointed); None without."""
+    mark (its lines are set without marks: a typeface also met unpointed); None without.
+    Transliteration: FULL with nine in ten of its letters beyond a-z, LETTERS with a-z and
+    half of them (only lines it has every letter of are set)."""
     have = covers(font, needed) if have is None else have
     letters = {c for c in needed if c.isalpha()}
+    if script == "transliteration":
+        special = {c for c in needed if not c.isascii()}
+        if not {c for c in letters if c.isascii()} <= have:
+            return None
+        n = len(special & have)
+        return FULL if n >= 0.9 * len(special) else LETTERS if n >= 0.5 * len(special) else None
     marks = {c for c in needed if unicodedata.category(c) == "Mn"}
     if len(letters & have) < 0.9 * len(letters):
         return None
@@ -122,7 +132,7 @@ def support(fonts: list[FontInfo], scripts: list[str], progress: Callable[[str],
     needed = {script: needs(script, progress)[1] for script in scripts}
     out = {}
     for k, font in enumerate(fonts, 1):
-        levels = {script: level(font, needed[script]) for script in scripts}
+        levels = {script: level(font, needed[script], script=script) for script in scripts}
         out[font.name] = {script: lv for script, lv in levels.items() if lv}
         if done:
             done(k, len(fonts))
@@ -228,14 +238,16 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
     for script in scripts:
         lang, source, name = SCRIPTS[script]
         rtl = script == "hebrew"
+        by_line = script == "transliteration"  # a font without some letters sets the lines it can
         passages, needed, _ = needs(script, say)
         usable = []
         for font in fonts:
             have = covers(font, needed)
-            lv = level(font, needed, have)
+            lv = level(font, needed, have, script)
             if lv:
                 usable.append((font, have, lv))
-        report["fonts"][script] = [f.name + (" (without marks)" if lv == LETTERS else "") for f, _, lv in usable]
+        partly = " (some letters)" if by_line else " (without marks)"
+        report["fonts"][script] = [f.name + (partly if lv == LETTERS else "") for f, _, lv in usable]
         test_fonts = held_out([f for f, _, _ in usable])
         books = pool.books(lang)
         with pool.Writer(lang) as w:
@@ -250,9 +262,9 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                 rng = random.Random(f"{seed}:{font.name}")
                 split = "test" if font.name in test_fonts else "train"
                 made, samples = 0, []
-                candidates = lines_from(passages, lines_per_font * 2, rng)
+                candidates = lines_from(passages, lines_per_font * (4 if by_line else 2), rng)
                 for text in candidates:
-                    if lv == LETTERS:
+                    if lv == LETTERS and not by_line:
                         text = without_marks(text)
                     if made >= lines_per_font:
                         break

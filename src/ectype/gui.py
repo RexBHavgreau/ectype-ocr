@@ -1209,6 +1209,8 @@ class FontTrainingDialog(QDialog):
 
     LEVELS = {"full": "full support", "letters": "the letters, without some marks (for Hebrew, the vowel points); "
                                                  "its lines are set without them"}
+    TRANSLIT_LEVELS = {"full": "nearly every letter used in transliteration",
+                       "letters": "some of the letters used in transliteration; only lines it has every letter of are set"}
 
     def __init__(self, parent=None):
         from . import synthtrain
@@ -1224,7 +1226,9 @@ class FontTrainingDialog(QDialog):
         intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament) in each "
                        "font you choose, makes the lines look scanned, and trains each language's model on them: no "
                        "correcting by hand. Fonts are only read, never copied. The more typefaces like your books' "
-                       "the better.")
+                       "the better.\nTransliteration teaches the English model the letters English lacks: Hebrew in "
+                       "SBL style (ḥ ṭ ṣ š ʾ ʿ ḇ ā ê ə), Arabic, Akkadian and Ugaritic (ḫ ẓ ḍ ġ), IPA (ʃ ŋ ɛ ʔ ː) "
+                       "and accented letters (ü ç ø č ō). Without it they are read as plain letters.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         langs = QHBoxLayout()
@@ -1232,7 +1236,7 @@ class FontTrainingDialog(QDialog):
         self.lang_boxes = {}
         for script, (_, _, name) in synthtrain.SCRIPTS.items():
             box = QCheckBox(name)
-            box.setChecked(script in self.settings.get("scripts", list(synthtrain.SCRIPTS)))
+            box.setChecked(script in self.settings.get("scripts", ["hebrew", "greek"]))
             box.toggled.connect(self._scripts_changed)
             langs.addWidget(box)
             self.lang_boxes[script] = box
@@ -1260,7 +1264,8 @@ class FontTrainingDialog(QDialog):
         self.table.itemChanged.connect(self._count)
         layout.addWidget(self.table, 1)
         key = QLabel("Full: every letter and mark.   Partial: the letters, without some marks (for Hebrew, the "
-                     "vowel points); its lines are set without them, as in unpointed books.   —: not supported.")
+                     "vowel points); its lines are set without them, as in unpointed books. For transliteration, "
+                     "some of its letters; only lines it has every letter of are set.   —: not supported.")
         key.setWordWrap(True)
         layout.addWidget(key)
         self.status = QLabel()
@@ -1411,7 +1416,8 @@ class FontTrainingDialog(QDialog):
                 lv = self.support.get(font.name, {}).get(script)
                 cell = QTableWidgetItem({synthtrain.FULL: "Full", synthtrain.LETTERS: "Partial"}.get(lv, "—"))
                 cell.setTextAlignment(Qt.AlignCenter)
-                cell.setToolTip(f"{synthtrain.SCRIPTS[script][2]}: " + self.LEVELS.get(lv, "not supported"))
+                levels = self.TRANSLIT_LEVELS if script == "transliteration" else self.LEVELS
+                cell.setToolTip(f"{synthtrain.SCRIPTS[script][2]}: " + levels.get(lv, "not supported"))
                 cell.setFlags(Qt.ItemIsEnabled)
                 self.table.setItem(r, c, cell)
             path = QTableWidgetItem(font.path.name)
