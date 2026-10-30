@@ -236,7 +236,9 @@ def _feature(inst: Instance, half_width: float) -> np.ndarray:
     """The instance on a canvas scaled to its x-height: rows from ABOVE x-heights over
     the baseline to BELOW under it, columns centred on the ink centroid."""
     s = FEATURE_ROWS / ((ABOVE + BELOW) * inst.xh)
-    cols = max(4, int(round(2 * half_width * inst.xh * s)))
+    # The same for every instance (the x-height cancels out): worked out without it, as
+    # rounding 2 * half_width * xh * s could land either side of .5 and the rows not stack.
+    cols = max(4, int(round(2 * half_width * FEATURE_ROWS / (ABOVE + BELOW))))
     ox, oy = inst.crop_origin
     m = np.array([[s, 0, (ox - (inst.centroid_x - half_width * inst.xh)) * s],
                   [0, s, (oy - (inst.baseline - ABOVE * inst.xh)) * s]], np.float32)

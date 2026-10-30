@@ -71,6 +71,19 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   one page in 20 of the book (two to three pages).
 - **Review couldn't confirm a correct flagged word** (0.5.0): Save ignored unchanged text. Now
   it confirms (green, "Confirmed", training line saved).
+- **Italic i's lost their dots in the traced type** (0.5.0, Treatise "I gıve", "ıs sellıng"): the
+  dot leans right, over the gap or the next letter, so `_clusters` (dot over a stem) left it
+  out, joined it to the m, or alignment took it for a letter. `segment._float_marks` sets
+  floating marks aside before alignment (not in words with quotes, ʾ ʿ or superscripts) and
+  `_join_marks` gives them to the nearest i/j/accented letter; it also joins a broken-off
+  piece beside a letter (the v's arm that made "give" look like "gize").
+- **Footnote text copied interleaved with the next line** (0.5.0): a baseline fitted to
+  old-style figures (3 4 5 7 9 descend) sloped 5 pt across the line. `NO_DESCENDER` keeps only
+  0 1 2 6 8; a fitted slope over 0.01 from Tesseract's is replaced by Tesseract's
+  (`fit_baselines`).
+- **Glyph grouping crashed** ("all input arrays must have the same shape"): the feature width
+  was rounded per instance from xh * s, which cancels out but not in floating point
+  (`cluster._feature`).
 - **Windows text files:** write list/box/gt files with `newline="\n"`; read tool output as UTF-8.
 - **Qt in tests:** free dialogs on the interface thread (close, deleteLater, processEvents) or a
   worker thread's garbage collection crashes the run.

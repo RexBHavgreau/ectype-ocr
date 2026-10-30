@@ -98,3 +98,25 @@ def test_align_merges_touching_pair_by_width():
                 {"components": [2], "x0": 60, "x1": 80, "area": 200}]
     groups, _ = S._align(chars, clusters, 37, 11, [widths[c.text] for c in chars])
     assert groups == [([0], [0]), ([1, 2], [1]), ([3], [2])]
+
+
+def test_marks_and_broken_pieces_join_their_letters():
+    """An italic i's dot leaning over the next letter, and the broken-off arm of a v, join their
+    letters (Driver's Treatise: "I gıve", "gize"); a fitted baseline doesn't follow old-style
+    figures below the line."""
+    import numpy as np
+
+    from ectype.ocr import Char
+    from ectype.segment import NO_DESCENDER, _join_marks
+
+    # Components: 1 the i's stem, 2 its dot (over the gap before the v), 3 the v, 4 the v's arm.
+    stats = np.array([[0, 0, 0, 0, 0],
+                      [100, 20, 10, 30, 200], [111, 5, 8, 8, 50], [116, 20, 18, 30, 300], [135, 22, 5, 20, 60]])
+    clusters = [{"components": [1], "area": 200, "x0": 100, "x1": 110},
+                {"components": [3], "area": 300, "x0": 116, "x1": 134},
+                {"components": [2], "area": 50, "x0": 111, "x1": 119},
+                {"components": [4], "area": 60, "x0": 135, "x1": 140}]
+    chars = [Char("i", [100, 5, 115, 50], 90), Char("v", [115, 5, 140, 50], 90)]
+    groups, left = _join_marks([([0], [0]), ([1], [1])], [2, 3], chars, clusters, stats, x_size=30)
+    assert groups == [([0], [0, 2]), ([1], [1, 3])] and left == []
+    assert "7" not in NO_DESCENDER and "1" in NO_DESCENDER
