@@ -74,6 +74,10 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 - Known texts: Hebrew Bible (WLC, accents stripped, points kept) and Greek New Testament (SBLGNT).
   More languages need a reliable public-domain text the app can download.
 - Kraken is an optional add-on (its own download), for non-Latin scripts.
+- Review (0.5.0): a punctuation mark at a word's start or end is a box of its own
+  (`review.parts`), since typed beside Hebrew it jumps about in the text box; the correction log
+  still holds the whole word's text, so `carry_corrections` works unchanged. Saving a word
+  unchanged confirms it (green, and its line becomes training data).
 - Training from fonts is in the app (Training → Train from fonts…) as well as the batch file
   `Train Hebrew and Greek.bat` (`ectype train-all`).
 

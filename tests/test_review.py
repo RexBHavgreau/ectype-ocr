@@ -33,6 +33,32 @@ def test_apply_correction_keeps_or_spreads_boxes(workspace):
     assert len(w.chars) == 8 and w.chars[0].box[0] == w.box[0] and w.chars[-1].box[2] == w.box[2]
 
 
+def test_punctuation_corrected_apart_from_the_letters():
+    """A mark at a word's start or end is a piece of its own; correcting one piece keeps the rest."""
+    from ectype.ocr import Char, Line, Word
+    from ectype.review import parts
+
+    def word(text, x=100):
+        return Word(text, [x, 10, x + 20 * len(text), 40], 70.0,
+                    [Char(c, [x + 20 * k, 10, x + 20 * (k + 1), 40], 70.0) for k, c in enumerate(text)])
+
+    w = word("(ḥesed),")
+    assert parts(w) == [(0, 1), (1, 6), (6, 7), (7, 8)]
+    assert parts(word("plain")) == [(0, 5)] and parts(word("—")) == [(0, 1)]
+    page = OcrPage("tesseract", "eng", [1000, 100], 300, [Line([0, 0, 900, 50], [0, 0], None, None, None, [w])])
+    apply_correction(page, 0, 0, "hesd", span=(1, 6))  # shorter: spread over the letters' place only
+    assert w.text == "(hesd)," and w.chars[0].box == [100, 10, 120, 40] and w.chars[-1].box == [240, 10, 260, 40]
+    assert w.chars[1].box[0] == 120 and w.chars[4].box[2] == 220
+    apply_correction(page, 0, 0, "]", span=(5, 6))  # the pieces after a correction: parts() again
+    assert w.text == "(hesd]," and parts(w)[-2:] == [(5, 6), (6, 7)] and w.conf == 100
+    # Hebrew with a mark after it (in reading order): the letters spread from the right.
+    h = word("אמר:")
+    page.lines[0].words.append(h)
+    assert parts(h) == [(0, 3), (3, 4)]
+    apply_correction(page, 0, 1, "אמרו", span=(0, 3))
+    assert h.text == "אמרו:" and h.chars[0].box[2] == 160 and h.chars[3].box[0] == 100
+
+
 def test_review_server_saves_corrections_and_training_pairs(workspace):
     server = serve(workspace, port=0)
     port = server.server_address[1]

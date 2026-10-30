@@ -374,9 +374,13 @@ class SpreadsTab(QWidget):
 
 
 class WordItem(QGraphicsRectItem):
-    def __init__(self, rect: QRectF, line: int, word: int, text: str, status: str, on_click):
+    """A word's box on the scan, or a piece of it (`span`): a punctuation mark at its start or
+    end, or the letters between (`review.parts`)."""
+
+    def __init__(self, rect: QRectF, line: int, word: int, text: str, status: str, on_click,
+                 span: tuple[int, int] | None = None):
         super().__init__(rect)
-        self.line, self.word, self.text, self.on_click = line, word, text, on_click
+        self.line, self.word, self.text, self.on_click, self.span = line, word, text, on_click, span
         self.set_status(status)
         self.setToolTip(text)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -402,6 +406,9 @@ class ReviewTab(QWidget):
         self.list.currentRowChanged.connect(self.show_page)
         self.edit = QLineEdit()
         self.edit.setPlaceholderText("Click a word on the scan to correct it (or Save it unchanged to confirm it)")
+        font = self.edit.font()
+        font.setPointSizeF(max(16.0, font.pointSizeF() * 1.6))
+        self.edit.setFont(font)
         self.edit.returnPressed.connect(self.save)
         save = QPushButton("Save")
         save.clicked.connect(self.save)
@@ -479,10 +486,7 @@ class ReviewTab(QWidget):
                 for wi, w in enumerate(line.words):
                     status = ("fixed" if (li, wi) in fixed else "suspect" if (li, wi) in flagged
                               else "low" if w.conf < LOW_CONF else "plain")
-                    x0, y0, x1, y1 = w.box
-                    it = WordItem(QRectF(x0, y0, x1 - x0, y1 - y0), li, wi, w.text, status, self.select)
-                    self.scan.scene().addItem(it)
-                    self.items.append(it)
+                    self._add_word(li, wi, w, status)
         pdf = self.project.output_pdf()
         pages = self.project.pages()
         image = _pdf_page_image(pdf, pages.index(page), dpi=self._page_dpi(page)) if pdf else None
@@ -495,6 +499,21 @@ class ReviewTab(QWidget):
         self.output.fit()
         self.edit.clear()
         self.info.clear()
+
+    def _add_word(self, li: int, wi: int, w, status: str) -> None:
+        """A word's boxes: one, or one for each punctuation mark at its start or end and one for
+        its letters, so each is corrected by itself."""
+        from .review import part_box, parts
+
+        pieces = parts(w)
+        for span in pieces:
+            whole = len(pieces) == 1
+            x0, y0, x1, y1 = w.box if whole else part_box(w, span)
+            text = w.text if whole else "".join(c.text for c in w.chars[span[0]:span[1]])
+            it = WordItem(QRectF(x0, y0, x1 - x0, y1 - y0), li, wi, text, status, self.select, None if whole else span)
+            it.setToolTip(w.text)
+            self.scan.scene().addItem(it)
+            self.items.append(it)
 
     def _page_dpi(self, page: str) -> float:
         from PIL import Image
@@ -517,11 +536,11 @@ class ReviewTab(QWidget):
         pages = self.project.pages()
         if page in pages:
             self.list.setCurrentRow(pages.index(page))
-            for it in self.items:
-                if (it.line, it.word) == (line, word):
-                    self.select(it)
-                    self.scan.centerOn(it)
-                    break
+            pieces = [it for it in self.items if (it.line, it.word) == (line, word)]
+            if pieces:
+                it = max(pieces, key=lambda it: len(it.text))  # the letters, not a mark beside them
+                self.select(it)
+                self.scan.centerOn(it)
 
     def save(self) -> None:
         if self.selected is None or self.page is None:
@@ -531,14 +550,20 @@ class ReviewTab(QWidget):
             return
         # The same text saved confirms a flagged word as right: it turns green and its line
         # becomes training data, as a correction does, but the PDF needs no rebuilding.
-        result = self.project.correct(self.page, self.selected.line, self.selected.word, text)
-        self.selected.text = result["new"]
-        self.selected.setToolTip(result["new"])
-        self.selected.set_status("fixed")
-        if result["old"] == result["new"]:
-            self.info.setText(f"Confirmed: {result['new']}")
+        item = self.selected
+        result = self.project.correct(self.page, item.line, item.word, text, item.span)
+        # The word's boxes made again: a piece corrected can change where the others are.
+        for old in [it for it in self.items if (it.line, it.word) == (item.line, item.word)]:
+            self.scan.scene().removeItem(old)
+            self.items.remove(old)
+        w = self.project.ocr(self.page).lines[item.line].words[item.word]
+        self._add_word(item.line, item.word, w, "fixed")
+        self.selected = None
+        old, new = result.get("part") or (result["old"], result["new"])
+        if old == new:
+            self.info.setText(f"Confirmed: {new}")
         else:
-            self.info.setText(f"Saved: {result['old']} → {result['new']}")
+            self.info.setText(f"Saved: {old} → {new}")
             self.message.emit("Correction saved. Press “Update after corrections” to rebuild the PDF.")
 
 

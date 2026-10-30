@@ -15,6 +15,7 @@ from __future__ import annotations
 import html
 import json
 import time
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
@@ -25,22 +26,66 @@ from . import report
 from .ocr import Char, OcrPage
 
 
-def apply_correction(ocr: OcrPage, line: int, word: int, text: str) -> str:
-    """Set a word's text. Character boxes are kept when the length is unchanged, else
-    spread evenly over the word box. A corrected word counts as fully confident."""
+def _punctuation(text: str) -> bool:
+    return bool(text) and all(unicodedata.category(c).startswith("P") for c in text)
+
+
+def parts(word) -> list[tuple[int, int]]:
+    """The pieces of a word to correct one at a time, as spans of its characters: each
+    punctuation mark at its start or end on its own, the letters between together ("(ḥesed),"
+    is "(", "ḥesed", ")", ","). Typed together, a mark beside Hebrew or Greek letters jumps
+    about in the text box, as right-to-left and left-to-right text are laid out. The whole
+    word is one piece when its characters don't spell it or it is all punctuation."""
+    chars = word.chars
+    n = len(chars)
+    if not n or "".join(c.text for c in chars) != word.text or all(_punctuation(c.text) for c in chars):
+        return [(0, n)]
+    a, b = 0, n
+    while _punctuation(chars[a].text):
+        a += 1
+    while _punctuation(chars[b - 1].text):
+        b -= 1
+    return [(i, i + 1) for i in range(a)] + [(a, b)] + [(i, i + 1) for i in range(b, n)]
+
+
+def part_box(word, span: tuple[int, int]) -> list[int]:
+    """The box around a piece of a word (the word's box for the whole word)."""
+    chars = word.chars[span[0]:span[1]]
+    if not chars or span == (0, len(word.chars)):
+        return list(word.box)
+    return [min(c.box[0] for c in chars), min(c.box[1] for c in chars),
+            max(c.box[2] for c in chars), max(c.box[3] for c in chars)]
+
+
+def apply_correction(ocr: OcrPage, line: int, word: int, text: str, span: tuple[int, int] | None = None) -> str:
+    """Set a word's text, or with span (from `parts`) the text of that piece of it. Character
+    boxes are kept when the length is unchanged, else spread evenly over the piece's box
+    (from the right for right-to-left text). A corrected word counts as fully confident.
+    Returns the word's old text."""
+    from .scripts import is_rtl
+
     w = ocr.lines[line].words[word]
     old = w.text
     text = text.strip()
     if not text:
         raise ValueError("empty correction; delete words isn't supported")
-    if len(text) == len(w.chars):
-        for c, t in zip(w.chars, text):
+    start, end = span or (0, len(w.chars))
+    piece = w.chars[start:end]
+    if len(text) == len(piece):
+        for c, t in zip(piece, text):
             c.text, c.conf = t, 100.0
     else:
-        x0, y0, x1, y1 = w.box
+        x0, y0, x1, y1 = part_box(w, (start, end)) if piece else w.box
         step = (x1 - x0) / len(text)
-        w.chars = [Char(t, [round(x0 + k * step), y0, round(x0 + (k + 1) * step), y1], 100.0) for k, t in enumerate(text)]
-    w.text, w.conf = text, 100.0
+        boxes = [[round(x0 + k * step), y0, round(x0 + (k + 1) * step), y1] for k in range(len(text))]
+        if is_rtl(text):
+            boxes.reverse()
+        piece = [Char(t, b, 100.0) for t, b in zip(text, boxes)]
+    for c in w.chars:
+        c.conf = 100.0
+    w.chars = w.chars[:start] + piece + w.chars[end:]
+    w.text = "".join(c.text for c in w.chars) if span else text
+    w.conf = 100.0
     return old
 
 
@@ -80,8 +125,9 @@ def save_training_word(workspace: Path, page: str, ocr: OcrPage, line: int, word
     return stem.with_suffix(".png")
 
 
-def correct(workspace: Path, page: str, line: int, word: int, text: str) -> dict:
-    """Apply one correction to a workspace: OCR file, correction log, training pair."""
+def correct(workspace: Path, page: str, line: int, word: int, text: str, span: tuple[int, int] | None = None) -> dict:
+    """Apply one correction to a workspace (a word, or with span a piece of it): OCR file,
+    correction log (the whole word's text), training pair."""
     workspace = Path(workspace)
     path = workspace / "ocr" / f"{page}.ocr.json"
     original = workspace / "ocr" / f"{page}.ocr.original.json"
@@ -89,12 +135,20 @@ def correct(workspace: Path, page: str, line: int, word: int, text: str) -> dict
     if not original.is_file():
         original.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8", newline="\n")
     ocr = OcrPage.from_json(data)
-    old = apply_correction(ocr, line, word, text)
+    if span is not None:
+        w = ocr.lines[line].words[word]
+        if not 0 <= span[0] < span[1] <= len(w.chars):
+            raise ValueError("that part of the word has changed; click it again")
+        old_part = "".join(c.text for c in w.chars[span[0]:span[1]])
+    old = apply_correction(ocr, line, word, text, span)
+    new = ocr.lines[line].words[word].text
     report.write_json(path, ocr.to_json())
     log_path = workspace / "corrections" / f"{page}.json"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = json.loads(log_path.read_text(encoding="utf-8")) if log_path.is_file() else []
-    entry = {"line": line, "word": word, "old": old, "new": text.strip(), "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    entry = {"line": line, "word": word, "old": old, "new": new, "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    if span is not None:
+        entry["part"] = [old_part, text.strip()]
     log.append(entry)
     report.write_json(log_path, log)
     pair = save_training_line(workspace, page, ocr, line)
@@ -215,7 +269,7 @@ document.getElementById('s').addEventListener('click', save);
 """
     body = (
         f'<p><a href="/">All pages</a></p>'
-        f'<div id="editor"><input id="t" placeholder="Click a word"> <button id="s">Save</button> '
+        f'<div id="editor"><input id="t" placeholder="Click a word" style="font-size:1.5em;width:18em"> <button id="s">Save</button> '
         f'<span id="info" class="muted"></span>'
         f'<div class="legend muted"><span style="color:#dc2828">red: low OCR confidence</span>'
         f'<span style="color:#e8890c">orange: glyph looks like another character</span>'

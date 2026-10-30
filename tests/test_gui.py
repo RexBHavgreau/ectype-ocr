@@ -79,16 +79,27 @@ def test_window_review_and_correction(project, tmp_path):
     w.review.select(item)
     w.review.edit.setText("Corrected")
     w.review.save()
-    assert item.status == "fixed"
+    assert all(it.status == "fixed" for it in w.review.items if (it.line, it.word) == (item.line, item.word))
     ocr = json.loads((project.workspace / "ocr" / "p001L.ocr.json").read_text())
-    assert ocr["lines"][item.line]["words"][item.word]["text"] == "Corrected"
+    assert ocr["lines"][item.line]["words"][item.word]["text"].startswith("Corrected")
     assert (project.workspace / "training").is_dir()
     # A flagged word that was read right: saved unchanged, it is confirmed (green).
-    other = w.review.items[1]
+    other = next(it for it in w.review.items if (it.line, it.word) != (item.line, item.word))
     w.review.select(other)
     w.review.save()
-    assert other.status == "fixed" and w.review.info.text() == f"Confirmed: {other.text}"
+    assert w.review.info.text() == f"Confirmed: {other.text}"
+    assert all(it.status == "fixed" for it in w.review.items if (it.line, it.word) == (other.line, other.word))
     assert (other.line, other.word) in project.corrected("p001L")
+    # A word with punctuation beside it: the mark and the letters are boxes of their own.
+    punct = next((it for it in w.review.items if it.span and len(it.text) == 1 and not it.text.isalnum()), None)
+    assert punct is not None, "the test page has words with punctuation"
+    letters = next(it for it in w.review.items if (it.line, it.word) == (punct.line, punct.word) and it is not punct)
+    before = letters.text
+    w.review.select(punct)
+    w.review.edit.setText(";")
+    w.review.save()
+    word = project.ocr("p001L").lines[punct.line].words[punct.word].text
+    assert ";" in word and before in word, "the mark changed, the letters kept"
 
     w.tabs.setCurrentWidget(w.spreads)
     app.processEvents()
