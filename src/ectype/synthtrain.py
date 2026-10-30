@@ -97,22 +97,33 @@ def needs(script: str, progress: Callable[[str], None] | None = None) -> tuple[l
     return passages, needed, {c for c in needed if c.isalpha()}
 
 
-def supports(font: FontInfo, needed: set[str], have: set[str] | None = None) -> bool:
-    """Whether the font sets the script's text: nine in ten of its letters or more, and every
-    mark on them (Hebrew's vowel points; without them hardly a line could be set)."""
+FULL, LETTERS = "full", "letters"  # how far a font supports a script
+
+
+def level(font: FontInfo, needed: set[str], have: set[str] | None = None) -> str | None:
+    """How far the font sets the script's text: FULL with nine in ten of its letters or more
+    and every mark on them (Hebrew's vowel points); LETTERS with the letters but not every
+    mark (its lines are set without marks: a typeface also met unpointed); None without."""
     have = covers(font, needed) if have is None else have
     letters = {c for c in needed if c.isalpha()}
     marks = {c for c in needed if unicodedata.category(c) == "Mn"}
-    return len(letters & have) >= 0.9 * len(letters) and marks <= have
+    if len(letters & have) < 0.9 * len(letters):
+        return None
+    return FULL if marks <= have else LETTERS
+
+
+def without_marks(text: str) -> str:
+    return "".join(c for c in text if unicodedata.category(c) != "Mn")
 
 
 def support(fonts: list[FontInfo], scripts: list[str], progress: Callable[[str], None] | None = None,
-            done: Callable[[int, int], None] | None = None) -> dict[str, set[str]]:
-    """For each font (by name), which of the scripts it supports."""
+            done: Callable[[int, int], None] | None = None) -> dict[str, dict[str, str]]:
+    """For each font (by name), the scripts it supports and how far: {script: FULL or LETTERS}."""
     needed = {script: needs(script, progress)[1] for script in scripts}
     out = {}
     for k, font in enumerate(fonts, 1):
-        out[font.name] = {script for script in scripts if supports(font, needed[script])}
+        levels = {script: level(font, needed[script]) for script in scripts}
+        out[font.name] = {script: lv for script, lv in levels.items() if lv}
         if done:
             done(k, len(fonts))
     return out
@@ -221,16 +232,16 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
         usable = []
         for font in fonts:
             have = covers(font, needed)
-            if not supports(font, needed, have):
-                continue  # not a font for this script
-            usable.append((font, have))
-        report["fonts"][script] = [f.name for f, _ in usable]
-        test_fonts = held_out([f for f, _ in usable])
+            lv = level(font, needed, have)
+            if lv:
+                usable.append((font, have, lv))
+        report["fonts"][script] = [f.name + (" (without marks)" if lv == LETTERS else "") for f, _, lv in usable]
+        test_fonts = held_out([f for f, _, _ in usable])
         books = pool.books(lang)
         with pool.Writer(lang) as w:
-            for k, (font, have) in enumerate(usable, 1):
+            for k, (font, have, lv) in enumerate(usable, 1):
                 book = f"font: {font.name}"
-                stamp = _stamp(font, lines_per_font)
+                stamp = _stamp(font, lines_per_font) + ("" if lv == FULL else "-" + lv)
                 if books.get(book, {}).get("stamp") == stamp and w.count(book):
                     say(f"{name}: {font.name} already done")
                     continue
@@ -241,6 +252,8 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                 made, samples = 0, []
                 candidates = lines_from(passages, lines_per_font * 2, rng)
                 for text in candidates:
+                    if lv == LETTERS:
+                        text = without_marks(text)
                     if made >= lines_per_font:
                         break
                     if any(not c.isspace() and c not in have for c in text):

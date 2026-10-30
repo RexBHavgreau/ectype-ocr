@@ -4,6 +4,7 @@ matched scans (pool.py, families.py, models.py, training.py, texts.py, synthtrai
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -155,6 +156,17 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
     # Fonts chosen one by one (Training -> Train from fonts), not a folder: only those.
     chosen = [f for f in synthtrain.fonts_in(fonts) if f.name.startswith("FreeSerif")]
     assert synthtrain.generate(chosen, ["greek"], lines_per_font=12)["fonts"]["greek"] == ["FreeSerif Regular"]
+    # A Hebrew font without the points: its lines set without them.
+    _unpointed(Path(find_font("FreeSerif")), tmp_path / "Plain.ttf", "Plain Hebrew")
+    monkeypatch.setattr(texts, "load", lambda source, progress=None: ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] * 5)
+    plain = synthtrain.fonts_in(tmp_path / "Plain.ttf") or [synthtrain.FontInfo(tmp_path / "Plain.ttf", "Plain Hebrew Regular")]
+    r = synthtrain.generate(plain, ["hebrew"], lines_per_font=12)
+    assert r["fonts"]["hebrew"] == ["Plain Hebrew Regular (without marks)"] and r["added"]["heb"] == 12
+    lines = [i.text for i in pool.items("heb")]
+    assert lines and all(not any(0x05B0 <= ord(c) <= 0x05C7 for c in t) for t in lines), "set without points"
+    monkeypatch.setattr(texts, "load", lambda source, progress=None: [
+        "Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν ὁ λόγος.",
+        "οὗτος ἦν ἐν ἀρχῇ πρὸς τὸν θεόν. πάντα δι’ αὐτοῦ ἐγένετο, καὶ χωρὶς αὐτοῦ ἐγένετο οὐδὲ ἕν ὃ γέγονεν."])
     # A font whose lines were lost is set again, though nothing about it changed.
     book = next(iter(pool.books("grc")))
     for f in (pool.root() / "grc" / pool.slug(book)).iterdir():
@@ -245,6 +257,22 @@ def test_trained_models_window(data):
     gc.collect()
 
 
+def _unpointed(source: Path, dest: Path, family: str) -> None:
+    """A copy of the font without Hebrew's points, under another name."""
+    from fontTools import subset
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(source))
+    keep = [u for u in font.getBestCmap() if not 0x05B0 <= u <= 0x05C7]
+    sub = subset.Subsetter(subset.Options())
+    sub.populate(unicodes=keep)
+    sub.subset(font)
+    for rec in font["name"].names:
+        if rec.nameID in (1, 4, 16):
+            rec.string = family
+    font.save(str(dest))
+
+
 def test_train_from_fonts_window(data, monkeypatch):
     """The fonts of the computer and added folders, each with the chosen languages it supports."""
     import os
@@ -260,6 +288,7 @@ def test_train_from_fonts_window(data, monkeypatch):
         folder.mkdir()
         for name in names:
             shutil.copy(find_font(name), folder)
+    _unpointed(Path(find_font("FreeSerif")), system / "Plain.ttf", "Plain Hebrew")
     monkeypatch.setattr(synthtrain, "system_font_folders", lambda: [system])
     monkeypatch.setattr(texts, "load", lambda source, progress=None: (
         ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] if source == "hebrew-bible"
@@ -274,10 +303,11 @@ def test_train_from_fonts_window(data, monkeypatch):
 
     d = opened()
     rows = {d.table.item(r, 0).text(): [d.table.item(r, c).text() for c in (1, 2)] for r in range(d.table.rowCount())}
-    assert rows == {"FreeSerif Regular": ["✓", "✓"]}, "only fonts with both languages, and each one's support shown"
+    assert rows == {"FreeSerif Regular": ["Full", "Full"], "Plain Hebrew Regular": ["Partial", "Full"]}, \
+        "only fonts with both languages (Hebrew without points too), and how far each supports them"
     d.only_all.setChecked(False)
     rows = {d.table.item(r, 0).text(): [d.table.item(r, c).text() for c in (1, 2)] for r in range(d.table.rowCount())}
-    assert rows["DejaVu Serif Book"] == ["—", "✓"] and rows["FreeSerif Regular"] == ["✓", "✓"]
+    assert rows["DejaVu Serif Book"] == ["—", "Full"] and rows["FreeSerif Regular"] == ["Full", "Full"]
     d.lang_boxes["hebrew"].setChecked(False)
     assert d.table.columnCount() == 3 and d.table.horizontalHeaderItem(1).text() == "Greek"
     d.settings["folders"] = [str(mine)]

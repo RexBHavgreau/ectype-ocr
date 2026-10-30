@@ -1204,7 +1204,11 @@ class IdmlDialog(QDialog):
 
 class FontTrainingDialog(QDialog):
     """Training from fonts: the languages to train, then the fonts to set their known text in
-    (the computer's and any folders added), each with the chosen languages it supports."""
+    (the computer's and any folders added), each with the chosen languages it supports, fully
+    or only partly (the letters without marks such as Hebrew's vowel points)."""
+
+    LEVELS = {"full": "full support", "letters": "the letters, without some marks (for Hebrew, the vowel points); "
+                                                 "its lines are set without them"}
 
     def __init__(self, parent=None):
         from . import synthtrain
@@ -1214,7 +1218,7 @@ class FontTrainingDialog(QDialog):
         self.resize(760, 620)
         self.settings = self._load()
         self.fonts: list = []
-        self.support: dict[str, set[str]] = {}
+        self.support: dict[str, dict[str, str]] = {}
         self.scanner: Task | None = None
         layout = QVBoxLayout(self)
         intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament) in each "
@@ -1255,6 +1259,10 @@ class FontTrainingDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.itemChanged.connect(self._count)
         layout.addWidget(self.table, 1)
+        key = QLabel("Full: every letter and mark.   Partial: the letters, without some marks (for Hebrew, the "
+                     "vowel points); its lines are set without them, as in unpointed books.   —: not supported.")
+        key.setWordWrap(True)
+        layout.addWidget(key)
         self.status = QLabel()
         layout.addWidget(self.status)
         row = QHBoxLayout()
@@ -1383,9 +1391,9 @@ class FontTrainingDialog(QDialog):
         unchosen = set(self.settings.get("unchosen", []))
         want = set(scripts)
         if self.only_all.isChecked():
-            fonts = [f for f in self.fonts if want and want <= self.support.get(f.name, set())]
+            fonts = [f for f in self.fonts if want and want <= set(self.support.get(f.name, {}))]
         else:
-            fonts = [f for f in self.fonts if want & self.support.get(f.name, set())]
+            fonts = [f for f in self.fonts if want & set(self.support.get(f.name, {}))]
         fonts.sort(key=lambda f: f.name.lower())
         self.table.blockSignals(True)
         self.table.clear()
@@ -1400,10 +1408,10 @@ class FontTrainingDialog(QDialog):
             item.setToolTip(str(font.path))
             self.table.setItem(r, 0, item)
             for c, script in enumerate(scripts, 1):
-                has = script in self.support.get(font.name, set())
-                cell = QTableWidgetItem("✓" if has else "—")
+                lv = self.support.get(font.name, {}).get(script)
+                cell = QTableWidgetItem({synthtrain.FULL: "Full", synthtrain.LETTERS: "Partial"}.get(lv, "—"))
                 cell.setTextAlignment(Qt.AlignCenter)
-                cell.setToolTip(f"{synthtrain.SCRIPTS[script][2]}: " + ("supported" if has else "not supported"))
+                cell.setToolTip(f"{synthtrain.SCRIPTS[script][2]}: " + self.LEVELS.get(lv, "not supported"))
                 cell.setFlags(Qt.ItemIsEnabled)
                 self.table.setItem(r, c, cell)
             path = QTableWidgetItem(font.path.name)
