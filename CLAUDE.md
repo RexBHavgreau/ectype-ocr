@@ -66,6 +66,24 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 **0.4.0**: Train from fonts in the app; the updater installs over the existing copy wherever it
 is; the training pool keeps lines set again.
 
+**0.5.1** (in progress):
+- *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
+  keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
+  reading and segmentation are unchanged (`collect`), each letter's grouping and each
+  composite by the fingerprints of the instances in it (`Instance.fingerprint`); results not
+  used in a run are removed. Traced's check pictures (`*.overlay.png`) are saved with fast
+  compression (they took half its time). Erased backgrounds are not kept: about 1 s a book.
+
+## Decisions Beaux made about proposals (so they aren't offered again)
+
+- Rejected: applying one correction everywhere the same misreading occurs ("too much can go
+  wrong").
+- Not for now: showing words dropped as noise as faint boxes in Review to restore them.
+- Not build work, in Beaux's view: lone punctuation left as image, the odd "2" of the
+  Treatise's "12.", the browser Review lacking the app's new tools.
+- An English known text for Train from fonts: only a maybe (corrections already teach plain
+  English; special characters are Transliteration's).
+
 ## Lessons learned (problems and their causes)
 
 - **Tesseract's training tools on Windows** (0.3.1): in the UB Mannheim package,
@@ -212,15 +230,12 @@ is; the training pool keeps lines set again.
 - A stretched box (Review): a word with its first letter left out of its box came out
   "xclamation" with the "e" left in the background; stretched and retyped, "exclamation" with
   nothing left behind.
-- Update after corrections on Young (17 pages), 69 s: segment 2 s (only corrected pages,
-  already), cluster 43 s (collect 16, averaging 21, grouping 12), fonts 4 s, traced 20 s.
+- Update after corrections on Young (17 pages): 69 s in 0.5.0 (segment 2, cluster 43, fonts
+  4, traced 20); about 21 s since (cluster 4-6, traced 11), with identical output.
 
 ## Planned
 
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
-- **Faster "Update after corrections"**: keep per-page cluster instances (collect), composites
-  of clusters whose members are unchanged, groupings of letters whose instances are unchanged,
-  and the erased backgrounds of untouched pages; same output. Expect ~70 s -> 15-20 s on Young.
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
   the Treatise; set some Train-from-fonts lines in each font's italic (English,

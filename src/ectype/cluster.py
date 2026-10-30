@@ -22,8 +22,10 @@ Phase 4) are recorded per cluster pair.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import pickle
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,6 +70,15 @@ class Instance:
     zone: str = ""  # "head" or "foot" for running heads and folios
     slant_unsure: bool = False  # its word's slant fell between upright and italic
     verbatim: bool = False  # its word was read doubtfully: traced from its own ink, not averaged
+    page_xh: float = 0.0  # its page's x-height, for the document's (size classes)
+
+    def fingerprint(self) -> str:
+        """What averaging and grouping see of it: its ink, where it sits, and its text. The same
+        letter on a page read again (another letter on it corrected) has the same fingerprint."""
+        h = hashlib.sha1(self.crop.tobytes())
+        h.update(repr((self.crop.shape, self.crop_origin, round(self.baseline, 3), round(self.centroid_x, 3),
+                       round(self.xh, 3), self.box, self.text, self.italic, self.zone, self.size_class)).encode())
+        return h.hexdigest()
 
 
 @dataclass
@@ -90,8 +101,57 @@ def _size_class(ratio: float) -> float:
     return 1.0 if abs(ratio - 1) < 0.12 else round(round(ratio / 0.1) * 0.1, 1)
 
 
+CACHE_VERSION = 1  # of what the caches hold: kept results made by an older one are made again
+
+
+class Cache:
+    """Results kept between runs (cluster/cache/<kind>/), named by what they were made from: a
+    letter's grouping by its instances' fingerprints, a composite by its members'. "Update
+    after corrections" then remakes only what the corrected words touch. Results not used in
+    a run are removed at its end (`prune`)."""
+
+    def __init__(self, folder: Path):
+        self.folder = Path(folder)
+        self.used: set[Path] = set()
+
+    def key(self, kind: str, members: list[Instance], *params) -> Path:
+        h = hashlib.sha1(repr((CACHE_VERSION, params)).encode())
+        for m in members:
+            if not getattr(m, "_fp", None):
+                m._fp = m.fingerprint()
+            h.update(m._fp.encode())
+        return self.folder / kind / f"{h.hexdigest()}.pkl"
+
+    def get(self, path: Path):
+        self.used.add(path)
+        try:
+            with open(path, "rb") as f:
+                return pickle.load(f)
+        except (OSError, pickle.UnpicklingError, EOFError, ValueError):
+            return None
+
+    def put(self, path: Path, value) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
+        self.used.add(path)
+
+    def prune(self, kinds: tuple[str, ...] = ("group", "average")) -> None:
+        for kind in kinds:
+            for path in (self.folder / kind).glob("*.pkl"):
+                if path not in self.used:
+                    path.unlink(missing_ok=True)
+
+
+def _stamp(*paths: Path) -> str:
+    """The files as they are now (size and time), so a kept result is used only while they stay so."""
+    return ";".join(f"{p.name}:{p.stat().st_size}:{p.stat().st_mtime_ns}" if p.is_file() else f"{p.name}:-" for p in paths)
+
+
 def collect(workspace: Path) -> list[Instance]:
-    """Instances of every glyph unit with ink, across all pages of a workspace."""
+    """Instances of every glyph unit with ink, across all pages of a workspace. A page's are kept
+    (cluster/cache/pages) and taken again while its image, reading and segmentation are
+    unchanged: after a correction only that page is measured again."""
     workspace = Path(workspace)
     instances: list[Instance] = []
     page_data = []
@@ -100,51 +160,84 @@ def collect(workspace: Path) -> list[Instance]:
         ocr_path = workspace / "ocr" / f"{png.stem}.ocr.json"
         if not seg_path.is_file() or not ocr_path.is_file():
             continue
-        seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
-        if not seg.units:
-            continue
         ocr = OcrPage.from_json(json.loads(ocr_path.read_text(encoding="utf-8")))
-        page_data.append((png, seg, ocr))
+        page_data.append((png, seg_path, ocr))
     if not page_data:
         return instances
-    doc_xh = float(np.median([line_x_heights(seg)[1] for _, seg, _ in page_data]))
     zones = running_lines([ocr for _, _, ocr in page_data])
-
-    kernel = np.ones((3, 3), np.uint8)
-    for k, (png, seg, ocr) in enumerate(page_data):
-        gray = np.asarray(Image.open(png).convert("L"))
-        labels = cv2.imread(str(workspace / "segment" / f"{png.stem}.labels.png"), cv2.IMREAD_UNCHANGED).astype(np.int32)
-        paper = float(np.percentile(gray, 90))
-        text = labels > 0
-        ink_level = float(np.percentile(gray[text], 5)) if text.any() else 0.0
-        coverage = np.clip((paper - gray.astype(np.float32)) / max(1.0, paper - ink_level), 0, 1)
-        base = fit_baselines(seg, ocr)
-        xhs, page_xh = line_x_heights(seg)
-        slants = word_slants(seg, labels)
-        italic = word_italics(seg, labels, slants=slants)
-        h, w = gray.shape
-        for u in seg.units:
-            if not u.box or not u.components:
-                continue
-            x0, y0, x1, y1 = u.box
-            xa, ya, xb, yb = max(0, x0 - 3), max(0, y0 - 3), min(w, x1 + 3), min(h, y1 + 3)
-            mask = cv2.dilate(np.isin(labels[ya:yb, xa:xb], u.components).astype(np.uint8), kernel, iterations=2)
-            crop = coverage[ya:yb, xa:xb] * mask
-            total = float(crop.sum())
-            if total <= 0:
-                continue
-            cx = xa + float((crop.sum(axis=0) * np.arange(crop.shape[1])).sum()) / total + 0.5
-            a, b = base.get(u.line, (y1, 0.0))
-            xh = xhs.get(u.line, page_xh)
-            instances.append(Instance(
-                page=png.stem, unit=u.id, text=u.text, line=u.line, word=u.word, box=list(u.box),
-                baseline=a + b * cx, centroid_x=cx, xh=xh, size_class=_size_class(xh / doc_xh),
-                italic=italic.get((u.line, u.word), False), conf=u.conf, crop=crop.astype(np.float32), crop_origin=(xa, ya),
-                zone=zones[k].get(u.line, ""),
-                slant_unsure=SLANT_UNSURE[0] <= (slants.get((u.line, u.word)) or 0.0) < SLANT_UNSURE[1],
-                verbatim=ocr.lines[u.line].words[u.word].conf < VERBATIM_CONF,
-            ))
+    cache = workspace / "cluster" / "cache" / "pages"
+    cache.mkdir(parents=True, exist_ok=True)
+    per_page = []
+    for k, (png, seg_path, ocr) in enumerate(page_data):
+        labels_path = workspace / "segment" / f"{png.stem}.labels.png"
+        stamp = f"{CACHE_VERSION};" + _stamp(png, seg_path, labels_path, workspace / "ocr" / f"{png.stem}.ocr.json")
+        kept = cache / f"{png.stem}.pkl"
+        found = None
+        if kept.is_file():
+            try:
+                with open(kept, "rb") as f:
+                    data = pickle.load(f)
+                if data.get("stamp") == stamp:
+                    found = data["instances"]
+            except Exception:
+                found = None
+        if found is None:
+            found = _page_instances(png, seg_path, labels_path, ocr)
+            with open(kept, "wb") as f:
+                pickle.dump({"stamp": stamp, "instances": found}, f, protocol=pickle.HIGHEST_PROTOCOL)
+        if found:
+            per_page.append((k, found))
+    if not per_page:
+        return instances
+    doc_xh = float(np.median([found[0].page_xh for _, found in per_page]))
+    for k, found in per_page:
+        for inst in found:
+            inst.size_class = _size_class(inst.xh / doc_xh)
+            inst.zone = zones[k].get(inst.line, "")
+            instances.append(inst)
     refine_italics(instances)
+    return instances
+
+
+def _page_instances(png: Path, seg_path: Path, labels_path: Path, ocr: OcrPage) -> list[Instance]:
+    """One page's glyph instances, measured from its image (size classes and zones, which
+    depend on the whole book, are set by `collect`)."""
+    seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
+    if not seg.units:
+        return []
+    instances: list[Instance] = []
+    kernel = np.ones((3, 3), np.uint8)
+    gray = np.asarray(Image.open(png).convert("L"))
+    labels = cv2.imread(str(labels_path), cv2.IMREAD_UNCHANGED).astype(np.int32)
+    paper = float(np.percentile(gray, 90))
+    text = labels > 0
+    ink_level = float(np.percentile(gray[text], 5)) if text.any() else 0.0
+    coverage = np.clip((paper - gray.astype(np.float32)) / max(1.0, paper - ink_level), 0, 1)
+    base = fit_baselines(seg, ocr)
+    xhs, page_xh = line_x_heights(seg)
+    slants = word_slants(seg, labels)
+    italic = word_italics(seg, labels, slants=slants)
+    h, w = gray.shape
+    for u in seg.units:
+        if not u.box or not u.components:
+            continue
+        x0, y0, x1, y1 = u.box
+        xa, ya, xb, yb = max(0, x0 - 3), max(0, y0 - 3), min(w, x1 + 3), min(h, y1 + 3)
+        mask = cv2.dilate(np.isin(labels[ya:yb, xa:xb], u.components).astype(np.uint8), kernel, iterations=2)
+        crop = coverage[ya:yb, xa:xb] * mask
+        total = float(crop.sum())
+        if total <= 0:
+            continue
+        cx = xa + float((crop.sum(axis=0) * np.arange(crop.shape[1])).sum()) / total + 0.5
+        a, b = base.get(u.line, (y1, 0.0))
+        xh = xhs.get(u.line, page_xh)
+        instances.append(Instance(
+            page=png.stem, unit=u.id, text=u.text, line=u.line, word=u.word, box=list(u.box),
+            baseline=a + b * cx, centroid_x=cx, xh=xh, size_class=1.0,
+            italic=italic.get((u.line, u.word), False), conf=u.conf, crop=crop.astype(np.float32), crop_origin=(xa, ya),
+            slant_unsure=SLANT_UNSURE[0] <= (slants.get((u.line, u.word)) or 0.0) < SLANT_UNSURE[1],
+            verbatim=ocr.lines[u.line].words[u.word].conf < VERBATIM_CONF, page_xh=page_xh,
+        ))
     return instances
 
 
@@ -252,10 +345,10 @@ def _feature(inst: Instance, half_width: float) -> np.ndarray:
 
 
 def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_size: int = 3,
-                      max_linkage: int = 3000, seed: int = 0) -> dict[tuple, list[list[int]]]:
+                      max_linkage: int = 3000, seed: int = 0, cache: "Cache | None" = None) -> dict[tuple, list[list[int]]]:
     """Group instances by (text, size class, slant, zone), then by shape. Returns the groups as lists of
-    indices into `instances` and sets each instance's `cluster`."""
-    rng = np.random.default_rng(seed)
+    indices into `instances` and sets each instance's `cluster`. With a cache, a letter whose
+    instances are all as before keeps its grouping (`Cache`)."""
     by_key: dict[tuple, list[int]] = defaultdict(list)
     verbatim = []
     for i, inst in enumerate(instances):
@@ -266,36 +359,12 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
     groups: dict[tuple, list[list[int]]] = {}
     next_id = 0
     for key, idx in sorted(by_key.items(), key=lambda kv: (ZONES.index(kv[0][3]), kv[0][1], kv[0][2], kv[0][0])):
-        widths = [(instances[i].box[2] - instances[i].box[0]) / instances[i].xh for i in idx]
-        half = float(np.percentile(widths, 95)) / 2 + 0.25
-        feats = np.stack([_feature(instances[i], half) for i in idx])
-        if len(idx) == 1:
-            labels = np.array([1])
-        else:
-            sample = np.arange(len(idx)) if len(idx) <= max_linkage else rng.choice(len(idx), max_linkage, replace=False)
-            # A feature with no variance (ink off the canvas) has no correlation: treat as far.
-            d = np.nan_to_num(pdist(feats[sample], metric="correlation"), nan=1.0, posinf=1.0)
-            z = linkage(d, method="average")
-            sample_labels = fcluster(z, t=threshold, criterion="distance")
-            labels = np.zeros(len(idx), int)
-            labels[sample] = sample_labels
-            if len(sample) < len(idx):
-                cents = {c: feats[sample][sample_labels == c].mean(axis=0) for c in np.unique(sample_labels)}
-                rest = np.setdiff1d(np.arange(len(idx)), sample)
-                for r in rest:
-                    labels[r] = min(cents, key=lambda c: _corr_dist(feats[r], cents[c]))
-        # Small groups join the nearest large group if close enough; otherwise stay rare.
-        members = {c: np.nonzero(labels == c)[0] for c in np.unique(labels)}
-        big = {c: m for c, m in members.items() if len(m) >= min_size}
-        if big:
-            cents = {c: feats[m].mean(axis=0) for c, m in big.items()}
-            for c, m in members.items():
-                if c in big:
-                    continue
-                cent = feats[m].mean(axis=0)
-                best = min(cents, key=lambda k: _corr_dist(cent, cents[k]))
-                if _corr_dist(cent, cents[best]) < 1.6 * threshold:
-                    labels[m] = best
+        name = cache.key("group", [instances[i] for i in idx], threshold, min_size, max_linkage, seed) if cache else None
+        labels = cache.get(name) if cache else None
+        if labels is None:
+            labels = _group_labels(instances, idx, threshold, min_size, max_linkage, seed)
+            if cache:
+                cache.put(name, labels)
         out = []
         for c in sorted(np.unique(labels), key=lambda c: -(labels == c).sum()):
             members_idx = [idx[k] for k in np.nonzero(labels == c)[0]]
@@ -312,6 +381,43 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
         groups.setdefault((inst.text, inst.size_class, inst.italic, inst.zone), []).append([i])
         next_id += 1
     return groups
+
+
+def _group_labels(instances: list[Instance], idx: list[int], threshold: float, min_size: int, max_linkage: int,
+                  seed: int) -> np.ndarray:
+    """One letter's instances grouped by shape: a label for each."""
+    rng = np.random.default_rng(seed)
+    widths = [(instances[i].box[2] - instances[i].box[0]) / instances[i].xh for i in idx]
+    half = float(np.percentile(widths, 95)) / 2 + 0.25
+    feats = np.stack([_feature(instances[i], half) for i in idx])
+    if len(idx) == 1:
+        labels = np.array([1])
+    else:
+        sample = np.arange(len(idx)) if len(idx) <= max_linkage else rng.choice(len(idx), max_linkage, replace=False)
+        # A feature with no variance (ink off the canvas) has no correlation: treat as far.
+        d = np.nan_to_num(pdist(feats[sample], metric="correlation"), nan=1.0, posinf=1.0)
+        z = linkage(d, method="average")
+        sample_labels = fcluster(z, t=threshold, criterion="distance")
+        labels = np.zeros(len(idx), int)
+        labels[sample] = sample_labels
+        if len(sample) < len(idx):
+            cents = {c: feats[sample][sample_labels == c].mean(axis=0) for c in np.unique(sample_labels)}
+            rest = np.setdiff1d(np.arange(len(idx)), sample)
+            for r in rest:
+                labels[r] = min(cents, key=lambda c: _corr_dist(feats[r], cents[c]))
+    # Small groups join the nearest large group if close enough; otherwise stay rare.
+    members = {c: np.nonzero(labels == c)[0] for c in np.unique(labels)}
+    big = {c: m for c, m in members.items() if len(m) >= min_size}
+    if big:
+        cents = {c: feats[m].mean(axis=0) for c, m in big.items()}
+        for c, m in members.items():
+            if c in big:
+                continue
+            cent = feats[m].mean(axis=0)
+            best = min(cents, key=lambda k: _corr_dist(cent, cents[k]))
+            if _corr_dist(cent, cents[best]) < 1.6 * threshold:
+                labels[m] = best
+    return labels
 
 
 def _corr_dist(a: np.ndarray, b: np.ndarray) -> float:
@@ -557,7 +663,8 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
     comp_dir = out / "composites"
     comp_dir.mkdir(parents=True, exist_ok=True)
     instances = collect(workspace)
-    groups = cluster_instances(instances, threshold=threshold)
+    cache = Cache(out / "cache")
+    groups = cluster_instances(instances, threshold=threshold, cache=cache)
     style_of = assign_styles(instances)
     by_cluster: dict[int, list[Instance]] = defaultdict(list)
     for inst in instances:
@@ -569,7 +676,12 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
         for members_idx in clusters:
             cid = instances[members_idx[0]].cluster
             members = by_cluster[cid]
-            composite, canvas = average(members)
+            name = cache.key("average", members)
+            kept = cache.get(name)
+            if kept is None:
+                kept = average(members)
+                cache.put(name, kept)
+            composite, canvas = kept
             feats[cid] = composite_feature(composite, canvas)
             name = f"g{cid:05d}.png"
             Image.fromarray((255 - composite * 255).astype(np.uint8)).save(comp_dir / name)
@@ -597,6 +709,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
     }
     report.write_json(out / "clusters.json", summary)
     _write_sheets(summary, out)
+    cache.prune()
     return summary
 
 

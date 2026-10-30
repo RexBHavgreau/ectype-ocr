@@ -289,7 +289,7 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
         view = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
         text_ink = binarize(rendered)
         view[text_ink] = (0.4 * view[text_ink] + 0.6 * np.array([220, 40, 40])).astype(np.uint8)
-        Image.fromarray(view).save(out / f"{name}.overlay.png")
+        Image.fromarray(view).save(out / f"{name}.overlay.png", compress_level=1)  # a check picture: fast, not small
 
     measured = [r["overlay"] for r in rows if r.get("overlay") and r["overlay"]["left"]]
     summary = {
