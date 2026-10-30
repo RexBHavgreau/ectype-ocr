@@ -14,6 +14,7 @@ Unicode string plus its component ids, which later stages cluster and trace.
 from __future__ import annotations
 
 import difflib
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -28,7 +29,10 @@ from .preprocess import binarize
 from .scripts import is_rtl
 
 X_LETTERS = set("acemnorsuvwxz")
-NO_DESCENDER = set("abcdefhiklmnorstuvwxzABCDEFGHIKLMNOPRSTUVWXYZ0123456789!?%&")
+# Old-style figures (Driver's Treatise) hang 3, 4, 5, 7 and 9 below the line; 0, 1, 2, 6 and 8
+# sit on it in either style.
+NO_DESCENDER = set("abcdefhiklmnorstuvwxzABCDEFGHIKLMNOPRSTUVWXYZ01268!?%&")
+MAX_SLOPE_GAP = 0.01  # a fitted slope this far from Tesseract's line slope is not trusted
 
 
 @dataclass
@@ -138,9 +142,15 @@ def segment_page(gray: np.ndarray, ocr: OcrPage) -> tuple[Segmentation, np.ndarr
         # them in visual order and mapped back to their places in the text.
         order = sorted(range(len(chars)), key=lambda i: chars[i].box[0]) if is_rtl(word.text) else list(range(len(chars)))
         visual = [chars[i] for i in order]
+        # Marks floating above the letters (an italic i's dot leaning over the next letter) are
+        # set aside, so they aren't taken for letters, then given to the letters that carry one.
+        clusters, floating = _float_marks(clusters, visual, stats, line.x_size or x_size)
         expected = [widths.get(c.text, fallback) for c in visual]
         groups, skipped = _align(visual, clusters, line.x_size or x_size, speck, expected)
+        skipped = skipped + list(range(len(clusters), len(clusters) + len(floating)))
+        clusters = clusters + floating
         groups = _join_dotless(groups, visual, clusters, stats)
+        groups, skipped = _join_marks(groups, skipped, visual, clusters, stats, line.x_size or x_size)
         groups = [(sorted(order[i] for i in idx), cl) for idx, cl in groups]
         for j in skipped:
             for c in clusters[j]["components"]:
@@ -254,6 +264,128 @@ def _join_dotless(groups, chars, clusters: list[dict], stats: np.ndarray):
     return out
 
 
+RAISED = set("'\"‘’“”‚„`´^ʹʺʻʼʽʾʿˈ¹²³⁴⁵⁶⁷⁸⁹⁰ᵃᵇᶜᵈᵉᶠ*†‡")
+
+
+def _float_marks(clusters: list[dict], chars, stats: np.ndarray, x_size: float):
+    """The word's clusters without the small ones floating wholly above its letters' tops, and
+    those set aside: at most one for each letter that carries a mark (i, j, é...), and none in a
+    word with raised characters of its own (quotes, apostrophes, ʾ ʿ, superscripts), which also
+    float above the letters and must stay theirs."""
+    text = "".join(c.text for c in chars)
+    wanting = sum(_wants_mark(c.text) for c in chars)
+    if not wanting or any(c in RAISED or unicodedata.category(c) == "Lm" for c in text) or len(clusters) < 3:
+        return clusters, []
+
+    def box(cl):
+        cs = cl["components"]
+        return (min(stats[c][1] for c in cs), max(stats[c][1] + stats[c][3] for c in cs))
+
+    tops = sorted(box(cl)[0] for cl in clusters)
+    letter_top = tops[len(tops) // 2]  # most letters reach the x-height
+    areas = sorted(cl["area"] for cl in clusters)
+    typical = areas[len(areas) // 2]
+    floating = [k for k, cl in enumerate(clusters)
+                if box(cl)[1] <= letter_top + 0.1 * x_size and cl["area"] < 0.25 * typical]
+    floating = floating[:wanting]
+    return [cl for k, cl in enumerate(clusters) if k not in floating], [clusters[k] for k in floating]
+
+
+def _gap(x: float, span) -> float:
+    """How far x lies outside the span (x0, x1); 0 inside it."""
+    return 0.0 if span[0] <= x <= span[1] else min(abs(x - span[0]), abs(x - span[1]))
+
+
+def _wants_mark(text: str) -> bool:
+    """A letter drawn with a separate mark: i, j, or one with an accent (ä, é, ḥ, ō...)."""
+    return any(c in "ij" or len(unicodedata.normalize("NFD", c)) > 1 for c in text if c.isalpha())
+
+
+def _join_marks(groups, skipped: list[int], chars, clusters: list[dict], stats: np.ndarray, x_size: float):
+    """A small piece the alignment left out, above or below the letters, joins the nearest letter
+    that carries a mark, within half an x-height of it; one beside a letter, within its height
+    and almost touching it (a broken-off arm), joins that letter. The dot of an italic i leans right, over
+    the gap before the next letter, so `_clusters` (which wants it over a stem) leaves it alone;
+    left out, it was lost from the traced type (Driver's Treatise: "ıs sellıng", "I gıve").
+    Returns the groups and the clusters still left out."""
+    def extent(cls):
+        cs = [c for k in cls for c in clusters[k]["components"]]
+        return (min(stats[c][0] for c in cs), min(stats[c][1] for c in cs),
+                max(stats[c][0] + stats[c][2] for c in cs), max(stats[c][1] + stats[c][3] for c in cs))
+
+    def extent_of(cls):
+        x0, _, x1, _ = extent(cls)
+        return x0, x1
+
+    groups = list(groups)
+    # A mark joined to a letter that has none (an italic i's dot leaning over the m of "imp"):
+    # taken off it as a cluster of its own, for the nearest i or j without one below.
+    def bare(idx, cls):
+        if not cls:
+            return False
+        cs = [c for k in cls for c in clusters[k]["components"]]
+        top = min(stats[c][1] for c in cs)
+        main = max(cs, key=lambda c: stats[c][4])
+        return top >= stats[main][1] - 2  # nothing above its body
+    # Latin only: in Hebrew or Greek, points and breathings the reading left out are no clue.
+    wanting = [g for g, (idx, cls) in enumerate(groups)
+               if any(chars[i].text in "ij" for i in idx) and bare(idx, cls)]
+    if wanting:
+        for g, (idx, cls) in enumerate(groups):
+            text = "".join(chars[i].text for i in idx)
+            if not cls or _wants_mark(text) or not all("LATIN" in unicodedata.name(c, "") for c in text):
+                continue
+            for k in cls:
+                comps = clusters[k]["components"]
+                if len(comps) < 2:
+                    continue
+                main = max(comps, key=lambda c: stats[c][4])
+                for c in list(comps):
+                    x, y, w, h, area = stats[c]
+                    if c == main or area > 0.4 * stats[main][4] or y + h > stats[main][1] + 0.2 * stats[main][3]:
+                        continue  # not a small piece above the letter's body
+                    cx = x + w / 2
+                    near = min(wanting, key=lambda t: _gap(cx, extent_of(groups[t][1])))
+                    if _gap(cx, extent_of(groups[near][1])) > 0.5 * x_size:
+                        continue
+                    comps.remove(c)
+                    clusters.append({"components": [int(c)], "area": int(area), "x0": int(x), "x1": int(x + w)})
+                    skipped = skipped + [len(clusters) - 1]
+    left = []
+    for j in skipped:
+        x0, y0, x1, y1 = extent([j])
+        cx = (x0 + x1) / 2
+        best, best_d = None, 0.5 * x_size
+        for g, (idx, cls) in enumerate(groups):
+            if not cls or not _wants_mark("".join(chars[i].text for i in idx)):
+                continue
+            if clusters[j]["area"] > 0.4 * sum(clusters[k]["area"] for k in cls):
+                continue  # not a mark: as much ink as a letter
+            gx0, gy0, gx1, gy1 = extent(cls)
+            h = gy1 - gy0
+            if not (y1 <= gy0 + 0.2 * h or y0 >= gy1 - 0.2 * h):
+                continue  # beside the letter, not above or below it
+            d = _gap(cx, (gx0, gx1))
+            if d <= best_d:
+                best, best_d = g, d
+        if best is None:
+            # A piece broken off a letter, beside it (the right arm of a v): joins the letter
+            # it almost touches, when it stands within the letters' height.
+            for g, (idx, cls) in enumerate(groups):
+                if not cls or clusters[j]["area"] > 0.5 * sum(clusters[k]["area"] for k in cls):
+                    continue
+                gx0, gy0, gx1, gy1 = extent(cls)
+                near = max(gx0 - x1, x0 - gx1) <= 0.12 * x_size
+                if near and y0 >= gy0 - 2 and y1 <= gy1 + 2 and (best is None or _gap(cx, (gx0, gx1)) < best_d):
+                    best, best_d = g, _gap(cx, (gx0, gx1))
+        if best is None:
+            left.append(j)
+        else:
+            idx, cls = groups[best]
+            groups[best] = (idx, sorted(cls + [j]))
+    return groups, left
+
+
 ALIGN = {"merge": 1.2, "split": 0.8, "noink": 2.0, "skip": 1.5, "edge": 0.25, "cap": 0.5, "place": 0.3}
 
 
@@ -331,7 +463,9 @@ def _component_info(c: int, stats: np.ndarray, reason: str) -> dict:
 
 def fit_baselines(seg: Segmentation, ocr: OcrPage) -> dict[int, tuple[float, float]]:
     """Per line, a baseline y = a + b * x fitted to the bottoms of letters without
-    descenders (outliers dropped); Tesseract's baseline where there are too few."""
+    descenders (outliers dropped); Tesseract's baseline where there are too few. A fitted
+    slope far from Tesseract's (the letters bunched at one end of the line: a footnote line
+    mostly Greek) keeps Tesseract's slope, through the letters' median."""
     by_line: dict[int, list] = {}
     for u in seg.units:
         if u.box:
@@ -349,6 +483,9 @@ def fit_baselines(seg: Segmentation, ocr: OcrPage) -> dict[int, tuple[float, flo
                 if keep.sum() < 3 or keep.all():
                     break
                 xs, ys = xs[keep], ys[keep]
+            slope = line.baseline[0]
+            if abs(b - slope) > MAX_SLOPE_GAP:
+                b, a = slope, float(np.median(ys - slope * xs))
             base[li] = (float(a), float(b))
         else:
             slope, offset = line.baseline

@@ -193,13 +193,19 @@ def _join_words(words):
 def suggest(unread: dict[str, int], chosen: list[str], pages: list[dict[str, int]] | None = None,
             min_words: int = 3, min_on_a_page: int = 3) -> list[str]:
     """Languages to add for scripts none of the chosen covers, found in at least min_words words,
-    with min_on_a_page of them on one page (real text in another script comes in clusters; the
-    detector's occasional wrong guess on a smudged word doesn't)."""
+    with min_on_a_page of them on a page (real text in another script comes in clusters; the
+    detector's occasional wrong guess on a smudged word doesn't), and on more than one such page
+    in a longer book: one page in 20, two at least and three at most. (Driver's Treatise, 26
+    pages of English, Greek and pointed Hebrew, had wrong guesses of Devanagari and Arabic
+    scattered over it, three on one page.)"""
+    import math
+
     covered = {script_of(lang) for lang in chosen}
+    need = 1 if not pages or len(pages) < 2 else min(3, max(2, math.ceil(len(pages) / 20)))
     out = []
     for script, n in sorted(unread.items(), key=lambda kv: -kv[1]):
         lang = SUGGEST.get(script) or ("eng" if script == "Latin" else None)
-        clustered = pages is None or any(p.get(script, 0) >= min_on_a_page for p in pages)
+        clustered = pages is None or sum(p.get(script, 0) >= min_on_a_page for p in pages) >= need
         if lang and n >= min_words and clustered and script not in covered and lang not in out:
             out.append(lang)
     return out

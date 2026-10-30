@@ -27,6 +27,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Install for everyone (asks for administrator) or just for this user.
 PrivilegesRequiredOverridesAllowed=dialog
+; The Ectype icon: the installer's own, and the uninstall entry's (the app's exe carries it).
+SetupIconFile=..\assets\ectype-icon\ectype.ico
 UninstallDisplayIcon={app}\{#AppName}.exe
 ChangesEnvironment=yes
 
@@ -40,7 +42,7 @@ Source: "Train Hebrew and Greek.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppName}.exe"
-Name: "{group}\Train Hebrew and Greek"; Filename: "{app}\Train Hebrew and Greek.bat"; WorkingDir: "{app}"
+Name: "{group}\Train Hebrew and Greek"; Filename: "{app}\Train Hebrew and Greek.bat"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppName}.exe"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppName}.exe"; Tasks: desktopicon
 

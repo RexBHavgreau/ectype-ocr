@@ -4,6 +4,7 @@ matched scans (pool.py, families.py, models.py, training.py, texts.py, synthtrai
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -144,7 +145,7 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
         shutil.copy(find_font(name), fonts)
     (fonts / "copy").mkdir()
     shutil.copy(find_font("FreeSerif"), fonts / "copy")  # the same font twice counts once
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: [
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: [
         "Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν ὁ λόγος.",
         "οὗτος ἦν ἐν ἀρχῇ πρὸς τὸν θεόν. πάντα δι’ αὐτοῦ ἐγένετο, καὶ χωρὶς αὐτοῦ ἐγένετο οὐδὲ ἕν ὃ γέγονεν."])
     r = synthtrain.generate(fonts, ["greek"], lines_per_font=12)
@@ -158,13 +159,13 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
     assert synthtrain.generate(chosen, ["greek"], lines_per_font=12)["fonts"]["greek"] == ["FreeSerif Regular"]
     # A Hebrew font without the points: its lines set without them.
     _unpointed(Path(find_font("FreeSerif")), tmp_path / "Plain.ttf", "Plain Hebrew")
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] * 5)
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] * 5)
     plain = synthtrain.fonts_in(tmp_path / "Plain.ttf") or [synthtrain.FontInfo(tmp_path / "Plain.ttf", "Plain Hebrew Regular")]
     r = synthtrain.generate(plain, ["hebrew"], lines_per_font=12)
     assert r["fonts"]["hebrew"] == ["Plain Hebrew Regular (without marks)"] and r["added"]["heb"] == 12
     lines = [i.text for i in pool.items("heb")]
     assert lines and all(not any(0x05B0 <= ord(c) <= 0x05C7 for c in t) for t in lines), "set without points"
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: [
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: [
         "Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν ὁ λόγος.",
         "οὗτος ἦν ἐν ἀρχῇ πρὸς τὸν θεόν. πάντα δι’ αὐτοῦ ἐγένετο, καὶ χωρὶς αὐτοῦ ἐγένετο οὐδὲ ἕν ὃ γέγονεν."])
     # A font whose lines were lost is set again, though nothing about it changed.
@@ -181,6 +182,138 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
     synthtrain.generate(fonts, ["greek"], lines_per_font=12)
     with pool.Writer("grc") as w:
         assert all(w.count(b) == 12 for b in pool.books("grc"))
+
+
+def test_transliteration_text():
+    """Hebrew in SBL academic style, and English lines with transliterated words of each kind."""
+    from ectype import translit
+
+    assert translit.hebrew("בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ") == \
+        "bərēʾšîṯ bārāʾ ʾĕlōhîm ʾēṯ haššāmayim wəʾēṯ hāʾāreṣ"
+    assert translit.hebrew("וְרוּחַ יְהוָה עַל־פְּנֵי תּוֹרָה מֶלֶךְ יִשְׂרָאֵל") == "wərûaḥ YHWH ʿal-pənê tôrâ meleḵ yiśrāʾēl"
+    assert translit.hebrew("קְטַל", older=True) == "ḳᵉṭal"
+    assert translit.hebrew("וּמִשְׁפָּטִים") == "ûmišpāṭîm"
+    lines = translit.passages(["בְּרֵאשִׁית בָּרָא אֱלֹהִים"], count=400)
+    assert lines == translit.passages(["בְּרֵאשִׁית בָּרָא אֱלֹהִים"], count=400), "the same each time"
+    chars = set("".join(lines))
+    for c in "ʾʿḥšēāəḫẓʃŋɛːüçøčō":
+        assert c in chars, c
+    assert all(any(w in translit.ENGLISH for w in line.lower().split()) for line in lines), "English around them"
+
+
+def test_transliteration_lines_set_in_fonts(data, tmp_path, monkeypatch):
+    """Lines set for English in fonts with the letters; a font with only some sets the lines it can."""
+    from fontTools import subset
+    from fontTools.ttLib import TTFont
+
+    from ectype import synthtrain, translit
+    from ectype.train import _foreign
+
+    lines = translit.passages(["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"], count=300)
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: lines)
+    full = synthtrain.FontInfo(Path(_font("DejaVu Serif")), "DejaVu Serif")
+    # A font with a-z and the European accents, but no ḥ, ʾ, ə or IPA.
+    font = TTFont(_font("DejaVu Serif"))
+    keep = [u for u in font.getBestCmap() if u < 0x250]
+    sub = subset.Subsetter(subset.Options())
+    sub.populate(unicodes=keep)
+    sub.subset(font)
+    font.save(str(tmp_path / "Plain.ttf"))
+    plain = synthtrain.FontInfo(tmp_path / "Plain.ttf", "Plain Latin")
+    _, needed, _ = synthtrain.needs("transliteration")
+    assert synthtrain.level(full, needed, script="transliteration") == synthtrain.FULL
+    assert synthtrain.level(plain, needed, script="transliteration") is None, "too few of the letters"
+    r = synthtrain.generate([full], ["transliteration"], lines_per_font=12)
+    assert r["fonts"]["transliteration"] == ["DejaVu Serif"] and r["added"]["eng"] == 12
+    got = [i.text for i in pool.items("eng")]
+    assert any(c in "".join(got) for c in "ʾʿḥšəʃ")
+    assert not any(_foreign(c, "Latin") for t in got for c in t), "nothing left out of English training"
+    assert _foreign("α", "Latin") and _foreign("א", "Latin")
+
+
+def test_hebrew_lines_with_accents_or_as_grammars_print_it():
+    """The Codex's accents kept, or as grammars print Hebrew: ֫ over a stress before the last
+    syllable (Driver's Treatise), none over a last-syllable stress."""
+    import random
+
+    from ectype import synthtrain
+
+    verse = "וַיֹּ֥אמֶר אֱלֹהִ֖ים יְהִ֣י א֑וֹר וַֽיְהִי־אֽוֹר׃"
+    assert texts.grammar_style(verse) == "וַיֹּ֫אמֶר אֱלֹהִים יְהִי אוֹר וַיְהִי־אוֹר׃"
+    assert texts.grammar_style("הַשָּׁמַ֖יִם וְר֣וּחַ הָאָֽרֶץ׃") == "הַשָּׁמַ֫יִם וְרוּחַ הָאָ֫רֶץ׃"
+    assert texts.grammar_style("תֹ֙הוּ֙") == "תֹ֫הוּ", "a pashta written twice: the first marks the stress"
+    rng = random.Random(1)
+    every = {chr(c) for c in range(0x0590, 0x05FF)}
+    forms = {synthtrain.hebrew_form(verse, rng, every) for _ in range(60)}
+    assert verse in forms and texts.without_accents(verse) in forms and texts.grammar_style(verse) in forms
+    bare = every - synthtrain.ACCENT_MARKS - {texts.STRESS}  # a font without the accents: points only
+    assert {synthtrain.hebrew_form(verse, rng, bare) for _ in range(20)} == {texts.without_accents(verse)}
+
+
+def test_latin_from_the_vulgate(data, monkeypatch):
+    """The Vulgate's verses (one file of tab-separated columns) set in a font train Latin."""
+    from ectype import synthtrain
+    from ectype.synth import find_font
+
+    tsv = ("Genesis\tGen\t1\t1\t1\tIn principio creavit Deus caelum et terram.\n"
+           "Genesis\tGen\t1\t1\t2\tTerra autem erat inanis et vacua, et tenebrae erant super faciem abyssi :  et "
+           "spiritus Dei ferebatur super aquas.\n")
+    verses = texts._vulgate(tsv)
+    assert verses[0] == "In principio creavit Deus caelum et terram." and "abyssi : et" in verses[1]
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: verses * 3)
+    font = synthtrain.FontInfo(Path(_font("DejaVu Serif")), "DejaVu Serif")
+    r = synthtrain.generate([font], ["latin"], lines_per_font=8)
+    assert r["fonts"]["latin"] == ["DejaVu Serif"] and r["added"]["lat"] == 8
+    assert synthtrain.with_ligatures("super faciem terrae et aquae aer") == "super faciem terræ et aquæ aer"
+
+
+def test_syriac_from_the_peshitta(data, monkeypatch):
+    """The ETCBC's plain Peshitta (chapters, numbered verses wrapped over lines) set right to
+    left, its letters joined, trains Syriac."""
+    from ectype import synthtrain
+
+    book = ("Chapter 1\n\n1 ܒܪܫܝܬ ܒܪܐ ܐܠܗܐ. ܝܬ ܫܡܝܐ ܘܝܬ ܐܪܥܐ.\n"
+            "2 ܐܪܥܐ ܗܘܬ ܬܘܗ ܘܒܘܗ̇. ܘܚܫܘܟܐ ܥܠ ܐ̈ܦܝ ܬܗܘܡܐ. ܘܪܘܚܗ ܕܐܠܗܐ ܡܪܚܦܐ ܥܠ ܐ̈ܦܝ\nܡ̈ܝܐ.\n")
+    verses = texts._peshitta_book(book)
+    assert len(verses) == 2 and verses[1].endswith("ܐ̈ܦܝ ܡ̈ܝܐ.")
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: verses * 4)
+    font = synthtrain.FontInfo(Path(_font("FreeSans")), "FreeSans")
+    r = synthtrain.generate([font], ["syriac"], lines_per_font=6)
+    assert r["fonts"]["syriac"] == ["FreeSans"] and r["added"]["syr"] == 6
+
+
+def test_arabic_from_the_quran_and_the_van_dyck_bible(data, monkeypatch):
+    """Tanzil's text (sura|aya|text) and eBible.org's VPL zip, their verses taken in turn, set
+    right to left with their letters joined; a text that can't be downloaded doesn't stop the
+    other scripts."""
+    import io
+    import zipfile
+
+    from ectype import synthtrain
+
+    quran = texts._quran("1|1|بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n1|2|الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ\n\n# Tanzil Quran Text\n")
+    assert quran == ["بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ", "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("arb-vd_vpl.txt", "\ufeffGEN 1:1 في البدء خلق الله السموات والارض.\nGEN 1:2 وكانت الارض خربة وخالية\n")
+    bible = texts._van_dyck(buf.getvalue())
+    assert bible == ["في البدء خلق الله السموات والارض.", "وكانت الارض خربة وخالية"]
+    monkeypatch.setattr(texts, "_cached", lambda source, say: quran if source == "quran" else bible)
+    assert texts._arabic(print) == [quran[0], bible[0], quran[1], bible[1]]
+
+    def broken(source, progress=None, accents=False):
+        if source == "arabic":
+            raise RuntimeError("no connection")
+        return quran * 4
+
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: (quran + bible) * 3)
+    font = synthtrain.FontInfo(Path(_font("DejaVu Sans")), "DejaVu Sans")
+    r = synthtrain.generate([font], ["arabic"], lines_per_font=6)
+    assert r["added"]["ara"] == 6
+    monkeypatch.setattr(texts, "load", broken)
+    assert "arabic" not in synthtrain.support([font], ["arabic", "syriac"]).get("DejaVu Sans", {})
+    r = synthtrain.generate([font], ["arabic"], lines_per_font=6)
+    assert "couldn't be downloaded" in r["skipped"]["Arabic"]
 
 
 def test_training_settings_file(tmp_path):
@@ -222,6 +355,76 @@ def test_training_a_language_from_its_pool(data, tmp_path):
         reg = models.registry()["eng"]
         assert set(reg["general"]["books"]) == {"Young", "Warfield"}
     assert json.dumps(r["lines"])
+
+
+def test_quick_update_adds_new_corrections_to_the_model_in_use(data, tmp_path, monkeypatch):
+    """A couple dozen corrections more: the model in use trained further on them with earlier
+    images, checked with the old model's errors kept; nothing new: nothing done."""
+    from ectype import train
+    from ectype.train import Fit
+
+    fits, reads = [], []
+
+    def fit(start, base, pairs, work, say, iterations=None):
+        work.mkdir(parents=True, exist_ok=True)
+        for name in ("int", "float"):
+            (work / name).write_bytes(f"{start}{len(pairs)}{name}".encode())
+        fits.append((Path(start).name, len(pairs), iterations))
+        return Fit(work / "int", work / "float", len(pairs), 0, "", iterations or 100)
+
+    def errors(model, items, work, name, per_item=None):
+        reads.append((name, len(items)))
+        per = {i.id: (1 if name == "candidate" else 3, 10) for i in items}
+        if per_item is not None:
+            per_item.update(per)
+        return training._by_book(items, per)
+
+    monkeypatch.setattr(train, "fit_tesseract", fit)
+    monkeypatch.setattr(train, "available", lambda: None)
+    (tmp_path / "best.traineddata").write_bytes(b"stock")
+    monkeypatch.setattr(train, "best_model", lambda code, say=None: tmp_path / "best.traineddata")
+    monkeypatch.setattr(training, "_tess_errors", errors)
+    monkeypatch.setattr(training, "_tess_current", lambda code: (
+        models.tesseract_dir(code).parent.parent.parent / "tessdata" / f"{code}_ectype.traineddata"
+        if "general" in models.choices(code) else tmp_path / "best.traineddata"))
+
+    def add(n, book, start=0):
+        with pool.Writer("eng") as w:
+            for i in range(start, start + n):
+                w.add(f"image {book} {i}".encode(), f"line {i} of {book}", book, "line", "correction", origin=f"{book}{i}")
+
+    add(60, "Young")
+    assert training.plan("eng")["mode"] == "full"
+    r = training.train_language("eng")
+    assert r["mode"] == "full" and r["general"]["installed"] and fits[-1][0] == "best.traineddata"
+    assert training.plan("eng")["mode"] == "none" and training.train_language("eng")["mode"] == "none"
+
+    add(24, "Driver")
+    p = training.plan("eng")
+    assert p["mode"] == "quick" and p["new"] == len([i for i in training._items_for("eng", "train") if i.book == "Driver"])
+    reads.clear()
+    q = training.train_language("eng")
+    assert q["mode"] == "quick" and q["general"]["installed"], q["lines"]
+    start, n, iterations = fits[-1]
+    assert start == "general.traineddata", "trained further from the model in use"
+    assert n == len(training._items_for("eng", "train")) and iterations == training.QUICK_ITERATIONS[0]
+    in_use = [k for name, k in reads if name.startswith("in_use")]
+    assert in_use == [len([i for i in training._items_for("eng", "test") if i.book == "Driver"])], \
+        "the model in use reads only the test images it hadn't read"
+    assert models.registry()["eng"]["quick_updates"] == 1
+    # A model trained by an earlier version, with no list of what it knew: the pool's images
+    # older than its training count as known.
+    import os
+
+    training._known_path("eng").unlink()
+    data = models.registry()
+    data["eng"]["general"]["trained"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + 120))
+    models.save_registry(data)
+    assert training.plan("eng")["mode"] == "none"
+    for item in training._items_for("eng", "train")[:5]:
+        os.utime(item.png, (time.time() + 3600, time.time() + 3600))  # added after it was trained
+    assert training.plan("eng") == {"mode": "quick", "new": 5, "why": "5 new images"}
+    assert training.train_language("eng", mode="full")["mode"] == "full" and fits[-1][0] == "best.traineddata"
 
 
 def test_trained_models_window(data):
@@ -290,8 +493,9 @@ def test_train_from_fonts_window(data, monkeypatch):
             shutil.copy(find_font(name), folder)
     _unpointed(Path(find_font("FreeSerif")), system / "Plain.ttf", "Plain Hebrew")
     monkeypatch.setattr(synthtrain, "system_font_folders", lambda: [system])
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: (
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: (
         ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] if source == "hebrew-bible"
+        else ["The word ḥesed in Hebrew, ʾĕlōhîm and /ʃəˈlɔm/ über ç"] if source == "transliteration"
         else ["Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν"]))
     app = qt.QApplication.instance() or qt.QApplication([])
 
@@ -302,6 +506,7 @@ def test_train_from_fonts_window(data, monkeypatch):
         return d
 
     d = opened()
+    assert not d.lang_boxes["transliteration"].isChecked(), "Hebrew and Greek chosen at first"
     rows = {d.table.item(r, 0).text(): [d.table.item(r, c).text() for c in (1, 2)] for r in range(d.table.rowCount())}
     assert rows == {"FreeSerif Regular": ["Full", "Full"], "Plain Hebrew Regular": ["Partial", "Full"]}, \
         "only fonts with both languages (Hebrew without points too), and how far each supports them"
@@ -310,6 +515,10 @@ def test_train_from_fonts_window(data, monkeypatch):
     assert rows["DejaVu Serif Book"] == ["—", "Full"] and rows["FreeSerif Regular"] == ["Full", "Full"]
     d.lang_boxes["hebrew"].setChecked(False)
     assert d.table.columnCount() == 3 and d.table.horizontalHeaderItem(1).text() == "Greek"
+    d.lang_boxes["transliteration"].setChecked(True)
+    col = {d.table.item(r, 0).text(): d.table.item(r, 2).text() for r in range(d.table.rowCount())}
+    assert d.table.horizontalHeaderItem(2).text() == "Transliteration" and col["DejaVu Serif Book"] == "Full"
+    d.lang_boxes["transliteration"].setChecked(False)
     d.settings["folders"] = [str(mine)]
     d._scan()
     d.scanner.wait()

@@ -8,7 +8,7 @@ on:
   push:
     tags: ["v*"]  # tag pushes ignore the path filter below: every v* tag builds
     branches: ["**"]
-    paths: ["packaging/**", ".github/workflows/release.yml", "src/ectype/resources.py", "src/ectype/kraken_worker.py",
+    paths: ["packaging/**", "assets/ectype-icon/**", ".github/workflows/release.yml", "src/ectype/resources.py", "src/ectype/kraken_worker.py",
             "src/ectype/train.py", "src/ectype/training.py", "src/ectype/synthtrain.py"]
   workflow_dispatch:
     inputs:

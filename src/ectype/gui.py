@@ -17,8 +17,9 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QImage, QPen, QPixmap, QTransform
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, Signal
+from PySide6.QtGui import (QAction, QBrush, QColor, QIcon, QImage, QPainterPath, QPainterPathStroker, QPen, QPixmap,
+                           QTransform)
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
@@ -130,15 +131,56 @@ class ProgressWindow(QDialog):
 
 
 class ImageView(QGraphicsView):
-    """A zoomable view; Ctrl+wheel zooms, and `zoomed` lets a partner view follow."""
+    """A zoomable view; Ctrl+wheel zooms, and `zoomed` lets a partner view follow. After
+    `start_drawing`, a drag draws a box instead of moving the page (`drawn`)."""
 
     zoomed = Signal(float)
+    drawn = Signal(QRectF)
 
     def __init__(self):
         self._scene = QGraphicsScene()  # held here, or Python frees it under Qt
         super().__init__(self._scene)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.drawing = False
+        self._band: QGraphicsRectItem | None = None
+        self._origin = QPointF()
+
+    def start_drawing(self) -> None:
+        self.drawing = True
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+
+    def stop_drawing(self) -> None:
+        self.drawing = False
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.viewport().unsetCursor()
+
+    def mousePressEvent(self, event):
+        if self.drawing and event.button() == Qt.MouseButton.LeftButton:
+            self._origin = self.mapToScene(event.position().toPoint())
+            pen = QPen(COLOURS["selected"], 2, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            self._band = self.scene().addRect(QRectF(self._origin, self._origin), pen)
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._band is not None:
+            self._band.setRect(QRectF(self._origin, self.mapToScene(event.position().toPoint())).normalized())
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._band is not None:
+            rect = self._band.rect()
+            self.scene().removeItem(self._band)
+            self._band = None
+            self.stop_drawing()
+            if rect.width() > 2 and rect.height() > 2:
+                self.drawn.emit(rect)
+            return
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -149,6 +191,7 @@ class ImageView(QGraphicsView):
             super().wheelEvent(event)
 
     def show_image(self, image: QImage) -> QGraphicsPixmapItem:
+        self._band = None
         self.scene().clear()
         item = self.scene().addPixmap(QPixmap.fromImage(image))
         self.scene().setSceneRect(QRectF(image.rect()))
@@ -374,9 +417,14 @@ class SpreadsTab(QWidget):
 
 
 class WordItem(QGraphicsRectItem):
-    def __init__(self, rect: QRectF, line: int, word: int, text: str, status: str, on_click):
+    """A word's box on the scan, or a piece of it (`span`): a punctuation mark at its start or
+    end, or the letters between (`review.parts`)."""
+
+    def __init__(self, rect: QRectF, line: int, word: int, text: str, status: str, on_click,
+                 span: tuple[int, int] | None = None, word_box: list[int] | None = None):
         super().__init__(rect)
-        self.line, self.word, self.text, self.on_click = line, word, text, on_click
+        self.line, self.word, self.text, self.on_click, self.span = line, word, text, on_click, span
+        self.word_box = word_box
         self.set_status(status)
         self.setToolTip(text)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -391,6 +439,167 @@ class WordItem(QGraphicsRectItem):
         self.on_click(self)
 
 
+class BoxEditor(QGraphicsRectItem):
+    """The selected word's whole box, dashed: drag an edge or a corner to stretch it over ink
+    the OCR left out (a first letter missed), or to shrink it. Only its edges take the mouse,
+    so the word's pieces inside can still be clicked."""
+
+    CURSORS = {"l": Qt.CursorShape.SizeHorCursor, "r": Qt.CursorShape.SizeHorCursor,
+               "t": Qt.CursorShape.SizeVerCursor, "b": Qt.CursorShape.SizeVerCursor,
+               "lt": Qt.CursorShape.SizeFDiagCursor, "rb": Qt.CursorShape.SizeFDiagCursor,
+               "rt": Qt.CursorShape.SizeBDiagCursor, "lb": Qt.CursorShape.SizeBDiagCursor}
+
+    def __init__(self, rect: QRectF, tolerance: float):
+        super().__init__(rect)
+        self.tol, self.start, self.edges = tolerance, QRectF(rect), ""
+        pen = QPen(COLOURS["selected"], 2, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setAcceptHoverEvents(True)
+        self.setZValue(10)
+
+    def box(self) -> list[int]:
+        r = self.rect()
+        return [round(r.left()), round(r.top()), round(r.right()), round(r.bottom())]
+
+    def changed(self) -> bool:
+        r = self.start
+        return self.box() != [round(r.left()), round(r.top()), round(r.right()), round(r.bottom())]
+
+    def boundingRect(self) -> QRectF:
+        return self.rect().adjusted(-self.tol, -self.tol, self.tol, self.tol)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRect(self.rect())
+        stroker = QPainterPathStroker()
+        stroker.setWidth(2 * self.tol)
+        return stroker.createStroke(path)
+
+    def _edges_at(self, p: QPointF) -> str:
+        r, t = self.rect(), self.tol
+        across = r.top() - t <= p.y() <= r.bottom() + t
+        along = r.left() - t <= p.x() <= r.right() + t
+        out = ""
+        if across and abs(p.x() - r.left()) <= t:
+            out += "l"
+        elif across and abs(p.x() - r.right()) <= t:
+            out += "r"
+        if along and abs(p.y() - r.top()) <= t:
+            out += "t"
+        elif along and abs(p.y() - r.bottom()) <= t:
+            out += "b"
+        return out
+
+    def hoverMoveEvent(self, event):
+        edges = self._edges_at(event.pos())
+        if edges in self.CURSORS:
+            self.setCursor(self.CURSORS[edges])
+        else:
+            self.unsetCursor()
+
+    def mousePressEvent(self, event):
+        self.edges = self._edges_at(event.pos())
+        if not self.edges:
+            event.ignore()
+
+    def mouseMoveEvent(self, event):
+        if not self.edges:
+            return
+        r, p = QRectF(self.rect()), event.pos()
+        if "l" in self.edges:
+            r.setLeft(min(p.x(), r.right() - 2))
+        if "r" in self.edges:
+            r.setRight(max(p.x(), r.left() + 2))
+        if "t" in self.edges:
+            r.setTop(min(p.y(), r.bottom() - 2))
+        if "b" in self.edges:
+            r.setBottom(max(p.y(), r.top() + 2))
+        self.setRect(r)
+
+    def mouseReleaseEvent(self, event):
+        self.edges = ""
+
+
+class CharacterGrid(QListWidget):
+    """Characters in a wrapping grid; a click sends the one clicked (`picked`)."""
+
+    picked = Signal(str)
+
+    def __init__(self, cell: int = 44, parent=None):
+        super().__init__(parent)
+        self.setViewMode(QListWidget.ViewMode.IconMode)
+        self.setFlow(QListWidget.Flow.LeftToRight)
+        self.setWrapping(True)
+        self.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.setMovement(QListWidget.Movement.Static)
+        self.setUniformItemSizes(True)
+        self.setGridSize(QSize(cell, cell))
+        font = self.font()
+        font.setPointSizeF(max(15.0, font.pointSizeF() * 1.5))
+        self.setFont(font)
+        self.itemClicked.connect(lambda item: self.picked.emit(item.data(Qt.ItemDataRole.UserRole)))
+
+    def show_chars(self, chars: list[str]) -> None:
+        from . import characters
+
+        self.clear()
+        for shown in chars:
+            item = QListWidgetItem(shown)
+            item.setData(Qt.ItemDataRole.UserRole, shown)
+            item.setToolTip(characters.name(shown))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.addItem(item)
+
+
+class CharacterPane(QDialog):
+    """A floating window of special characters (superscripts, transliteration, Hebrew points
+    and accents...), in sets or found by name; a click inserts one where the cursor is in
+    Review's correction box. It stays open beside the scan, like InDesign's Glyphs panel."""
+
+    picked = Signal(str)
+
+    def __init__(self, parent=None):
+        from . import characters
+
+        super().__init__(parent)
+        self.setWindowTitle("Special characters")
+        self.setWindowFlag(Qt.WindowType.Tool)
+        self.setModal(False)
+        self.resize(460, 420)
+        layout = QVBoxLayout(self)
+        row = QHBoxLayout()
+        self.sets = QComboBox()
+        self.sets.addItems(["Recently used", *characters.SETS])
+        self.sets.currentIndexChanged.connect(self._show)
+        row.addWidget(self.sets)
+        self.find = QLineEdit()
+        self.find.setPlaceholderText("Find by name: macron, dot below, superscript two…")
+        self.find.textChanged.connect(self._show)
+        row.addWidget(self.find, 1)
+        layout.addLayout(row)
+        self.grid = CharacterGrid()
+        self.grid.picked.connect(self.picked.emit)
+        layout.addWidget(self.grid, 1)
+        self.name = QLabel("Point at a character to see its name; click it to insert it.")
+        layout.addWidget(self.name)
+        self.grid.itemEntered.connect(lambda item: self.name.setText(item.toolTip()))
+        self.grid.setMouseTracking(True)
+        self.sets.setCurrentIndex(0 if characters.recent() else 1)
+        self._show()
+
+    def _show(self, *_) -> None:
+        from . import characters
+
+        query = self.find.text().strip()
+        if query:
+            self.grid.show_chars(characters.search(query))
+        elif self.sets.currentIndex() == 0:
+            self.grid.show_chars(characters.recent())
+        else:
+            self.grid.show_chars(characters.SETS[self.sets.currentText()])
+
+
 class ReviewTab(QWidget):
     message = Signal(str)
 
@@ -401,19 +610,36 @@ class ReviewTab(QWidget):
         self.list.setMaximumWidth(200)
         self.list.currentRowChanged.connect(self.show_page)
         self.edit = QLineEdit()
-        self.edit.setPlaceholderText("Click a word on the scan to correct it")
+        self.edit.setPlaceholderText("Click a word on the scan to correct it (or Save it unchanged to confirm it)")
+        font = self.edit.font()
+        font.setPointSizeF(max(16.0, font.pointSizeF() * 1.6))
+        self.edit.setFont(font)
         self.edit.returnPressed.connect(self.save)
         save = QPushButton("Save")
         save.clicked.connect(self.save)
+        self.special = QToolButton()
+        self.special.setText("Ω")
+        self.special.setToolTip("Insert a special character: the ones used last, or the character pane")
+        self.special.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.special_menu = QMenu(self.special)
+        self.special_menu.aboutToShow.connect(self._fill_special_menu)
+        self.special.setMenu(self.special_menu)
+        self.pane: CharacterPane | None = None
+        add = QPushButton("Add a word")
+        add.setToolTip("Draw a box around a word the OCR missed, then type it and Save")
+        add.clicked.connect(self.start_adding)
         self.info = QLabel()
         legend = QLabel('<span style="color:#dc2828">■ low OCR confidence</span> &nbsp; '
                         '<span style="color:#e8890c">■ glyph looks like another character</span> &nbsp; '
-                        '<span style="color:#1a9850">■ corrected</span>')
+                        '<span style="color:#1a9850">■ corrected or confirmed</span>')
         bar = QHBoxLayout()
         bar.addWidget(self.edit, 1)
+        bar.addWidget(self.special)
         bar.addWidget(save)
+        bar.addWidget(add)
         bar.addWidget(self.info, 1)
         self.scan, self.output = ImageView(), ImageView()
+        self.scan.drawn.connect(self._drawn)
         self.scan.zoomed.connect(lambda f: self.output.scale(f, f))
         self.output.zoomed.connect(lambda f: self.scan.scale(f, f))
         for a, b in ((self.scan, self.output), (self.output, self.scan)):
@@ -433,6 +659,8 @@ class ReviewTab(QWidget):
         layout.addWidget(holder, 1)
         self.items: list[WordItem] = []
         self.selected: WordItem | None = None
+        self.editor: BoxEditor | None = None  # the selected word's box, to stretch
+        self.adding = False  # the editor holds a box drawn for a word the OCR missed
         self.page: str | None = None
         self._syncing = False
 
@@ -470,19 +698,8 @@ class ReviewTab(QWidget):
         page = item.data(Qt.ItemDataRole.UserRole)
         self.page = page
         self.scan.show_image(QImage(str(self.project.page_image(page))))
-        self.items, self.selected = [], None
-        ocr = self.project.ocr(page)
-        fixed = self.project.corrected(page)
-        flagged = self.flags.get(page, set())
-        if ocr:
-            for li, line in enumerate(ocr.lines):
-                for wi, w in enumerate(line.words):
-                    status = ("fixed" if (li, wi) in fixed else "suspect" if (li, wi) in flagged
-                              else "low" if w.conf < LOW_CONF else "plain")
-                    x0, y0, x1, y1 = w.box
-                    it = WordItem(QRectF(x0, y0, x1 - x0, y1 - y0), li, wi, w.text, status, self.select)
-                    self.scan.scene().addItem(it)
-                    self.items.append(it)
+        self.items, self.selected, self.editor, self.adding = [], None, None, False
+        self._draw_words()
         pdf = self.project.output_pdf()
         pages = self.project.pages()
         image = _pdf_page_image(pdf, pages.index(page), dpi=self._page_dpi(page)) if pdf else None
@@ -496,6 +713,100 @@ class ReviewTab(QWidget):
         self.edit.clear()
         self.info.clear()
 
+    def _draw_words(self) -> None:
+        """The page's word boxes, coloured by what is known of each (made again after a change)."""
+        for it in self.items:
+            self.scan.scene().removeItem(it)
+        self._drop_editor()
+        self.items, self.selected = [], None
+        ocr = self.project.ocr(self.page)
+        fixed = self.project.corrected(self.page)
+        flagged = self.flags.get(self.page, set())
+        if ocr:
+            for li, line in enumerate(ocr.lines):
+                for wi, w in enumerate(line.words):
+                    status = ("fixed" if (li, wi) in fixed else "suspect" if (li, wi) in flagged
+                              else "low" if w.conf < LOW_CONF else "plain")
+                    self._add_word(li, wi, w, status)
+
+    def _fill_special_menu(self) -> None:
+        """The characters used last, as a grid, and the way to the character pane."""
+        from . import characters
+
+        self.special_menu.clear()
+        recent = characters.recent()
+        if recent:
+            grid = CharacterGrid(cell=40)
+            grid.show_chars(recent)
+            grid.setFixedSize(8 * 40 + 8, 40 * ((len(recent) + 7) // 8) + 8)
+            grid.picked.connect(lambda c: (self.special_menu.close(), self.insert_char(c)))
+            holder = QWidgetAction(self.special_menu)
+            holder.setDefaultWidget(grid)
+            self.special_menu.addAction(holder)
+            self.special_menu.addSeparator()
+        else:
+            self.special_menu.addAction("No characters used yet").setEnabled(False)
+        self.special_menu.addAction("More characters…", self.show_pane)
+
+    def show_pane(self) -> None:
+        if self.pane is None:
+            self.pane = CharacterPane(self)
+            self.pane.picked.connect(self.insert_char)
+        self.pane.show()
+        self.pane.raise_()
+
+    def insert_char(self, shown: str) -> None:
+        """A special character typed where the cursor is in the correction box (a combining mark
+        after the letter before it), and remembered as used."""
+        from . import characters
+
+        self.edit.insert(characters.as_typed(shown))
+        self.edit.setFocus()
+        characters.remember(shown)
+
+    def _drop_editor(self) -> None:
+        if self.editor is not None:
+            self.scan.scene().removeItem(self.editor)
+        self.editor, self.adding = None, False
+
+    def _show_editor(self, box) -> None:
+        self._drop_editor()
+        x0, y0, x1, y1 = box
+        self.editor = BoxEditor(QRectF(x0, y0, x1 - x0, y1 - y0), 6 / max(1e-6, self.scan.transform().m11()))
+        self.scan.scene().addItem(self.editor)
+
+    def start_adding(self) -> None:
+        if self.page is None:
+            return
+        self.scan.start_drawing()
+        self.info.setText("Drag a box around the word the OCR missed.")
+
+    def _drawn(self, rect: QRectF) -> None:
+        if self.selected is not None:
+            self.selected.set_status(self.selected.status)
+            self.selected = None
+        self._show_editor([rect.left(), rect.top(), rect.right(), rect.bottom()])
+        self.adding = True
+        self.edit.clear()
+        self.edit.setFocus()
+        self.info.setText("Type the word, then Save. Drag the box's edges to adjust it.")
+
+    def _add_word(self, li: int, wi: int, w, status: str) -> None:
+        """A word's boxes: one, or one for each punctuation mark at its start or end and one for
+        its letters, so each is corrected by itself."""
+        from .review import part_box, parts
+
+        pieces = parts(w)
+        for span in pieces:
+            whole = len(pieces) == 1
+            x0, y0, x1, y1 = w.box if whole else part_box(w, span)
+            text = w.text if whole else "".join(c.text for c in w.chars[span[0]:span[1]])
+            it = WordItem(QRectF(x0, y0, x1 - x0, y1 - y0), li, wi, text, status, self.select, None if whole else span,
+                          list(w.box))
+            it.setToolTip(w.text)
+            self.scan.scene().addItem(it)
+            self.items.append(it)
+
     def _page_dpi(self, page: str) -> float:
         from PIL import Image
 
@@ -508,33 +819,60 @@ class ReviewTab(QWidget):
             self.selected.set_status(self.selected.status)
         self.selected = item
         item.setPen(QPen(COLOURS["selected"], 3))
+        if self.adding or self.editor is None or self.editor.start != self._rect(item.word_box):
+            self._show_editor(item.word_box)  # another word: its box, to stretch over a letter it missed
         self.edit.setText(item.text)
         self.edit.setFocus()
         self.edit.selectAll()
-        self.info.setText(f"line {item.line + 1}, word {item.word + 1}")
+        self.info.setText(f"line {item.line + 1}, word {item.word + 1}. Drag the dashed box's edges to take in "
+                          "a letter it missed.")
+
+    @staticmethod
+    def _rect(box) -> QRectF:
+        x0, y0, x1, y1 = box
+        return QRectF(x0, y0, x1 - x0, y1 - y0)
 
     def select_word(self, page: str, line: int, word: int) -> None:
         pages = self.project.pages()
         if page in pages:
             self.list.setCurrentRow(pages.index(page))
-            for it in self.items:
-                if (it.line, it.word) == (line, word):
-                    self.select(it)
-                    self.scan.centerOn(it)
-                    break
+            pieces = [it for it in self.items if (it.line, it.word) == (line, word)]
+            if pieces:
+                it = max(pieces, key=lambda it: len(it.text))  # the letters, not a mark beside them
+                self.select(it)
+                self.scan.centerOn(it)
 
     def save(self) -> None:
-        if self.selected is None or self.page is None:
+        if self.page is None:
             return
         text = self.edit.text().strip()
-        if not text or text == self.selected.text:
+        if not text:
             return
-        result = self.project.correct(self.page, self.selected.line, self.selected.word, text)
-        self.selected.text = result["new"]
-        self.selected.setToolTip(result["new"])
-        self.selected.set_status("fixed")
-        self.info.setText(f"Saved: {result['old']} → {result['new']}")
-        self.message.emit("Correction saved. Press “Update after corrections” to rebuild the PDF.")
+        update = "Press “Update after corrections” to rebuild the PDF."
+        if self.adding and self.editor is not None:
+            result = self.project.add_word(self.page, self.editor.box(), text)
+            li, wi = result["line"], result["word"]
+            flags = self.flags.get(self.page, set())  # the line's later words moved along one
+            self.flags[self.page] = {(l, w + 1) if l == li and w >= wi else (l, w) for l, w in flags}
+            self._draw_words()
+            self.info.setText(f"Added: {result['new']}")
+            self.message.emit("Word added. " + update)
+            return
+        if self.selected is None:
+            return
+        # The same text saved confirms a flagged word as right: it turns green and its line
+        # becomes training data, as a correction does, but the PDF needs no rebuilding.
+        item = self.selected
+        box = self.editor.box() if self.editor is not None and self.editor.changed() else None
+        result = self.project.correct(self.page, item.line, item.word, text, item.span, box)
+        self._draw_words()  # a piece corrected, or the box stretched, moves the word's other pieces
+        old, new = result.get("part") or (result["old"], result["new"])
+        stretched = " (its box changed)" if box else ""
+        if old == new and not box:
+            self.info.setText(f"Confirmed: {new}")
+        else:
+            self.info.setText(f"Saved: {old} → {new}{stretched}")
+            self.message.emit("Correction saved. " + update)
 
 
 # ---------------------------------------------------------------------------
@@ -1087,26 +1425,71 @@ class KrakenModelsPanel(QWidget):
 # IDML export
 
 
-class IdmlDialog(QDialog):
-    """Reflow or facsimile, and their options, before the IDML is written."""
+class FontTable(QTableWidget):
+    """Each type style on the scan with the installed font most like it, to change if wished."""
 
-    def __init__(self, prepared: dict, parent=None):
-        from . import converter
+    def __init__(self, matches: dict, parent=None):
         from .fontmatch import installed_faces
 
-        super().__init__(parent)
-        self.setWindowTitle("Export IDML")
-        self.resize(640, 600)
-        self.matches = prepared["matches"]
+        super().__init__(0, 3, parent)
+        self.matches = matches
         faces = installed_faces()
         self.faces_by_family: dict[str, list] = {}
         for f in faces:
             self.faces_by_family.setdefault(f.family, []).append(f)
+        self.setHorizontalHeaderLabels(["Type on the scan", "Font", "Size"])
+        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.verticalHeader().hide()
+        self.style_boxes: dict[int, QComboBox] = {}
+        rows = [m for m in sorted(matches.values(), key=lambda m: -m.instances) if m.face is not None]
+        self.setRowCount(len(rows))
+        for r, m in enumerate(rows):
+            what = {"head": "Running head", "foot": "Running foot"}.get(m.zone, "Text" if m.size_class == 1.0 else
+                                                                         "Notes" if m.size_class < 1 else "Headings")
+            what += ", italic" if m.italic else ""
+            what += ", bold" if m.bold else ""
+            self.setItem(r, 0, QTableWidgetItem(f"{what} ({m.instances:,} letters)"))
+            box = QComboBox()
+            box.setEditable(True)
+            labels = [m.face.label] + [label for label, _ in m.runners_up]
+            labels += sorted({f.label for f in faces if f.italic == m.italic} - set(labels), key=str.lower)
+            box.addItems(labels)
+            self.setCellWidget(r, 1, box)
+            self.setItem(r, 2, QTableWidgetItem(f"{m.point_size:g} pt" if m.point_size else ""))
+            self.style_boxes[m.style] = box
+
+    def faces(self) -> dict:
+        """The fonts changed from the matches: glyph style -> Face."""
+        from .idml import Face
+
+        out = {}
+        for sid, box in self.style_boxes.items():
+            m = self.matches[sid]
+            label = box.currentText()
+            if label != m.face.label:
+                face = next((f for fs in self.faces_by_family.values() for f in fs if f.label == label), None)
+                out[sid] = Face(face.family, face.style) if face else Face(label, "Regular")
+        return out
+
+
+class IdmlDialog(QDialog):
+    """Reflow or facsimile, and their options, asked before anything is prepared (the layout,
+    and for Facsimile the font matching, take a while; they used to come first, and a damaged
+    font stopped the export before the choice was ever shown). With `prepared`, Facsimile's
+    fonts are shown too."""
+
+    def __init__(self, prepared: dict | None = None, parent=None):
+        from . import converter
+
+        super().__init__(parent)
+        self.setWindowTitle("Export IDML")
+        self.resize(640, 600 if prepared else 360)
         layout = QVBoxLayout(self)
 
-        self.reflow = QRadioButton("Reflow: the text laid out as a book by docx-to-idml (masters, running heads, "
-                                   "footnotes), in the fonts of its layout profile")
-        self.facsimile = QRadioButton("Facsimile: the text where it stands on the scan, line for line, "
+        self.reflow = QRadioButton("Reflow (live): the text laid out as a book by docx-to-idml: masters, running "
+                                   "heads, real footnotes, in the fonts of its layout profile")
+        self.facsimile = QRadioButton("Facsimile (static): the text where it stands on the scan, line for line, "
                                       "in the installed fonts most like the scan's")
         group = QButtonGroup(self)
         group.addButton(self.reflow)
@@ -1142,29 +1525,14 @@ class IdmlDialog(QDialog):
         layout.addWidget(self.facsimile)
         self.fac_box = QGroupBox()
         fl = QVBoxLayout(self.fac_box)
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Type on the scan", "Font", "Size"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.verticalHeader().hide()
-        self.style_boxes: dict[int, QComboBox] = {}
-        rows = [m for m in sorted(self.matches.values(), key=lambda m: -m.instances) if m.face is not None]
-        self.table.setRowCount(len(rows))
-        for r, m in enumerate(rows):
-            what = {"head": "Running head", "foot": "Running foot"}.get(m.zone, "Text" if m.size_class == 1.0 else
-                                                                         "Notes" if m.size_class < 1 else "Headings")
-            what += ", italic" if m.italic else ""
-            what += ", bold" if m.bold else ""
-            self.table.setItem(r, 0, QTableWidgetItem(f"{what} ({m.instances:,} letters)"))
-            box = QComboBox()
-            box.setEditable(True)
-            labels = [m.face.label] + [label for label, _ in m.runners_up]
-            labels += sorted({f.label for f in faces if f.italic == m.italic} - set(labels), key=str.lower)
-            box.addItems(labels)
-            self.table.setCellWidget(r, 1, box)
-            self.table.setItem(r, 2, QTableWidgetItem(f"{m.point_size:g} pt" if m.point_size else ""))
-            self.style_boxes[m.style] = box
-        fl.addWidget(self.table)
+        self.table = FontTable(prepared["matches"]) if prepared and prepared.get("matches") else None
+        if self.table is not None:
+            fl.addWidget(self.table)
+        else:
+            later = QLabel("The scan's typefaces are compared with your installed fonts next; you can change "
+                           "the fonts chosen before the IDML is written.")
+            later.setWordWrap(True)
+            fl.addWidget(later)
         self.scan_layer = QCheckBox("Place the scan under the text, on a locked layer that doesn't print")
         self.scan_layer.setChecked(True)
         fl.addWidget(self.scan_layer)
@@ -1173,7 +1541,7 @@ class IdmlDialog(QDialog):
         self.reflow.toggled.connect(self._mode_changed)
         self._mode_changed()
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
-        buttons.addButton("Export…", QDialogButtonBox.AcceptRole)
+        buttons.addButton("Export…" if prepared else "Continue", QDialogButtonBox.AcceptRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1183,19 +1551,34 @@ class IdmlDialog(QDialog):
         self.fac_box.setEnabled(self.facsimile.isChecked())
 
     def options(self):
-        from .idml import Face, IdmlOptions
+        from .idml import IdmlOptions
 
         if self.reflow.isChecked():
             return IdmlOptions(mode="reflow", page_markers=self.markers.isChecked(),
                                check_below=70.0 if self.check.isChecked() else 0.0, profile=self.profile.currentData())
-        faces = {}
-        for sid, box in self.style_boxes.items():
-            m = self.matches[sid]
-            label = box.currentText()
-            if label != m.face.label:
-                face = next((f for fs in self.faces_by_family.values() for f in fs if f.label == label), None)
-                faces[sid] = Face(face.family, face.style) if face else Face(label, "Regular")
-        return IdmlOptions(mode="facsimile", faces=faces, include_scan=self.scan_layer.isChecked())
+        return IdmlOptions(mode="facsimile", faces=self.table.faces() if self.table is not None else {},
+                           include_scan=self.scan_layer.isChecked())
+
+
+class FontChoiceDialog(QDialog):
+    """Facsimile: the installed fonts most like the scan's type styles, to confirm or change."""
+
+    def __init__(self, matches: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export IDML: fonts")
+        self.resize(640, 480)
+        layout = QVBoxLayout(self)
+        intro = QLabel("Each type style on the scan, with the installed font most like it. Change any you like; "
+                       "each becomes a character style in InDesign, so a font can also be changed there later.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.table = FontTable(matches)
+        layout.addWidget(self.table, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        buttons.addButton("Export…", QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
 
 # ---------------------------------------------------------------------------
@@ -1209,6 +1592,8 @@ class FontTrainingDialog(QDialog):
 
     LEVELS = {"full": "full support", "letters": "the letters, without some marks (for Hebrew, the vowel points); "
                                                  "its lines are set without them"}
+    TRANSLIT_LEVELS = {"full": "nearly every letter used in transliteration",
+                       "letters": "some of the letters used in transliteration; only lines it has every letter of are set"}
 
     def __init__(self, parent=None):
         from . import synthtrain
@@ -1221,10 +1606,14 @@ class FontTrainingDialog(QDialog):
         self.support: dict[str, dict[str, str]] = {}
         self.scanner: Task | None = None
         layout = QVBoxLayout(self)
-        intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament) in each "
+        intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament, the Latin "
+                       "Vulgate, the Peshitta, the Qurʾān and the Arabic Bible) in each "
                        "font you choose, makes the lines look scanned, and trains each language's model on them: no "
                        "correcting by hand. Fonts are only read, never copied. The more typefaces like your books' "
-                       "the better.")
+                       "the better.\nTransliteration teaches the English model the letters English lacks: Hebrew in "
+                       "SBL style (ḥ ṭ ṣ š ʾ ʿ ḇ ā ê ə), Arabic, Akkadian and Ugaritic (ḫ ẓ ḍ ġ), IPA (ʃ ŋ ɛ ʔ ː) "
+                       "accented letters (ü ç ø č ō), and raised note numbers and verse parts (word¹, 3ᵃ). Without it "
+                       "they are read as plain letters or as ! ? %.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         langs = QHBoxLayout()
@@ -1232,7 +1621,7 @@ class FontTrainingDialog(QDialog):
         self.lang_boxes = {}
         for script, (_, _, name) in synthtrain.SCRIPTS.items():
             box = QCheckBox(name)
-            box.setChecked(script in self.settings.get("scripts", list(synthtrain.SCRIPTS)))
+            box.setChecked(script in self.settings.get("scripts", ["hebrew", "greek"]))
             box.toggled.connect(self._scripts_changed)
             langs.addWidget(box)
             self.lang_boxes[script] = box
@@ -1260,7 +1649,8 @@ class FontTrainingDialog(QDialog):
         self.table.itemChanged.connect(self._count)
         layout.addWidget(self.table, 1)
         key = QLabel("Full: every letter and mark.   Partial: the letters, without some marks (for Hebrew, the "
-                     "vowel points); its lines are set without them, as in unpointed books.   —: not supported.")
+                     "vowel points); its lines are set without them, as in unpointed books. For transliteration, "
+                     "some of its letters; only lines it has every letter of are set.   —: not supported.")
         key.setWordWrap(True)
         layout.addWidget(key)
         self.status = QLabel()
@@ -1411,7 +1801,8 @@ class FontTrainingDialog(QDialog):
                 lv = self.support.get(font.name, {}).get(script)
                 cell = QTableWidgetItem({synthtrain.FULL: "Full", synthtrain.LETTERS: "Partial"}.get(lv, "—"))
                 cell.setTextAlignment(Qt.AlignCenter)
-                cell.setToolTip(f"{synthtrain.SCRIPTS[script][2]}: " + self.LEVELS.get(lv, "not supported"))
+                levels = self.TRANSLIT_LEVELS if script == "transliteration" else self.LEVELS
+                cell.setToolTip(f"{synthtrain.SCRIPTS[script][2]}: " + levels.get(lv, "not supported"))
                 cell.setFlags(Qt.ItemIsEnabled)
                 self.table.setItem(r, c, cell)
             path = QTableWidgetItem(font.path.name)
@@ -1599,12 +1990,12 @@ class MainWindow(QMainWindow):
             self._languages_changed(codes)
 
     def _start(self, fn, on_done, title: str) -> None:
-        """Run fn off the interface thread with the toolbar disabled and progress in the Log."""
+        """Run fn off the interface thread with the toolbar disabled; progress in its window and
+        in the Log, which isn't brought forward (the tab in view stays)."""
         if (self.worker is not None and self.worker.isRunning()) or (self.task is not None and self.task.isRunning()):
             return
         for a in self.actions.values():
             a.setEnabled(False)
-        self.tabs.setCurrentWidget(self.log)
         self.log.appendPlainText(f"— {title} —")
         self.progress_window = ProgressWindow(title, self)
         self.progress_window.busy()
@@ -1632,13 +2023,22 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def export_idml(self) -> None:
-        self._start(lambda progress: self.project.prepare_idml(progress), self._idml_prepared, "Preparing the IDML export")
-
-    def _idml_prepared(self, prepared: dict) -> None:
-        dialog = IdmlDialog(prepared, self)
+        """Reflow or Facsimile first; then the layout (and for Facsimile the font matching, then
+        the fonts to confirm); then where to save it."""
+        dialog = IdmlDialog(None, self)
         if not dialog.exec():
             return
         options = dialog.options()
+        fonts = options.mode == "facsimile"
+        self._start(lambda progress: self.project.prepare_idml(progress, match_fonts=fonts),
+                    lambda prepared: self._idml_prepared(prepared, options), "Preparing the IDML export")
+
+    def _idml_prepared(self, prepared: dict, options) -> None:
+        if options.mode == "facsimile" and prepared.get("matches"):
+            fonts = FontChoiceDialog(prepared["matches"], self)
+            if not fonts.exec():
+                return
+            options.faces = fonts.table.faces()
         default = str(Path(self.project.settings.source or self.project.workspace).with_name(
             (self.project.settings.name or "output") + f"-{options.mode}.idml"))
         path, _ = QFileDialog.getSaveFileName(self, "Export IDML (saved in a folder of its own, with its Links)",
@@ -1695,7 +2095,6 @@ class MainWindow(QMainWindow):
             return
         for a in self.actions.values():
             a.setEnabled(False)
-        self.tabs.setCurrentWidget(self.log)
         self.log.appendPlainText(f"— Running from {start} —")
         self.progress_window = ProgressWindow(f"Running {self.project.settings.name or self.project.workspace.name}", self)
         self.progress_window.show()
@@ -1783,21 +2182,36 @@ class MainWindow(QMainWindow):
                                     "training pool, so what is learned from one book carries over to the next. Lines "
                                     "set in your fonts can be added too: Training → Train from fonts.")
             return
-        which = "\n".join(f"• {languages.name(code)}: {n} images in its pool" for code, n in plan)
+        from .training import plan as training_plan
+
+        plans = {code: training_plan(code) for code, _ in plan}
+        what = {"quick": "{new} new since the last training: a quick update",
+                "none": "nothing new since the last training", "full": "trained afresh"}
+
+        def line(code: str, n: int) -> str:
+            p = plans[code]
+            return f"• {languages.name(code)}: {n} images in its pool; " + what[p["mode"]].format(new=p["new"])
+
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
-        box.setText(f"Train these languages?\n\n{which}")
+        box.setText("Train these languages?\n\n" + "\n".join(line(code, n) for code, n in plan))
         box.setInformativeText(
-            "Each language's model is trained on its whole pool (this book's corrections with every other "
-            "project's), then checked on images kept aside: it replaces the model in use only if it makes fewer "
-            "errors and no book does worse. Typeface families with enough material get models of their own, "
-            "chosen automatically for each book. This can take from minutes to a few hours; the first time, "
-            "each trainable stock model (about 15 MB) is downloaded.")
+            "A quick update trains the model in use further on what is new (this book's corrections and others'), "
+            "with some earlier material so nothing is forgotten: minutes rather than hours. Training afresh starts "
+            "again from the stock model on the whole pool: slower, but worth doing now and then, after much has "
+            "been added. Either way the new model replaces the one in use only if it makes fewer errors on images "
+            "kept aside and no book does worse. The first time, each trainable stock model (about 15 MB) is "
+            "downloaded.")
+        afresh = QCheckBox("Train afresh from the stock models (slower)")
+        afresh.setChecked(all(p["mode"] == "full" for p in plans.values()))
+        afresh.setEnabled(any(p["mode"] != "full" for p in plans.values()))
+        box.setCheckBox(afresh)
         go = box.addButton("Train", QMessageBox.AcceptRole)
         box.addButton(QMessageBox.Cancel)
         box.exec()
         if box.clickedButton() is go:
-            self._start(lambda progress: self.project.train_model(progress), self._trained, "Training the OCR models")
+            mode = "full" if afresh.isChecked() else "auto"
+            self._start(lambda progress: self.project.train_model(progress, mode), self._trained, "Training the OCR models")
 
     def train_from_fonts(self) -> None:
         from . import train
@@ -1847,7 +2261,9 @@ class MainWindow(QMainWindow):
         changed = any(r["general"]["installed"] or any(f["kept"] for f in r["families"].values()) for r in reports)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
-        box.setText("Training finished." + ("" if changed else " The models in use were kept: the new ones weren't better."))
+        idle = all(r.get("mode") == "none" for r in reports)
+        box.setText("Nothing new to train on since the last training." if idle else "Training finished." + (
+            "" if changed else " The models in use were kept: the new ones weren't better."))
         box.setInformativeText("\n".join(lines) + ("\n\nRead the pages again now? Your corrections are kept." if changed else ""))
         again = box.addButton("Read again", QMessageBox.AcceptRole) if changed else None
         box.addButton("Later" if changed else "OK", QMessageBox.RejectRole)
@@ -1958,6 +2374,17 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Saved {path}")
 
 
+APP_ID = "Ectype.EctypeOCR"  # Windows groups the app's windows on the taskbar under this, with its icon
+
+
+def app_icon() -> QIcon:
+    """The Ectype icon at every size it comes in (src/ectype/icons, from assets/ectype-icon)."""
+    icon = QIcon()
+    for png in sorted((Path(__file__).parent / "icons").glob("ectype-*.png")):
+        icon.addFile(str(png))
+    return icon
+
+
 def main(argv: list[str] | None = None) -> int:
     import multiprocessing
 
@@ -1965,8 +2392,17 @@ def main(argv: list[str] | None = None) -> int:
     from .resources import quiet_windows_errors
 
     quiet_windows_errors()
+    if sys.platform == "win32":
+        # Its own taskbar entry and icon, not Python's (or PyInstaller's launcher's).
+        import ctypes
+
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        except (AttributeError, OSError):
+            pass
     argv = sys.argv[1:] if argv is None else argv
     app = QApplication.instance() or QApplication(sys.argv[:1])
+    app.setWindowIcon(app_icon())
     project = None
     if argv:
         target = Path(argv[0])

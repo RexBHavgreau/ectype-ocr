@@ -79,10 +79,45 @@ def test_window_review_and_correction(project, tmp_path):
     w.review.select(item)
     w.review.edit.setText("Corrected")
     w.review.save()
-    assert item.status == "fixed"
+    assert all(it.status == "fixed" for it in w.review.items if (it.line, it.word) == (item.line, item.word))
     ocr = json.loads((project.workspace / "ocr" / "p001L.ocr.json").read_text())
-    assert ocr["lines"][item.line]["words"][item.word]["text"] == "Corrected"
+    assert ocr["lines"][item.line]["words"][item.word]["text"].startswith("Corrected")
     assert (project.workspace / "training").is_dir()
+    # A flagged word that was read right: saved unchanged, it is confirmed (green).
+    other = next(it for it in w.review.items if (it.line, it.word) != (item.line, item.word))
+    w.review.select(other)
+    w.review.save()
+    assert w.review.info.text() == f"Confirmed: {other.text}"
+    assert all(it.status == "fixed" for it in w.review.items if (it.line, it.word) == (other.line, other.word))
+    assert (other.line, other.word) in project.corrected("p001L")
+    # A word with punctuation beside it: the mark and the letters are boxes of their own.
+    punct = next((it for it in w.review.items if it.span and len(it.text) == 1 and not it.text.isalnum()), None)
+    assert punct is not None, "the test page has words with punctuation"
+    letters = next(it for it in w.review.items if (it.line, it.word) == (punct.line, punct.word) and it is not punct)
+    before = letters.text
+    w.review.select(punct)
+    w.review.edit.setText(";")
+    w.review.save()
+    word = project.ocr("p001L").lines[punct.line].words[punct.word].text
+    assert ";" in word and before in word, "the mark changed, the letters kept"
+    # A letter the OCR left out of a word's box: the box stretched over it, the letter typed.
+    from PySide6.QtCore import QRectF
+
+    target = next(it for it in w.review.items if it.span is None and len(it.text) > 2 and it.text.isalpha())
+    w.review.select(target)
+    r = w.review.editor.rect()
+    w.review.editor.setRect(r.adjusted(-25, 0, 0, 0))
+    w.review.edit.setText("Z" + target.text)
+    w.review.save()
+    got = project.ocr("p001L").lines[target.line].words[target.word]
+    assert got.text == "Z" + target.text and got.box[0] == round(r.left() - 25) and "box changed" in w.review.info.text()
+    # A word the OCR missed altogether: a box drawn and typed, in its line.
+    line = project.ocr("p001L").lines[0]
+    x1 = line.box[2]
+    w.review._drawn(QRectF(x1 + 10, line.box[1], 60, line.box[3] - line.box[1]))
+    w.review.edit.setText("added")
+    w.review.save()
+    assert project.ocr("p001L").lines[0].words[-1].text == "added" and w.review.info.text() == "Added: added"
 
     w.tabs.setCurrentWidget(w.spreads)
     app.processEvents()
@@ -131,8 +166,16 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     assert project.output_pdf() is not None and project.output_pdf().parent.name == "textlayer"
     w.mode.setCurrentIndex(0)
 
-    # IDML: the dialog offers both layouts, Reflow's options and the matched fonts.
+    # IDML: the choice comes first, before anything is prepared (a damaged font used to stop
+    # the export before it was shown); Facsimile's fonts follow, once compared.
+    first = IdmlDialog(None, w)
+    first.facsimile.setChecked(True)
+    assert first.table is None and first.options().mode == "facsimile" and first.options().faces == {}
+    from ectype.gui import FontChoiceDialog
+
+    assert project.prepare_idml(match_fonts=False)["matches"] is None
     prepared = project.prepare_idml()
+    assert FontChoiceDialog(prepared["matches"], w).table.rowCount() >= 1
     d = IdmlDialog(prepared, w)
     d.reflow.setChecked(True)
     assert d.reflow_box.isEnabled() and not d.fac_box.isEnabled()
@@ -209,3 +252,72 @@ def test_progress_window_during_a_run(project):
     assert "100%" in seen or window.bar.value() == 1000
     assert "traced:" in window.text.toPlainText()
     w.close()
+
+
+def test_the_ectype_icon():
+    """The app's icon, at every size it comes in, from the package (as the installed app has it)."""
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import app_icon
+
+    QApplication.instance() or QApplication([])
+    icon = app_icon()
+    assert not icon.isNull() and {s.width() for s in icon.availableSizes()} >= {16, 32, 48, 256}
+
+
+def test_work_leaves_the_tab_in_view(project):
+    """Starting work shows its progress window; the Log tab isn't brought forward."""
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    w.tabs.setCurrentWidget(w.review)
+    done = []
+    w._start(lambda progress: 1, done.append, "A task")
+    assert w.tabs.currentWidget() is w.review
+    w.task.wait()
+    for _ in range(50):
+        app.processEvents()
+        if done:
+            break
+    assert done == [1] and "— A task —" in w.log.toPlainText()
+    w.close()
+
+
+def test_special_characters_go_into_the_correction(project, tmp_path, monkeypatch):
+    """The character pane and the menu of characters used last insert at the cursor; a
+    combining mark goes after the letter before it."""
+    from PySide6.QtWidgets import QApplication
+
+    from ectype import characters
+    from ectype.gui import MainWindow
+
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    review = w.review
+    review.edit.setText("Noomi")
+    review.edit.setCursorPosition(2)
+    review.show_pane()
+    review.pane.find.setText("modifier letter left half ring")
+    assert review.pane.grid.count() >= 1
+    review.pane.grid.picked.emit(review.pane.grid.item(0).data(gui_role()))
+    assert review.edit.text() == "Noʿomi"
+    review.edit.setCursorPosition(4)
+    review.insert_char("◌̆")  # a breve over the o
+    assert review.edit.text() == "Noʿŏmi".replace("ŏ", "ŏ") and characters.recent()[:2] == ["◌̆", "ʿ"]
+    review._fill_special_menu()
+    assert [a.text() for a in review.special_menu.actions()][-1] == "More characters…"
+    review.pane.find.clear()
+    review.pane.sets.setCurrentText("Superscripts")
+    assert review.pane.grid.item(0).text() == "¹"
+    review.pane.close()
+    w.close()
+
+
+def gui_role():
+    from PySide6.QtCore import Qt
+
+    return Qt.ItemDataRole.UserRole

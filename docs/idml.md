@@ -26,7 +26,7 @@ The **Languages** menu lists the installed Tesseract languages, each with a chec
 
 - **Where they go.** Tesseract reads from one folder, so the first download creates the user's own folder and copies the shipped languages and Tesseract's output configs beside the new ones. The folder is `%LOCALAPPDATA%\Ectype OCR\tessdata` on Windows, `~/.local/share/ectype/tessdata` on Linux, or `ECTYPE_DATA_DIR` if set.
 - **Command line:** `ectype languages --add grc lat`.
-- **Changing languages** reads the pages again on the next run. Corrections made in the Review tab are carried over to the new reading: each goes to the new word at the same place on the page (`review.carry_corrections`).
+- **Changing languages** reads the pages again on the next run. Corrections made in the Review tab are carried over to the new reading: each goes to the new word at the same place on the page (`review.carry_corrections`), with its box if it was stretched; a word added by hand that the new reading still misses is added again.
 
 ### Other scripts in the text
 
@@ -108,13 +108,17 @@ The Log says which was used.
 3. **Families.** A family with 200 or more training images gets a model trained further from the general model on its images. It is kept only if it makes at least 3% fewer errors on the family's test images than the general model does. When fonts in a family weren't kept aside, a tenth of its images is held back for this.
 4. **This book.** The language's models are tried on the book's own corrections, and the best is remembered for it. Training again ends that choice, since the models have changed.
 
+**A quick update** is what Train OCR model does when little is new (up to a quarter of what the model in use was trained with, or 200 images): a couple dozen corrections shouldn't cost a whole training. The general model in use is trained further on the new images, with three times as many earlier ones (200 at least) so that it doesn't forget them, for 400 to 3,000 iterations (Kraken: 5 epochs). It is checked as above and installed only if it does better. Only the typeface families with a book among the new images are trained further, from their own models; for Kraken, the other families' packs stay laid over the general model they were made over. The dialog's **Train afresh** box (`ectype train --full`) starts again from the stock model on the whole pool, worth doing now and then after much has been added. `general.items.json` beside the models lists the images the general model knew, which is how the new ones are found.
+
+Every training is also quicker than it was: each line's training file is made once and kept (`training-cache` in the user's folder), lines are prepared and test images read several at a time (one processor each), and the model in use keeps its errors on each test image, so a check reads only the new model and new test images.
+
 The report goes to the Log; the app offers to read the pages again.
 
 **Trained models…** in the Languages menu lists each language's models and pool, and can remove a language's trained models (back to the stock model; the pool stays) or empty its pool. It also removes the per-book models made by earlier versions ("English, trained on Young"). Projects that used one read with the language's trained model instead. `ectype models` does the same from the command line.
 
 ### Training without correcting by hand
 
-**Lines set in your fonts** (`synthtrain.py`, `ectype train-synthetic --fonts <folder> --script hebrew greek`). For each font in the folder (and its subfolders) that has the script's letters:
+**Lines set in your fonts** (`synthtrain.py`, `ectype train-synthetic --fonts <folder> --script hebrew greek transliteration`). For each font in the folder (and its subfolders) that has the script's letters:
 - Passages of a known text are cut into lines of 3 to 9 words and set in the font at several sizes. Hebrew is set right to left, with its points placed by Pillow's raqm layout.
 - Each line is made to look scanned: a slight tilt, blur, ink lighter or heavier, paper tone and noise, specks.
 - The image and its exact text go into the pool as the font's own source, with its typeface fingerprint, so fonts and real books fall into families together.
@@ -124,7 +128,21 @@ The report goes to the Log; the app offers to read the pages again.
 **Known texts** (`texts.py`), downloaded once into the user's folder:
 - the Hebrew Bible: the Westminster Leningrad Codex, public domain, via the Open Scriptures Hebrew Bible, CC BY 4.0;
 - the Greek New Testament: the SBL Greek New Testament, CC BY 4.0;
+- the Latin Vulgate (Clementine), public domain, from the one-file text of `lukesmithxyz/vul`; it trains Latin (`lat`, Train from fonts → Latin).
+- the Peshitta Old Testament (with the deuterocanonical books, unvowelled), the ETCBC's plain text, CC BY-NC 4.0 (free to use, not commercially, with credit); it trains Syriac (`syr`, Train from fonts → Syriac). Syriac lines are set right to left with their letters joined.
+- for Arabic, the Qurʾān (Tanzil.net's fully vowelled "simple" text, CC BY 3.0, used unchanged) and the Smith–Van Dyck Bible of 1865 (eBible.org, public domain, partly vowelled), their verses taken in turn; it trains Arabic (`ara`, Train from fonts → Arabic). Either alone is used if the other can't be downloaded. A text that can't be downloaded leaves its script without fonts in the window, and the others go on.
 - any UTF-8 text file of an edition (for example Westcott–Hort), one passage a line.
+
+**Transliteration** (`translit.py`, `--script transliteration`) trains English, not a language of its own. Tesseract's English model knows one accented letter, é: it reads ḥ as h and ā as a, drops ʾ and ʿ, and nothing shows that anything was lost. The text is generated: English sentences of scholarly prose with transliterated words among them, sometimes in brackets or quotes, with an occasional reference or page number:
+- Hebrew in SBL academic style, made from the Hebrew Bible (bərēʾšîṯ bārāʾ ʾĕlōhîm, rûaḥ, YHWH), some in the older style of Gesenius' grammar (ḳ, qᵉṭal);
+- Arabic (DMG letters such as ǧ ḫ ṯ ḏ ġ ḍ ẓ, and the kh/dh/sh spellings), Akkadian, Ugaritic, Aramaic and Syriac words;
+- IPA transcriptions in slashes or brackets (made-up words: every symbol, stress, length, some diacritics);
+- European words with accents (German, French, Latin with macrons, Spanish, Scandinavian, Czech, Polish, Hungarian, Turkish, Romanian, Portuguese, Icelandic);
+- superscripts: notes' numbers after words (word¹, word¹²) and verses' parts in references (Isa. 1, 3ᵃ), stored as the Unicode superscript characters; the stock model reads them as "!", "?" or "%".
+
+A font supports it fully with nine in ten of these letters, partly with a–z and half of them; a partial font sets only the lines it has every letter of. Training keeps the modifier letters (ʾ ʿ ʰ ː ᵉ) and IPA's θ β χ as English characters, and adds the letters the model lacks, a letter with a combining mark (p̄, ɛ̃) counting as one.
+
+On the fonts at hand, 300 lines in each of four fonts (3,000 iterations) brought English's character errors on a fifth font it never saw from 14.8% to 4.5%: the stock model read *qūdšāʾ ʾabbāʾ* as "qiidSa’ ‘abba’", the trained one exactly. SBL Hebrew and the accented letters came out nearly clean; made-up IPA, with no words to lean on, is the weakest.
 
 Hebrew accents (cantillation, meteg, paseq) are left out. Consonants, vowel points, dagesh, shin and sin dots, maqaf and sof pasuq are kept. Greek keeps its accents and breathings.
 
@@ -158,7 +176,7 @@ Training needs Tesseract's training tools: `lstmtraining` and `combine_tessdata`
 
 ## IDML export
 
-**Export IDML…** in the app, or `ectype idml <workspace> --mode reflow|facsimile`.
+**Export IDML…** in the app, or `ectype idml <workspace> --mode reflow|facsimile`. The app asks first: Reflow (live) or Facsimile (static), with Reflow's options. It then prepares the layout; for Facsimile it also compares the scan's typefaces with the installed fonts and shows the fonts chosen, to confirm or change, before asking where to save.
 
 Each export is a folder of its own, as docx-to-idml writes them: `<name>/<name>.idml`, with the images in `<name>/Links/`, linked relative to the IDML (`file:Links/p001.jpg`). The folder can be moved or sent on without relinking.
 
@@ -175,7 +193,7 @@ Reflow is laid out by [docx-to-idml](https://github.com/RexBHavgreau/docx-to-idm
 The manuscript (kept beside the IDML):
 - **Headings:** Heading 1 (the largest on its page, a chapter title), Heading 2 and 3, and an all-capitals line under a chapter title as Author.
 - **Body paragraphs** as Normal; set-off passages (quotations, verse) as Quote; centred and right-aligned lines kept so.
-- **Italics** as italic runs; raised figures as superscripts.
+- **Italics** as italic runs; raised figures as superscripts. Unicode superscripts the OCR reads (¹, ᵃ, from a model trained on them) are written as their plain characters set as superscripts, in Word and InDesign alike (`layout.plain_superscripts`), so they take the book's font and a note's ¹ matches its reference.
 - **Notes:** Word footnotes where their reference was found, i.e. a superscript figure on the same page matching the note's printed number. The others are gathered at the end under "Notes" and counted in the report, because the OCR often misses small reference figures. On the Young chapter it missed the "2" after "Inspiration." and the whole "2 Ibid., 230–31." line.
 - **"Check OCR":** a character style on words read with confidence under 70 and not corrected in Review.
 - **"Page Marker":** optionally, `{p. 172}` where each page of the scan begins, inside a paragraph when the page breaks in one.

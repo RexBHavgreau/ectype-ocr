@@ -206,3 +206,32 @@ def test_project_prepares_idml_once(analysed):
     assert "segment" not in stages and "cluster" not in stages, "fresh results are reused"
     assert prepared["layout"].pages and prepared["matches"]
     assert (ws / "cluster" / "font-matches.json").is_file()
+
+
+def test_a_font_that_fails_to_draw_is_passed_over(monkeypatch):
+    """A damaged installed font that opens but fails when a letter is drawn (FreeType's
+    "invalid reference") is skipped by font matching, not the end of the IDML export."""
+    import numpy as np
+
+    from ectype import fontmatch
+    from ectype.synth import find_font
+
+    face = fontmatch.FontFace("Broken", "Regular", str(find_font("FreeSerif")), False, 400, 1000, 450)
+
+    def broken(font, char, xh):
+        raise OSError("invalid reference")
+
+    monkeypatch.setattr(fontmatch, "_glyph_feature", broken)
+    assert fontmatch._distance(face, {"a": (10, np.zeros(10), 30.0, 1.0)}) is None
+
+
+def test_unicode_superscripts_become_superscript_formatting():
+    """¹ and ᵃ read by a model trained on them go to Word and InDesign as plain characters set
+    as superscripts, so a note's number matches its reference."""
+    from ectype.docx import _note_number
+    from ectype.layout import LWord, plain_superscripts
+
+    assert plain_superscripts("present¹:", [False] * 9) == ("present1:", [False] * 7 + [True, False])
+    assert plain_superscripts("3ᵃ", [False, False]) == ("3a", [False, True])
+    text, sup = plain_superscripts("¹", [False])
+    assert _note_number([LWord(text, [0, 0, 1, 1], False, 0, sup), LWord("Though", [0, 0, 1, 1], False, 0)])[0] == 1

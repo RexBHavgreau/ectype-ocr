@@ -146,10 +146,16 @@ class Project:
 
     # -- actions -----------------------------------------------------------------
 
-    def correct(self, page: str, line: int, word: int, text: str) -> dict:
+    def correct(self, page: str, line: int, word: int, text: str, span: tuple[int, int] | None = None,
+                box: list[int] | None = None) -> dict:
         from .review import correct
 
-        return correct(self.workspace, page, line, word, text)
+        return correct(self.workspace, page, line, word, text, span, box)
+
+    def add_word(self, page: str, box: list[int], text: str) -> dict:
+        from .review import add_word
+
+        return add_word(self.workspace, page, box, text)
 
     def stages(self) -> list[str]:
         return STAGES.get(self.settings.mode, STAGES_TRACED)
@@ -236,9 +242,10 @@ class Project:
                 out.append((code, n))
         return out
 
-    def train_model(self, progress: Progress | None = None) -> list[dict]:
+    def train_model(self, progress: Progress | None = None, mode: str = "auto") -> list[dict]:
         """Train the chosen languages' models from their pools (training.py): each language's
-        general model, and its typeface families'. Then find which reads this book best."""
+        general model, and its typeface families' (mode: "auto", a quick update when little is
+        new; "full", afresh). Then find which reads this book best."""
         from .train import TrainingError
         from .training import MIN_ITEMS, choose_for_workspace, train_language
 
@@ -248,7 +255,7 @@ class Project:
         if not plan:
             raise TrainingError(f"Nothing to train yet: each language needs at least {MIN_ITEMS} corrected lines or "
                                 "words in its pool. Correct more in Review (every project's corrections count).")
-        reports = [train_language(code, say) for code, _ in plan]
+        reports = [train_language(code, say, mode=mode) for code, _ in plan]
         chosen = choose_for_workspace(self.workspace, self.book(), self.languages(), say)
         for r in reports:
             r["chosen"] = chosen.get(r["code"])
@@ -354,10 +361,10 @@ class Project:
                 return True
         return bool(ocr) and min(p.stat().st_mtime for p in outs) < max(ocr)
 
-    def prepare_idml(self, progress: Progress | None = None) -> dict:
+    def prepare_idml(self, progress: Progress | None = None, match_fonts: bool = True) -> dict:
         """What an IDML export needs beyond the OCR: segmentation and glyph styles (for
-        slant, running heads and font matching), then the page layout and the fonts most
-        like the scan's. No glyph tracing. Returns {"layout", "matches"}."""
+        slant, running heads and font matching), then the page layout and (match_fonts, for
+        Facsimile) the fonts most like the scan's. No glyph tracing. Returns {"layout", "matches"}."""
         progress = progress or (lambda stage, msg: None)
         if not self.pages() or not any((self.workspace / "ocr").glob("*.ocr.json")):
             raise FileNotFoundError("no OCR yet; run the pipeline first")
@@ -380,6 +387,8 @@ class Project:
         progress("layout", "running")
         layout = build_layout(ws)
         progress("layout", f"{sum(len(p.blocks) for p in layout.pages)} text blocks on {len(layout.pages)} pages")
+        if not match_fonts:
+            return {"layout": layout, "matches": None}
         progress("fonts", "comparing the scan's letters with the installed fonts")
         matches = match_styles(ws, layout, progress=lambda msg: progress("fonts", msg))
         write_matches(ws / "cluster" / "font-matches.json", matches)

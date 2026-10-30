@@ -42,7 +42,7 @@ ectype-gui = "ectype.gui:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ectype = ["idmlkit/base/*.xml", "idmlkit/base/*/*.xml", "idmlkit/LICENSE-docx-to-idml"]
+ectype = ["idmlkit/base/*.xml", "idmlkit/base/*/*.xml", "idmlkit/LICENSE-docx-to-idml", "icons/*.png", "icons/*.ico"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

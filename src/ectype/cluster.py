@@ -45,6 +45,9 @@ ABOVE, BELOW = 1.9, 0.75  # canvas extent above/below the baseline, in x-heights
 ZONES = ("", "head", "foot")  # body text, running head, running foot
 
 
+VERBATIM_CONF = 60.0  # words read with less confidence are traced letter by letter, as printed
+
+
 @dataclass
 class Instance:
     page: str
@@ -64,6 +67,7 @@ class Instance:
     cluster: int = -1
     zone: str = ""  # "head" or "foot" for running heads and folios
     slant_unsure: bool = False  # its word's slant fell between upright and italic
+    verbatim: bool = False  # its word was read doubtfully: traced from its own ink, not averaged
 
 
 @dataclass
@@ -138,6 +142,7 @@ def collect(workspace: Path) -> list[Instance]:
                 italic=italic.get((u.line, u.word), False), conf=u.conf, crop=crop.astype(np.float32), crop_origin=(xa, ya),
                 zone=zones[k].get(u.line, ""),
                 slant_unsure=SLANT_UNSURE[0] <= (slants.get((u.line, u.word)) or 0.0) < SLANT_UNSURE[1],
+                verbatim=ocr.lines[u.line].words[u.word].conf < VERBATIM_CONF,
             ))
     refine_italics(instances)
     return instances
@@ -236,7 +241,9 @@ def _feature(inst: Instance, half_width: float) -> np.ndarray:
     """The instance on a canvas scaled to its x-height: rows from ABOVE x-heights over
     the baseline to BELOW under it, columns centred on the ink centroid."""
     s = FEATURE_ROWS / ((ABOVE + BELOW) * inst.xh)
-    cols = max(4, int(round(2 * half_width * inst.xh * s)))
+    # The same for every instance (the x-height cancels out): worked out without it, as
+    # rounding 2 * half_width * xh * s could land either side of .5 and the rows not stack.
+    cols = max(4, int(round(2 * half_width * FEATURE_ROWS / (ABOVE + BELOW))))
     ox, oy = inst.crop_origin
     m = np.array([[s, 0, (ox - (inst.centroid_x - half_width * inst.xh)) * s],
                   [0, s, (oy - (inst.baseline - ABOVE * inst.xh)) * s]], np.float32)
@@ -250,8 +257,12 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
     indices into `instances` and sets each instance's `cluster`."""
     rng = np.random.default_rng(seed)
     by_key: dict[tuple, list[int]] = defaultdict(list)
+    verbatim = []
     for i, inst in enumerate(instances):
-        by_key[(inst.text, inst.size_class, inst.italic, inst.zone)].append(i)
+        if inst.verbatim:
+            verbatim.append(i)
+        else:
+            by_key[(inst.text, inst.size_class, inst.italic, inst.zone)].append(i)
     groups: dict[tuple, list[list[int]]] = {}
     next_id = 0
     for key, idx in sorted(by_key.items(), key=lambda kv: (ZONES.index(kv[0][3]), kv[0][1], kv[0][2], kv[0][0])):
@@ -293,6 +304,13 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
             out.append(members_idx)
             next_id += 1
         groups[key] = out
+    # A doubtfully read letter is a glyph of its own, its own ink: averaged with the letters it
+    # was read as, a misreading would draw a letter the page doesn't have.
+    for i in verbatim:
+        inst = instances[i]
+        inst.cluster = next_id
+        groups.setdefault((inst.text, inst.size_class, inst.italic, inst.zone), []).append([i])
+        next_id += 1
     return groups
 
 

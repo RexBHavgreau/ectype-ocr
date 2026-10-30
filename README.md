@@ -41,7 +41,7 @@ Choose **Select PDF…** to pick the scanned book (a PDF, or page images), then 
 
 The app has four tabs:
 - **Spreads:** each scan page, upright, with its split line. Drag the red line to where the pages meet, untick "Split this spread" to keep a page whole, or rotate a page. "Split two-page spreads" in the toolbar sets the default for the whole document. Changes apply on the next Run.
-- **Review:** the scan and the output side by side, scrolling and zooming together (Ctrl+wheel). Words are boxed in red for low OCR confidence and orange where a glyph looks like another character. Click a word, type the fix, press Enter. Then press **Update after corrections**, which reruns only segmentation through the PDF.
+- **Review:** the scan and the output side by side, scrolling and zooming together (Ctrl+wheel). Words are boxed in red for low OCR confidence and orange where a glyph looks like another character. Click a word, type the fix, press Enter; saved unchanged, a flagged word is confirmed (green). Punctuation at a word's start or end has a box of its own, corrected apart from the letters. Where the OCR left a letter out of a word's box ("DMG." for "ZDMG."), drag the selected word's dashed edges over it and type the whole word; **Add a word** draws a box around a word the OCR missed altogether. Then press **Update after corrections**, which reruns only segmentation through the PDF (a stretched box takes the missed letter's ink into the word, so it is traced, not left in the background).
 - **Glyphs:** the averaged glyph sheets per style, and the probable misreadings. Double-click one to correct it.
 - **Log:** stage-by-stage progress.
 
@@ -53,7 +53,7 @@ Each export is a folder of its own, holding the IDML and its `Links`. IDML expor
 
 **Kraken** reads Greek, Hebrew and other scripts better than Tesseract does. Under **Languages → Add languages… → Kraken models**, download the Kraken engine once (an optional download that includes PyTorch), then pick a model from Kraken's repository on Zenodo, filtered by script and to printed text; each model's description says what it was trained on. A Kraken model is then an OCR language like the others: tick it with English and Tesseract reads the page, after which Kraken reads again each run of words in its script. Details: [`docs/idml.md`](docs/idml.md#kraken-greek-hebrew-and-other-scripts).
 
-**Train OCR model…** improves the OCR from book to book. Every correction you make in Review, in any project, goes into its language's training pool, with lines set from known text in your own fonts and lines of scanned editions matched to their text (no correcting by hand: `Train Hebrew and Greek.bat`). Each language has one model trained on its whole pool, checked on material kept aside and installed only if it does better; typeface families with enough material get models of their own beside it, and Ectype picks the one that reads each book best. **Training → Train from fonts…** does the font part from the app: choose the languages, then the fonts (those installed on the computer, and any folders you add), each shown with the chosen languages it supports. The Languages menu shows only languages. Details: [`docs/idml.md`](docs/idml.md#training-the-ocr-models).
+**Train OCR model…** improves the OCR from book to book. Every correction you make in Review, in any project, goes into its language's training pool, with lines set from known text in your own fonts and lines of scanned editions matched to their text (no correcting by hand: `Train Hebrew and Greek.bat`). Each language has one model trained on its whole pool, checked on material kept aside and installed only if it does better; typeface families with enough material get models of their own beside it, and Ectype picks the one that reads each book best. **Training → Train from fonts…** does the font part from the app: choose the languages, then the fonts (those installed on the computer, and any folders you add), each shown with the chosen languages it supports. Its **Transliteration** choice teaches the English model the letters of transliterated and accented words (ḥ ṭ ṣ š ʾ ʿ ā ê ə, Arabic and Akkadian ḫ ẓ ḍ ġ, IPA, ü ç ø č ō), which the stock model reads as plain letters. The Languages menu shows only languages. Details: [`docs/idml.md`](docs/idml.md#training-the-ocr-models).
 
 Everything the app does is also available on the command line.
 
@@ -71,7 +71,7 @@ This runs every stage below in one workspace: preprocess, ocr, segment, then eit
 ectype languages [--all]              # installed OCR languages (--all: and those that can be added)
 ectype languages --add grc lat heb    # download languages
 ectype train reports/work-young       # train the languages' models from their pools, with this project's corrections
-ectype train-synthetic --fonts C:\Fonts --script hebrew greek   # lines set from known text in your fonts
+ectype train-synthetic --fonts C:\Fonts --script hebrew greek transliteration   # lines set from known text in your fonts
 ectype train-scans letteris.pdf --text hebrew-bible --edition "Letteris 1866"   # a scanned edition, matched to its text
 ectype train-all                      # all of it, from training.ini (what Train Hebrew and Greek.bat runs)
 ectype models                         # the trained models and pools; --remove, --remove-pool, --remove-legacy

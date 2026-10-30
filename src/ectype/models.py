@@ -145,7 +145,9 @@ def _resolved(code: str, which: str) -> Resolved:
     general = e["general"]["file"]
     if which == "general":
         return Resolved(code, "kraken", general, None, which)
-    return Resolved(code, "kraken", general, e["families"][which]["pack"], which)
+    info = e["families"][which]
+    # A pack made over an earlier general model (kept by a quick update) is laid over that one.
+    return Resolved(code, "kraken", info.get("base") or general, info["pack"], which)
 
 
 def resolve(code: str, fingerprints: dict[str, list[float]] | None = None, chosen: dict[str, str] | None = None) -> Resolved:
