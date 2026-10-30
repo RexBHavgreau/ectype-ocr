@@ -19,6 +19,10 @@ LINES = ["Ἐν ἀρχῇ ἦν ὁ λόγος", "καὶ ὁ λόγος ἦν 
          "πάντα δι’ αὐτοῦ ἐγένετο", "ἐν αὐτῷ ζωὴ ἦν", "τὸ φῶς τῶν ἀνθρώπων", "ἡ σκοτία αὐτὸ οὐ κατέλαβεν"]
 
 
+PREFERRED = "10.5281/zenodo.21788405"  # PP-OCRv6 (small) multilingual
+TINY = "10.5281/zenodo.21788403"  # PP-OCRv6 (tiny) multilingual
+
+
 def run(engine: str, *args: str, stdin: str | None = None) -> object:
     out = subprocess.run([engine, *args], input=stdin, capture_output=True, text=True, encoding="utf-8")
     if out.returncode != 0:
@@ -32,9 +36,12 @@ def main() -> int:
     work.mkdir(parents=True, exist_ok=True)
     records = run(engine, "list")
     print(f"{len(records)} recognition models")
+    # The same model every time (the listing's order varies), so the check is repeatable:
+    # PP-OCRv6 small, which reads Greek well; else the first printed Greek model.
+    preferred = [r for r in records if r["doi"] == PREFERRED]
     greek = [r for r in records if "Grek" in (r.get("script") or [])]
     printed = [r for r in greek if "print" in (r.get("summary", "") + " ".join(r.get("keywords", []))).lower()]
-    record = (printed or greek or records)[0]
+    record = (preferred or printed or greek or records)[0]
     print("model:", record["doi"], record.get("summary"))
     got = run(engine, "get", record["doi"], str(work / "model"))
     model = got["model"]
@@ -74,6 +81,21 @@ def main() -> int:
     print("read with the pack:", packed)
     if "lines" not in packed:
         sys.exit("couldn't read with the pack")
+
+    # Not part of the check: training PP-OCRv6 tiny once crashed here without a message.
+    # Try it, and print what happens (the engine prints a trace if PyTorch crashes).
+    if any(r["doi"] == TINY for r in records):
+        try:
+            got = run(engine, "get", TINY, str(work / "tiny"))
+            out = subprocess.run([engine, "train", "-f", "path", "-i", got["model"], "--resize", "union",
+                                  "-o", str(work / "tiny-trained"), "-t", str(work / "train.txt"), "-e",
+                                  str(work / "eval.txt"), "-N", "1", "-q", "fixed"],
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
+            print(f"diagnostic: training PP-OCRv6 tiny ended with code {out.returncode}")
+            if out.returncode:
+                print(out.stderr[-6000:])
+        except SystemExit as exc:
+            print(f"diagnostic: {exc}")
     return 0
 
 

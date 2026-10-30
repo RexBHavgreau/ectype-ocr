@@ -11,12 +11,18 @@ on:
     paths: ["packaging/**", ".github/workflows/release.yml", "src/ectype/resources.py", "src/ectype/kraken_worker.py",
             "src/ectype/train.py", "src/ectype/training.py", "src/ectype/synthtrain.py"]
   workflow_dispatch:
+    inputs:
+      engine_for_release:
+        description: "Build only the Kraken engine and attach it to this existing release (e.g. v0.3.0)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
 jobs:
   installer:
+    if: github.event.inputs.engine_for_release == '' || github.event.inputs.engine_for_release == null
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +59,50 @@ jobs:
           Copy-Item "$src\tessdata\eng.traineddata", "$src\tessdata\osd.traineddata" "$dst\tessdata"
           Copy-Item "$src\tessdata\configs", "$src\tessdata\tessconfigs" "$dst\tessdata" -Recurse  # hocr lives here
           & "$dst\tesseract.exe" --version
+          # Tesseract's training tools must start with only their own folder and Windows' to draw
+          # on, as the app runs them. In this package two of them can't: its ICU needs a C++
+          # runtime entry point (0xC0000139) its own libstdc++ lacks, so a user's PC fails to add
+          # characters (Hebrew's points). Those tools then come from MSYS2's Tesseract, built
+          # against one runtime, into a "training" folder of their own with the libraries they use.
+          $full = (Resolve-Path $dst).Path
+          $sys = "$env:SystemRoot\System32"
+          $saved = $env:PATH
+          function Test-Tools($dir, $names) {
+            $env:PATH = "$dir;$full;$sys;$env:SystemRoot"
+            $bad = @()
+            foreach ($t in $names) {
+              if (-not (Test-Path "$dir\$t.exe")) { $bad += "$t (missing)"; continue }
+              & "$dir\$t.exe" --version *> $null
+              # 0xC0000135: a DLL not found; 0xC0000139: an entry point not found.
+              if ($LASTEXITCODE -eq -1073741515 -or $LASTEXITCODE -eq -1073741511) { $bad += "$t ($LASTEXITCODE)" }
+            }
+            $env:PATH = $saved
+            return $bad
+          }
+          $tools = "tesseract", "unicharset_extractor", "combine_lang_model", "merge_unicharsets", "lstmtraining", "combine_tessdata", "dawg2wordlist"
+          $bad = Test-Tools $full $tools
+          if (-not $bad) { Write-Host "Every tool starts with the package's own libraries."; exit 0 }
+          Write-Host "Can't start with the package's own libraries: $($bad -join ', ')"
+          $failing = @($bad | ForEach-Object { ($_ -split ' ')[0] })
+          if ($failing -contains "tesseract" -or $failing -contains "lstmtraining") { Write-Host "::error::Tesseract itself can't start"; exit 1 }
+          $env:MSYSTEM = "UCRT64"
+          $env:CHERE_INVOKING = "1"
+          $bash = "C:\msys64\usr\bin\bash.exe"
+          & $bash -lc "pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-tesseract-ocr" | Select-Object -Last 3
+          $training = "$full\training"
+          New-Item -ItemType Directory -Force $training | Out-Null
+          foreach ($t in $failing) {
+            $exe = "C:\msys64\ucrt64\bin\$t.exe"
+            if (-not (Test-Path $exe)) { Write-Host "::error::MSYS2's Tesseract has no $t.exe"; exit 1 }
+            Copy-Item $exe $training -Force
+            $dlls = & $bash -lc "ldd /ucrt64/bin/$t.exe" | ForEach-Object { if ($_ -match '=> (/ucrt64/bin/\S+\.dll)') { $Matches[1] } }
+            foreach ($d in $dlls) { Copy-Item ("C:\msys64" + ($d -replace '/', '\')) $training -Force }
+          }
+          Write-Host "Training tools from MSYS2: $($failing -join ', '); with $((Get-ChildItem $training -Filter *.dll).Count) libraries"
+          $bad = Test-Tools $training $failing
+          if ($bad) { Write-Host "::error::MSYS2's training tools can't start either: $($bad -join ', ')"; exit 1 }
+          Copy-Item "C:\msys64\ucrt64\share\licenses\tesseract-ocr" "$training\licenses" -Recurse -ErrorAction SilentlyContinue
+          Write-Host "Every tool starts."
           exit 0
 
       - name: Bundle EB Garamond
@@ -89,6 +139,11 @@ jobs:
           Copy-Item C:\Windows\Fonts\times.ttf, C:\Windows\Fonts\arial.ttf, C:\Windows\Fonts\georgia.ttf smoke\fonts
           & $ectype train-synthetic --fonts smoke\fonts --script hebrew greek --lines 20
           & $ectype train --lang grc --iterations 40
+          # Hebrew needs its vowel points added to the model, by the training tools that once
+          # couldn't start on users' PCs.
+          $heb = & $ectype train --lang heb --iterations 40 2>&1 | Out-String
+          Write-Host $heb
+          if ($heb -match "couldn't add those characters|Too few images") { Write-Host "::error::Training Hebrew couldn't add its points"; exit 1 }
           & $ectype models
           # Training the OCR model needs Tesseract's training tools inside the app.
           $tools = Get-ChildItem -Recurse "dist\Ectype OCR" -Include lstmtraining.exe, combine_tessdata.exe, unicharset_extractor.exe, merge_unicharsets.exe, combine_lang_model.exe, dawg2wordlist.exe | Select-Object -ExpandProperty Name
@@ -125,8 +180,11 @@ jobs:
       - name: Version from the tag
         id: version
         shell: bash
+        env:
+          ENGINE_FOR: ${{ github.event.inputs.engine_for_release }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          if [[ -n "$ENGINE_FOR" ]]; then v="${ENGINE_FOR#v}"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Python packages (PyTorch for the CPU, then Kraken)
@@ -162,7 +220,8 @@ jobs:
           path: Ectype-OCR-Kraken-*-win64.zip
 
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.engine_for_release != ''
         uses: softprops/action-gh-release@v2
         with:
           files: Ectype-OCR-Kraken-*-win64.zip
+          tag_name: ${{ github.event.inputs.engine_for_release || github.ref_name }}

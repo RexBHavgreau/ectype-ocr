@@ -141,6 +141,8 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
 
     for name in ("FreeSerif", "DejaVu Sans", "Liberation Serif"):
         shutil.copy(find_font(name), fonts)
+    (fonts / "copy").mkdir()
+    shutil.copy(find_font("FreeSerif"), fonts / "copy")  # the same font twice counts once
     monkeypatch.setattr(texts, "load", lambda source, progress=None: [
         "Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν ὁ λόγος.",
         "οὗτος ἦν ἐν ἀρχῇ πρὸς τὸν θεόν. πάντα δι’ αὐτοῦ ἐγένετο, καὶ χωρὶς αὐτοῦ ἐγένετο οὐδὲ ἕν ὃ γέγονεν."])

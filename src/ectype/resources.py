@@ -96,12 +96,32 @@ def tessdata_dir() -> Path | None:
 
 def tesseract_env() -> dict[str, str] | None:
     """Environment for running Tesseract: point it at the language folder in use, when
-    that isn't the one it would find by itself."""
+    that isn't the one it would find by itself. In the Windows app, Tesseract and its training
+    tools draw libraries only from their own folder and Windows': another program's copy of
+    the C++ runtime on the user's PATH, incompatible, stopped the training tools from starting."""
     folder = tessdata_dir()
     bundle = bundle_dir()
+    env = None
     if folder is not None and (folder == user_tessdata_dir() or bundle is not None):
-        return {**os.environ, "TESSDATA_PREFIX": str(folder)}
-    return None
+        env = {**os.environ, "TESSDATA_PREFIX": str(folder)}
+    cmd = tesseract_cmd()
+    if sys.platform == "win32" and bundle is not None and cmd and Path(cmd).parent.is_relative_to(bundle):
+        root = os.environ.get("SystemRoot", r"C:\Windows")
+        env = {**(env or os.environ), "PATH": os.pathsep.join([str(Path(cmd).parent), rf"{root}\System32", root])}
+    return env
+
+
+def quiet_windows_errors() -> None:
+    """No Windows message boxes from a program the app starts that can't load a library: it
+    fails with an exit code instead, which the app reports (the setting is inherited)."""
+    if sys.platform == "win32":
+        import ctypes
+
+        SEM_FAILCRITICALERRORS, SEM_NOGPFAULTERRORBOX, SEM_NOOPENFILEERRORBOX = 0x0001, 0x0002, 0x8000
+        try:
+            ctypes.windll.kernel32.SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX)
+        except (AttributeError, OSError):
+            pass
 
 
 def subprocess_flags() -> dict:

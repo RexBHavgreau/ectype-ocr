@@ -280,6 +280,9 @@ def train(args: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    import faulthandler
+
+    faulthandler.enable()  # a crash in PyTorch's own code still leaves a trace on stderr
     # No compiling of the network (torch.compile): it needs a C++ compiler, which users don't have.
     os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
     _utf8_by_default()

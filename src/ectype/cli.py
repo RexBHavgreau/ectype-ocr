@@ -628,6 +628,9 @@ def main(argv: list[str] | None = None) -> int:
     import multiprocessing
 
     multiprocessing.freeze_support()  # the packaged app's worker processes start through here
+    from .resources import quiet_windows_errors
+
+    quiet_windows_errors()
     for stream in (sys.stdout, sys.stderr):  # a Windows console may not have every character we print
         if stream is not None and hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
