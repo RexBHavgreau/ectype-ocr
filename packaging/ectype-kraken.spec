@@ -39,5 +39,5 @@ a = Analysis([str(here / "ectype_kraken.py")], pathex=[str(root / "src")], datas
 # UTF-8 mode: htrmopo reads its data files without naming an encoding, which fails in Windows'
 # own code page.
 exe = EXE(PYZ(a.pure), a.scripts, [("X utf8_mode=1", None, "OPTION")], exclude_binaries=True, name="ectype-kraken",
-          console=True, upx=False)
+          console=True, upx=False, icon=str(root / "assets" / "ectype-icon" / "ectype.ico"))
 COLLECT(exe, a.binaries, a.datas, name="Ectype OCR Kraken", upx=False)

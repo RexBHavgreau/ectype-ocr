@@ -57,7 +57,11 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   a damaged installed font no longer stops the export.
 - *Smaller.* No false "add Hindi/Arabic" offers; work doesn't switch to the Log tab; a known
   text that can't be downloaded leaves only its language unavailable.
-- Not in 0.5.0, though planned for it: the Ectype icon (see Planned).
+- *The Ectype icon* (`assets/ectype-icon` is the master; the PNGs 16–512 and the .ico are
+  copied to `src/ectype/icons` as package data): both exes and the Kraken engine's
+  (PyInstaller `icon=`), the window and taskbar (`gui.app_icon`, AppUserModelID
+  `Ectype.EctypeOCR`), the installer (`SetupIconFile`), its uninstall entry (the exe's icon),
+  and the Train Hebrew and Greek shortcut. Changing the icon: replace both copies.
 
 **0.4.0**: Train from fonts in the app; the updater installs over the existing copy wherever it
 is; the training pool keeps lines set again.
@@ -213,10 +217,6 @@ is; the training pool keeps lines set again.
 
 ## Planned
 
-- **0.5.0: the Ectype icon** from `assets/ectype-icon` (`ectype.ico` 16–256 px, PNGs 16–1024, SVG):
-  the exe (PyInstaller `icon=`), the app window and taskbar (Qt window icon; Windows
-  AppUserModelID), the installer and its uninstall entry (Inno `SetupIconFile`), and the Kraken
-  engine exe. Not before 0.5.0.
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Faster "Update after corrections"**: keep per-page cluster instances (collect), composites
   of clusters whose members are unchanged, groupings of letters whose instances are unchanged,

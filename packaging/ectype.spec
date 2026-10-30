@@ -30,6 +30,10 @@ for env, target in (("ECTYPE_TESSERACT_DIR", "tesseract"), ("ECTYPE_FONTS_DIR", 
         # Relative to where pyinstaller runs, not to this file (PyInstaller's default).
         datas.append((str(Path(os.environ[env]).resolve()), target))
 
+# The app's window icon, at every size (the exes take the .ico below).
+datas.append((str(root / "src" / "ectype" / "icons"), "ectype/icons"))
+icon = str(root / "assets" / "ectype-icon" / "ectype.ico")
+
 hidden = collect_submodules("ectype")
 excludes = ["tkinter", "matplotlib", "IPython", "pytest", "ots", "pandas", "PySide6.QtWebEngineCore", "PySide6.Qt3DCore"]
 
@@ -42,6 +46,7 @@ def analysis(script):
 gui_a = analysis("ectype_gui.py")
 cli_a = analysis("ectype_cli.py")
 gui_exe = EXE(PYZ(gui_a.pure), gui_a.scripts, [], exclude_binaries=True, name="Ectype OCR", console=False,
-              upx=False)
-cli_exe = EXE(PYZ(cli_a.pure), cli_a.scripts, [], exclude_binaries=True, name="ectype", console=True, upx=False)
+              upx=False, icon=icon)
+cli_exe = EXE(PYZ(cli_a.pure), cli_a.scripts, [], exclude_binaries=True, name="ectype", console=True, upx=False,
+              icon=icon)
 COLLECT(gui_exe, cli_exe, gui_a.binaries, gui_a.datas, cli_a.binaries, cli_a.datas, name="Ectype OCR", upx=False)

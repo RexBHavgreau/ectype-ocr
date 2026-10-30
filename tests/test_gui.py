@@ -254,6 +254,17 @@ def test_progress_window_during_a_run(project):
     w.close()
 
 
+def test_the_ectype_icon():
+    """The app's icon, at every size it comes in, from the package (as the installed app has it)."""
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import app_icon
+
+    QApplication.instance() or QApplication([])
+    icon = app_icon()
+    assert not icon.isNull() and {s.width() for s in icon.availableSizes()} >= {16, 32, 48, 256}
+
+
 def test_work_leaves_the_tab_in_view(project):
     """Starting work shows its progress window; the Log tab isn't brought forward."""
     from PySide6.QtWidgets import QApplication

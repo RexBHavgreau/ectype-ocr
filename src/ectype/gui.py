@@ -18,7 +18,8 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QImage, QPainterPath, QPainterPathStroker, QPen, QPixmap, QTransform
+from PySide6.QtGui import (QAction, QBrush, QColor, QIcon, QImage, QPainterPath, QPainterPathStroker, QPen, QPixmap,
+                           QTransform)
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
@@ -2373,6 +2374,17 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Saved {path}")
 
 
+APP_ID = "Ectype.EctypeOCR"  # Windows groups the app's windows on the taskbar under this, with its icon
+
+
+def app_icon() -> QIcon:
+    """The Ectype icon at every size it comes in (src/ectype/icons, from assets/ectype-icon)."""
+    icon = QIcon()
+    for png in sorted((Path(__file__).parent / "icons").glob("ectype-*.png")):
+        icon.addFile(str(png))
+    return icon
+
+
 def main(argv: list[str] | None = None) -> int:
     import multiprocessing
 
@@ -2380,8 +2392,17 @@ def main(argv: list[str] | None = None) -> int:
     from .resources import quiet_windows_errors
 
     quiet_windows_errors()
+    if sys.platform == "win32":
+        # Its own taskbar entry and icon, not Python's (or PyInstaller's launcher's).
+        import ctypes
+
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        except (AttributeError, OSError):
+            pass
     argv = sys.argv[1:] if argv is None else argv
     app = QApplication.instance() or QApplication(sys.argv[:1])
+    app.setWindowIcon(app_icon())
     project = None
     if argv:
         target = Path(argv[0])
