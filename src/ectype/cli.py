@@ -138,7 +138,7 @@ def cmd_traced(args: argparse.Namespace) -> int:
     from .traced import traced_workspace
 
     ws = Path(args.workspace)
-    s = traced_workspace(ws, out_name=args.name, background_dpi=args.background_dpi, min_word_conf=args.min_conf)
+    s = traced_workspace(ws, out_name=args.name, background_dpi=args.background_dpi)
     w = s["within_1px"] or {}
     print(f"{ws / 'traced' / s['pdf']}: {s['bytes']:,} bytes ({s['bytes_per_page']:,} per page); "
           f"{s['words']} words as text, {s['fallback_words']} left to the image")
@@ -364,7 +364,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         steps += [
             ("cluster", cmd_cluster, argparse.Namespace(workspace=str(ws), threshold=0.25)),
             ("fonts", cmd_fonts, argparse.Namespace(workspace=str(ws), family=None, threshold=0.45)),
-            ("traced", cmd_traced, argparse.Namespace(workspace=str(ws), name=args.name, background_dpi=150, min_conf=60.0)),
+            ("traced", cmd_traced, argparse.Namespace(workspace=str(ws), name=args.name, background_dpi=150)),
         ]
     for name, fn, ns in steps:
         print(f"== {name}")
@@ -394,7 +394,7 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
         return cmd_substitute(argparse.Namespace(workspace=ws, font=args.font, name=args.name, background_dpi=150))
     cmd_cluster(argparse.Namespace(workspace=ws, threshold=0.25))
     cmd_fonts(argparse.Namespace(workspace=ws, family=None, threshold=0.45))
-    return cmd_traced(argparse.Namespace(workspace=ws, name=args.name, background_dpi=150, min_conf=60.0))
+    return cmd_traced(argparse.Namespace(workspace=ws, name=args.name, background_dpi=150))
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
@@ -510,7 +510,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("workspace")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
     p.add_argument("--background-dpi", type=float, default=150)
-    p.add_argument("--min-conf", type=float, default=60.0, help="words below this OCR confidence stay as image")
     p.set_defaults(func=cmd_traced)
 
     p = sub.add_parser("run", help="every stage, scan to PDF")

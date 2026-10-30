@@ -4,9 +4,12 @@ Every glyph unit is drawn with the glyph synthesized from its own cluster, in it
 style's font, over the scan with that text erased. Glyphs are placed one by one:
 each word starts at its first unit's ink, and a TJ adjustment before every later
 glyph puts it exactly where that instance was printed, so kerning and any
-irregular spacing in the original survive. Words the OCR is unsure of, or whose
-units have no glyph, fall back to the scan image: their ink is left in the
-background and their text is laid over it invisibly, so it can still be searched.
+irregular spacing in the original survive. Every word is drawn as type: a word the
+OCR is unsure of has glyphs traced from its own ink, letter by letter (`cluster`,
+VERBATIM_CONF), not averaged with the letters it was read as, so a misreading can't
+show a letter the page doesn't have. Characters with no ink of their own are kept in
+the word's text (ActualText), so it copies whole. Only a word with no glyph at all
+stays in the image, its text laid over it invisibly.
 """
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ def _load_fonts(workspace: Path):
     return fonts, glyph_of
 
 
-def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyph_of: dict, min_word_conf: float):
+def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyph_of: dict):
     """Glyph runs for one page, the units drawn as text, and the words left to the image."""
     base = fit_baselines(seg, ocr)
     xhs, page_xh = line_x_heights(seg)
@@ -67,23 +70,26 @@ def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyp
             glyphs = [glyph_of.get(cluster_of.get(u.id)) if u.box else None for u in units]
             if not units:
                 continue
-            ok = all(glyphs) and word.conf >= min_word_conf
+            whole = all(glyphs)  # else: drawn without the characters that have no glyph
+            pairs = [(u, g) for u, g in zip(units, glyphs) if g]
+            ok = bool(pairs)
             size = xhs.get(li, page_xh) * UNITS_PER_EM / XH_UNITS
             s = size / UNITS_PER_EM
             a, b = base.get(li, (units[0].box[3] if units[0].box else word.box[3], 0.0))
             ink = [min(u.box[0] for u in units if u.box), min(u.box[1] for u in units if u.box),
                    max(u.box[2] for u in units if u.box), max(u.box[3] for u in units if u.box)] if any(u.box for u in units) else list(word.box)
             y = a + b * (ink[0] + ink[2]) / 2
-            if not all(glyphs):
-                fallback.append({"text": word.text, "conf": word.conf, "reason": "unit without a glyph"})
+            if not ok:
+                fallback.append({"text": word.text, "conf": word.conf, "reason": "no glyph"})
                 continue
+            units = [u for u, _ in pairs]
             # One run per stretch of glyphs in the same font (punctuation can sit in another style).
             current = None
             word_runs = len(runs)
-            for u, (key, cid, ink_left, advance) in zip(units, glyphs):
+            for u, (key, cid, ink_left, advance) in pairs:
                 origin = u.box[0] - ink_left * s
                 if current is None or current.font != key:
-                    current = GlyphRun(key, size, origin, y, [cid], adjust=[], invisible=not ok)
+                    current = GlyphRun(key, size, origin, y, [cid], adjust=[])
                     current._next = origin + advance * s  # type: ignore[attr-defined]
                     runs.append(current)
                 else:
@@ -93,22 +99,19 @@ def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyp
             if wi < len(line.words) - 1 and current is not None:
                 current.cids.append(1)  # the space glyph, so copied text has word breaks
                 current.adjust.append(0.0)
-            if rtl and len(runs) > word_runs:
+            if (rtl or not whole) and len(runs) > word_runs:
                 runs[word_runs].actual_text = word.text + (" " if wi < len(line.words) - 1 else "")
                 for r in runs[word_runs + 1:]:
                     r.actual_text = ""
-            if ok:
-                drawn += units
-                placed.append(PlacedWord(li, wi, word.text, ink, current, ""))
-            else:
-                fallback.append({"text": word.text, "conf": word.conf, "reason": "low OCR confidence"})
+            drawn += units
+            placed.append(PlacedWord(li, wi, word.text, ink, current, ""))
     for r in runs:
         r.__dict__.pop("_next", None)
     return runs, drawn, placed, fallback
 
 
 def traced_workspace(workspace: Path, out_name: str | None = None, background_dpi: float = 150,
-                     min_word_conf: float = 60.0, on_page=None) -> dict:
+                     on_page=None) -> dict:
     workspace = Path(workspace)
     out = workspace / "traced"
     out.mkdir(parents=True, exist_ok=True)
@@ -140,7 +143,7 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
         seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
         ocr = OcrPage.from_json(json.loads(ocr_path.read_text(encoding="utf-8")))
         labels = cv2.imread(str(workspace / "segment" / f"{name}.labels.png"), cv2.IMREAD_UNCHANGED).astype(np.int32)
-        runs, drawn, placed, fallback = place_page(seg, ocr, cluster_by_page.get(name, {}), glyph_of, min_word_conf)
+        runs, drawn, placed, fallback = place_page(seg, ocr, cluster_by_page.get(name, {}), glyph_of)
         drawn_ids = {u.id for u in drawn}
         drawn_seg = Segmentation(seg.size_px, seg.components, [u for u in seg.units if u.id in drawn_ids], seg.unassigned)
         sizes = [line.x_size for line in ocr.lines if line.x_size]
@@ -185,7 +188,6 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
         "bytes_per_page": round(total / max(1, len(rows))),
         "font_bytes": sum(len(fonts[k].program) for k in used),
         "fonts": len(used),
-        "min_word_conf": min_word_conf,
         "fallback_words": sum(len(r.get("fallback", [])) for r in rows),
         "words": sum(r["words"] for r in rows),
         "pages": rows,
@@ -205,7 +207,7 @@ def _write_html(s: dict, path: Path) -> None:
         f"<p class=\"muted\"><a href=\"{report.esc(s['pdf'])}\">{report.esc(s['pdf'])}</a> · {report.human_bytes(s['bytes'])} "
         f"({report.human_bytes(s['bytes_per_page'])} per page; fonts {report.human_bytes(s['font_bytes'])} in {s['fonts']} fonts). "
         f"{s['words']} words drawn as text; {s['fallback_words']} left to the image with invisible text "
-        f"(OCR confidence under {s['min_word_conf']:g}, or a unit without a glyph). Overlays: text layer in red over the scan.</p>",
+        f"(no glyph at all). Overlays: text layer in red over the scan.</p>",
         f"<p>Words whose rendered ink lands within 1 px of the scan's: left {100 * w1.get('left', 0):.1f}%, right {100 * w1.get('right', 0):.1f}%, "
         f"top {100 * w1.get('top', 0):.1f}%, bottom {100 * w1.get('bottom', 0):.1f}%.</p>" if w1 else "",
     ]

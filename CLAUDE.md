@@ -120,6 +120,11 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   background. Letters that stay keep their boxes (`review.place_chars`). Log entries now carry
   the word's box ("resized", "added"); adding a word shifts the line's later entries and word
   training images along one (`_make_room`).
+- Traced mode draws every word as type (0.5.0; Beaux: "faking it is not the answer"). A word
+  read with confidence under 60 (`cluster.VERBATIM_CONF`) has each letter traced from its own
+  ink, a cluster of its own, so a misreading can't draw a letter the page lacks; characters
+  with no ink stay in the text via ActualText. Only a word with no glyph at all stays image
+  (Treatise: 329 image words -> 30; PDF 1.55 -> 1.71 MB). `--min-conf` is gone.
 - Training from fonts is in the app (Training → Train from fonts…) as well as the batch file
   `Train Hebrew and Greek.bat` (`ectype train-all`).
 - Transliteration is a choice in Train from fonts that trains `eng` (not a language of its
