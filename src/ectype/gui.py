@@ -17,7 +17,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QImage, QPainterPath, QPainterPathStroker, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -520,6 +520,85 @@ class BoxEditor(QGraphicsRectItem):
         self.edges = ""
 
 
+class CharacterGrid(QListWidget):
+    """Characters in a wrapping grid; a click sends the one clicked (`picked`)."""
+
+    picked = Signal(str)
+
+    def __init__(self, cell: int = 44, parent=None):
+        super().__init__(parent)
+        self.setViewMode(QListWidget.ViewMode.IconMode)
+        self.setFlow(QListWidget.Flow.LeftToRight)
+        self.setWrapping(True)
+        self.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.setMovement(QListWidget.Movement.Static)
+        self.setUniformItemSizes(True)
+        self.setGridSize(QSize(cell, cell))
+        font = self.font()
+        font.setPointSizeF(max(15.0, font.pointSizeF() * 1.5))
+        self.setFont(font)
+        self.itemClicked.connect(lambda item: self.picked.emit(item.data(Qt.ItemDataRole.UserRole)))
+
+    def show_chars(self, chars: list[str]) -> None:
+        from . import characters
+
+        self.clear()
+        for shown in chars:
+            item = QListWidgetItem(shown)
+            item.setData(Qt.ItemDataRole.UserRole, shown)
+            item.setToolTip(characters.name(shown))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.addItem(item)
+
+
+class CharacterPane(QDialog):
+    """A floating window of special characters (superscripts, transliteration, Hebrew points
+    and accents...), in sets or found by name; a click inserts one where the cursor is in
+    Review's correction box. It stays open beside the scan, like InDesign's Glyphs panel."""
+
+    picked = Signal(str)
+
+    def __init__(self, parent=None):
+        from . import characters
+
+        super().__init__(parent)
+        self.setWindowTitle("Special characters")
+        self.setWindowFlag(Qt.WindowType.Tool)
+        self.setModal(False)
+        self.resize(460, 420)
+        layout = QVBoxLayout(self)
+        row = QHBoxLayout()
+        self.sets = QComboBox()
+        self.sets.addItems(["Recently used", *characters.SETS])
+        self.sets.currentIndexChanged.connect(self._show)
+        row.addWidget(self.sets)
+        self.find = QLineEdit()
+        self.find.setPlaceholderText("Find by name: macron, dot below, superscript two…")
+        self.find.textChanged.connect(self._show)
+        row.addWidget(self.find, 1)
+        layout.addLayout(row)
+        self.grid = CharacterGrid()
+        self.grid.picked.connect(self.picked.emit)
+        layout.addWidget(self.grid, 1)
+        self.name = QLabel("Point at a character to see its name; click it to insert it.")
+        layout.addWidget(self.name)
+        self.grid.itemEntered.connect(lambda item: self.name.setText(item.toolTip()))
+        self.grid.setMouseTracking(True)
+        self.sets.setCurrentIndex(0 if characters.recent() else 1)
+        self._show()
+
+    def _show(self, *_) -> None:
+        from . import characters
+
+        query = self.find.text().strip()
+        if query:
+            self.grid.show_chars(characters.search(query))
+        elif self.sets.currentIndex() == 0:
+            self.grid.show_chars(characters.recent())
+        else:
+            self.grid.show_chars(characters.SETS[self.sets.currentText()])
+
+
 class ReviewTab(QWidget):
     message = Signal(str)
 
@@ -537,6 +616,14 @@ class ReviewTab(QWidget):
         self.edit.returnPressed.connect(self.save)
         save = QPushButton("Save")
         save.clicked.connect(self.save)
+        self.special = QToolButton()
+        self.special.setText("Ω")
+        self.special.setToolTip("Insert a special character: the ones used last, or the character pane")
+        self.special.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.special_menu = QMenu(self.special)
+        self.special_menu.aboutToShow.connect(self._fill_special_menu)
+        self.special.setMenu(self.special_menu)
+        self.pane: CharacterPane | None = None
         add = QPushButton("Add a word")
         add.setToolTip("Draw a box around a word the OCR missed, then type it and Save")
         add.clicked.connect(self.start_adding)
@@ -546,6 +633,7 @@ class ReviewTab(QWidget):
                         '<span style="color:#1a9850">■ corrected or confirmed</span>')
         bar = QHBoxLayout()
         bar.addWidget(self.edit, 1)
+        bar.addWidget(self.special)
         bar.addWidget(save)
         bar.addWidget(add)
         bar.addWidget(self.info, 1)
@@ -639,6 +727,41 @@ class ReviewTab(QWidget):
                     status = ("fixed" if (li, wi) in fixed else "suspect" if (li, wi) in flagged
                               else "low" if w.conf < LOW_CONF else "plain")
                     self._add_word(li, wi, w, status)
+
+    def _fill_special_menu(self) -> None:
+        """The characters used last, as a grid, and the way to the character pane."""
+        from . import characters
+
+        self.special_menu.clear()
+        recent = characters.recent()
+        if recent:
+            grid = CharacterGrid(cell=40)
+            grid.show_chars(recent)
+            grid.setFixedSize(8 * 40 + 8, 40 * ((len(recent) + 7) // 8) + 8)
+            grid.picked.connect(lambda c: (self.special_menu.close(), self.insert_char(c)))
+            holder = QWidgetAction(self.special_menu)
+            holder.setDefaultWidget(grid)
+            self.special_menu.addAction(holder)
+            self.special_menu.addSeparator()
+        else:
+            self.special_menu.addAction("No characters used yet").setEnabled(False)
+        self.special_menu.addAction("More characters…", self.show_pane)
+
+    def show_pane(self) -> None:
+        if self.pane is None:
+            self.pane = CharacterPane(self)
+            self.pane.picked.connect(self.insert_char)
+        self.pane.show()
+        self.pane.raise_()
+
+    def insert_char(self, shown: str) -> None:
+        """A special character typed where the cursor is in the correction box (a combining mark
+        after the letter before it), and remembered as used."""
+        from . import characters
+
+        self.edit.insert(characters.as_typed(shown))
+        self.edit.setFocus()
+        characters.remember(shown)
 
     def _drop_editor(self) -> None:
         if self.editor is not None:

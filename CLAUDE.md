@@ -125,6 +125,12 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   ink, a cluster of its own, so a misreading can't draw a letter the page lacks; characters
   with no ink stay in the text via ActualText. Only a word with no glyph at all stays image
   (Treatise: 329 image words -> 30; PDF 1.55 -> 1.71 MB). `--min-conf` is gone.
+- Review's special characters (0.5.0, Beaux's design): an Ω button beside the correction box
+  opens the characters used last (`characters.recent`, `characters.json` in the user folder)
+  and "More characters…", a floating, non-modal `CharacterPane` (sets: superscripts,
+  transliteration, accented Latin, combining marks, IPA, Greek, Hebrew points, Hebrew accents,
+  punctuation; search by Unicode name). A click inserts at the cursor; combining marks are
+  shown on ◌ and inserted without it.
 - Training from fonts is in the app (Training → Train from fonts…) as well as the batch file
   `Train Hebrew and Greek.bat` (`ectype train-all`).
 - Transliteration is a choice in Train from fonts that trains `eng` (not a language of its

@@ -265,3 +265,40 @@ def test_work_leaves_the_tab_in_view(project):
             break
     assert done == [1] and "— A task —" in w.log.toPlainText()
     w.close()
+
+
+def test_special_characters_go_into_the_correction(project, tmp_path, monkeypatch):
+    """The character pane and the menu of characters used last insert at the cursor; a
+    combining mark goes after the letter before it."""
+    from PySide6.QtWidgets import QApplication
+
+    from ectype import characters
+    from ectype.gui import MainWindow
+
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    review = w.review
+    review.edit.setText("Noomi")
+    review.edit.setCursorPosition(2)
+    review.show_pane()
+    review.pane.find.setText("modifier letter left half ring")
+    assert review.pane.grid.count() >= 1
+    review.pane.grid.picked.emit(review.pane.grid.item(0).data(gui_role()))
+    assert review.edit.text() == "Noʿomi"
+    review.edit.setCursorPosition(4)
+    review.insert_char("◌̆")  # a breve over the o
+    assert review.edit.text() == "Noʿŏmi".replace("ŏ", "ŏ") and characters.recent()[:2] == ["◌̆", "ʿ"]
+    review._fill_special_menu()
+    assert [a.text() for a in review.special_menu.actions()][-1] == "More characters…"
+    review.pane.find.clear()
+    review.pane.sets.setCurrentText("Superscripts")
+    assert review.pane.grid.item(0).text() == "¹"
+    review.pane.close()
+    w.close()
+
+
+def gui_role():
+    from PySide6.QtCore import Qt
+
+    return Qt.ItemDataRole.UserRole
