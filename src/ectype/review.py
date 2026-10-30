@@ -208,7 +208,7 @@ async function save() {
   const j = await r.json();
   if (j.error) { info.textContent = 'Not saved: ' + j.error; return; }
   cur.dataset.t = j.new; cur.title = j.new; cur.className = 'w fixed';
-  info.textContent = 'Saved: ' + j.old + ' → ' + j.new;
+  info.textContent = j.old === j.new ? 'Confirmed: ' + j.new : 'Saved: ' + j.old + ' → ' + j.new;
 }
 ed.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
 document.getElementById('s').addEventListener('click', save);
@@ -219,7 +219,7 @@ document.getElementById('s').addEventListener('click', save);
         f'<span id="info" class="muted"></span>'
         f'<div class="legend muted"><span style="color:#dc2828">red: low OCR confidence</span>'
         f'<span style="color:#e8890c">orange: glyph looks like another character</span>'
-        f'<span style="color:#1a9850">green: corrected</span></div></div>'
+        f'<span style="color:#1a9850">green: corrected or confirmed</span></div></div>'
         f'<div class="page"><img src="/img/{html.escape(page)}.png" alt="page {html.escape(page)}">{"".join(boxes)}</div>'
         f"<script>const PAGE = {json.dumps(page)};{script}</script>"
     )

@@ -401,14 +401,14 @@ class ReviewTab(QWidget):
         self.list.setMaximumWidth(200)
         self.list.currentRowChanged.connect(self.show_page)
         self.edit = QLineEdit()
-        self.edit.setPlaceholderText("Click a word on the scan to correct it")
+        self.edit.setPlaceholderText("Click a word on the scan to correct it (or Save it unchanged to confirm it)")
         self.edit.returnPressed.connect(self.save)
         save = QPushButton("Save")
         save.clicked.connect(self.save)
         self.info = QLabel()
         legend = QLabel('<span style="color:#dc2828">■ low OCR confidence</span> &nbsp; '
                         '<span style="color:#e8890c">■ glyph looks like another character</span> &nbsp; '
-                        '<span style="color:#1a9850">■ corrected</span>')
+                        '<span style="color:#1a9850">■ corrected or confirmed</span>')
         bar = QHBoxLayout()
         bar.addWidget(self.edit, 1)
         bar.addWidget(save)
@@ -527,14 +527,19 @@ class ReviewTab(QWidget):
         if self.selected is None or self.page is None:
             return
         text = self.edit.text().strip()
-        if not text or text == self.selected.text:
+        if not text:
             return
+        # The same text saved confirms a flagged word as right: it turns green and its line
+        # becomes training data, as a correction does, but the PDF needs no rebuilding.
         result = self.project.correct(self.page, self.selected.line, self.selected.word, text)
         self.selected.text = result["new"]
         self.selected.setToolTip(result["new"])
         self.selected.set_status("fixed")
-        self.info.setText(f"Saved: {result['old']} → {result['new']}")
-        self.message.emit("Correction saved. Press “Update after corrections” to rebuild the PDF.")
+        if result["old"] == result["new"]:
+            self.info.setText(f"Confirmed: {result['new']}")
+        else:
+            self.info.setText(f"Saved: {result['old']} → {result['new']}")
+            self.message.emit("Correction saved. Press “Update after corrections” to rebuild the PDF.")
 
 
 # ---------------------------------------------------------------------------
