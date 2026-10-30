@@ -11,7 +11,9 @@ are matched against (`synthtrain.py`, `align.py`).
 
 Accents are left out: Hebrew cantillation marks (and meteg, paseq and the upper and lower
 dots) are removed, keeping consonants, vowel points, dagesh, shin and sin dots, maqaf and
-sof pasuq; Greek keeps its accents and breathings, which are part of its spelling.
+sof pasuq; Greek keeps its accents and breathings, which are part of its spelling. Lines set
+for training ask for them (`load(accents=True)`): grammars and editions print Hebrew with
+its accents, or with ֫ over a stress before the last syllable (`grammar_style`).
 Downloads are kept in the user's folder.
 """
 
@@ -87,8 +89,10 @@ def _greek_book(txt: str) -> list[str]:
     return out
 
 
-def load(source: str, progress: Callable[[str], None] | None = None) -> list[str]:
-    """The passages of a known text (verses), accents left out, downloaded once."""
+def load(source: str, progress: Callable[[str], None] | None = None, accents: bool = False) -> list[str]:
+    """The passages of a known text (verses), accents left out (kept with accents=True: the
+    Hebrew Bible's cantillation, meteg and paseq), downloaded once."""
+    keep = (lambda v: v) if accents else without_accents
     say = progress or (lambda msg: None)
     if source == "transliteration":
         from .translit import passages
@@ -98,7 +102,7 @@ def load(source: str, progress: Callable[[str], None] | None = None) -> list[str
         path = Path(source)
         if not path.is_file():
             raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, greek-nt, or a text file.")
-        return [without_accents(line.strip()) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return [keep(line.strip()) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     cache = folder() / f"{source}.txt"
     if not cache.is_file():
         verses = []
@@ -109,7 +113,67 @@ def load(source: str, progress: Callable[[str], None] | None = None) -> list[str
             verses += parse(_get(url.format(book=book)))
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text("\n".join(verses) + "\n", encoding="utf-8", newline="\n")
-    return [without_accents(v) for v in cache.read_text(encoding="utf-8").splitlines() if v.strip()]
+    return [keep(v) for v in cache.read_text(encoding="utf-8").splitlines() if v.strip()]
+
+
+STRESS = "\u05ab"  # ole: grammars (Driver, Gesenius) set it over a syllable stressed before the last
+# Accents that stand on a word's first or last letter whatever its stress: no guide to it.
+PLACED = set("\u0592\u0599\u059a\u05a0\u05a9\u05ad\u05ae")
+FULL_VOWELS = set("\u05b1\u05b2\u05b3\u05b4\u05b5\u05b6\u05b7\u05b8\u05b9\u05ba\u05bb\u05c7")
+
+
+def grammar_style(text: str) -> str:
+    """Accented Hebrew as grammars print it: points without the cantillation, and ֫ over the
+    stressed syllable of a word stressed before its last (milʿel), found from where the Codex's
+    accent stands (the last in the word; silluq, the meteg before sof pasuq, too)."""
+    return " ".join("־".join(_stressed(part) for part in word.split("־")) for word in text.split(" "))
+
+
+def _syllables(units: list[str]) -> list[int]:
+    """Indices of the letters (each with its marks) that carry a syllable's vowel: a full vowel,
+    or a vav with holam or dagesh after an unvowelled letter (holam male, shureq); a furtive
+    patah under a final guttural is none."""
+    out = []
+    for n, u in enumerate(units):
+        vowel = any(c in FULL_VOWELS for c in u[1:])
+        if u[0] == "\u05d5" and n and ("\u05bc" in u or "\u05b9" in u) and not any(c in FULL_VOWELS for c in units[n - 1][1:]):
+            vowel = True
+        if n == len(units) - 1 and n and u[0] in "\u05d7\u05e2\u05d4" and "\u05b7" in u and out and out[-1] == n - 1:
+            vowel = False  # furtive patah: rûaḥ
+        if vowel:
+            out.append(n)
+    return out
+
+
+def _letters(text: str) -> list[str]:
+    units: list[str] = []
+    for c in unicodedata.normalize("NFD", text):
+        if "\u05d0" <= c <= "\u05ea" or not units:
+            units.append(c)
+        else:
+            units[-1] += c
+    return units
+
+
+def _stressed(word: str) -> str:
+    units = _letters(word)
+    plain = _letters(without_accents(word))
+    final = word.rstrip().endswith("\u05c3")
+    accented = [n for n, u in enumerate(units) if any(("\u0591" <= c <= "\u05af" and c not in PLACED)
+                                                       or (c == "\u05bd" and final) for c in u[1:])]
+    for mark in PLACED:  # an accent of the first or last letter written twice: the first marks the stress
+        twice = [n for n, u in enumerate(units) if mark in u[1:]]
+        if len(twice) > 1:
+            accented = accented or twice[:1]
+    if not accented or len(plain) != len(units):
+        return unicodedata.normalize("NFC", "".join(plain))
+    at = accented[-1]
+    nuclei = _syllables(units)
+    mine = next((n for n in nuclei if n >= at), None)  # the stressed syllable's vowel (on a vav after it, say)
+    if mine is None or not any(n > mine for n in nuclei):
+        return unicodedata.normalize("NFC", "".join(plain))  # stressed on the last syllable: left unmarked
+    plain[at] += STRESS
+    return unicodedata.normalize("NFC", "".join(plain))
 
 
 def base_letters(word: str) -> str:

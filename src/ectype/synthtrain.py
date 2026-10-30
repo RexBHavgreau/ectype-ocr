@@ -6,7 +6,10 @@ For each font in the folder (and its subfolders) that has the script's letters:
 1. Passages of the known text (`texts.py`: the Hebrew Bible, the Greek New Testament, or for
    "transliteration", English with transliterated words, which trains English) are cut
    into lines of varied length and set in the font at several sizes, right to left for
-   Hebrew (Pillow's raqm layout, which places the vowel points).
+   Hebrew (Pillow's raqm layout, which places the vowel points). Hebrew lines come in three
+   forms (`hebrew_form`): with the Codex's accents, as grammars print it (points, and ֫ over
+   a stress before the last syllable, as in Driver's Treatise), and with points only; a font
+   without the accents sets the last.
 2. Each line is made to look scanned (`degrade`): a slight blur, ink lighter or heavier,
    paper noise, specks, a small tilt.
 3. The image and its exact text go into the language's training pool (`pool.py`) as the
@@ -37,7 +40,11 @@ from . import pool, texts
 
 SCRIPTS = {"hebrew": ("heb", "hebrew-bible", "Hebrew"), "greek": ("grc", "greek-nt", "Greek"),
            "transliteration": ("eng", "transliteration", "Transliteration")}
-VERSION = 1  # of the generation: lines made by an older one are made again
+VERSION = 2  # of the generation: lines made by an older one are made again (2: Hebrew accents)
+# Hebrew lines: with the Codex's accents, as grammars print them (points and ֫ over a stress
+# before the last syllable), or with the points only; the rest of the share is the last.
+HEBREW_FORMS = (("accents", 0.35), ("grammar", 0.3))
+ACCENT_MARKS = {chr(c) for c in range(0x0591, 0x05B0)} | {"\u05bd", "\u05c0"}
 FONT_SUFFIXES = (".ttf", ".otf", ".ttc")
 
 
@@ -120,6 +127,21 @@ def level(font: FontInfo, needed: set[str], have: set[str] | None = None, script
     if len(letters & have) < 0.9 * len(letters):
         return None
     return FULL if marks <= have else LETTERS
+
+
+def hebrew_form(line: str, rng: random.Random, have: set[str]) -> str:
+    """A line of the accented Codex in one of its forms (HEBREW_FORMS): as it is, as grammars
+    print it, or with the points only, the last when the font lacks a mark of the form drawn."""
+    r, form = rng.random(), "points"
+    for name, share in HEBREW_FORMS:
+        if r < share:
+            form = name
+            break
+        r -= share
+    text = line if form == "accents" else texts.grammar_style(line) if form == "grammar" else ""
+    if not text or any(c in ACCENT_MARKS | {texts.STRESS} and c not in have for c in text):
+        text = texts.without_accents(line)
+    return text
 
 
 def without_marks(text: str) -> str:
@@ -240,9 +262,11 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
         rtl = script == "hebrew"
         by_line = script == "transliteration"  # a font without some letters sets the lines it can
         passages, needed, _ = needs(script, say)
+        if rtl:
+            passages = texts.load(source, say, accents=True)  # set in its three forms (hebrew_form)
         usable = []
         for font in fonts:
-            have = covers(font, needed)
+            have = covers(font, needed | (ACCENT_MARKS | {texts.STRESS} if rtl else set()))
             lv = level(font, needed, have, script)
             if lv:
                 usable.append((font, have, lv))
@@ -264,6 +288,8 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                 made, samples = 0, []
                 candidates = lines_from(passages, lines_per_font * (4 if by_line else 2), rng)
                 for text in candidates:
+                    if rtl:
+                        text = hebrew_form(text, rng, have)
                     if lv == LETTERS and not by_line:
                         text = without_marks(text)
                     if made >= lines_per_font:

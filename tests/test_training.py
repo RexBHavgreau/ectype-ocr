@@ -145,7 +145,7 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
         shutil.copy(find_font(name), fonts)
     (fonts / "copy").mkdir()
     shutil.copy(find_font("FreeSerif"), fonts / "copy")  # the same font twice counts once
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: [
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: [
         "Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν ὁ λόγος.",
         "οὗτος ἦν ἐν ἀρχῇ πρὸς τὸν θεόν. πάντα δι’ αὐτοῦ ἐγένετο, καὶ χωρὶς αὐτοῦ ἐγένετο οὐδὲ ἕν ὃ γέγονεν."])
     r = synthtrain.generate(fonts, ["greek"], lines_per_font=12)
@@ -159,13 +159,13 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
     assert synthtrain.generate(chosen, ["greek"], lines_per_font=12)["fonts"]["greek"] == ["FreeSerif Regular"]
     # A Hebrew font without the points: its lines set without them.
     _unpointed(Path(find_font("FreeSerif")), tmp_path / "Plain.ttf", "Plain Hebrew")
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] * 5)
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] * 5)
     plain = synthtrain.fonts_in(tmp_path / "Plain.ttf") or [synthtrain.FontInfo(tmp_path / "Plain.ttf", "Plain Hebrew Regular")]
     r = synthtrain.generate(plain, ["hebrew"], lines_per_font=12)
     assert r["fonts"]["hebrew"] == ["Plain Hebrew Regular (without marks)"] and r["added"]["heb"] == 12
     lines = [i.text for i in pool.items("heb")]
     assert lines and all(not any(0x05B0 <= ord(c) <= 0x05C7 for c in t) for t in lines), "set without points"
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: [
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: [
         "Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν ὁ λόγος.",
         "οὗτος ἦν ἐν ἀρχῇ πρὸς τὸν θεόν. πάντα δι’ αὐτοῦ ἐγένετο, καὶ χωρὶς αὐτοῦ ἐγένετο οὐδὲ ἕν ὃ γέγονεν."])
     # A font whose lines were lost is set again, though nothing about it changed.
@@ -210,7 +210,7 @@ def test_transliteration_lines_set_in_fonts(data, tmp_path, monkeypatch):
     from ectype.train import _foreign
 
     lines = translit.passages(["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"], count=300)
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: lines)
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: lines)
     full = synthtrain.FontInfo(Path(_font("DejaVu Serif")), "DejaVu Serif")
     # A font with a-z and the European accents, but no ḥ, ʾ, ə or IPA.
     font = TTFont(_font("DejaVu Serif"))
@@ -229,6 +229,25 @@ def test_transliteration_lines_set_in_fonts(data, tmp_path, monkeypatch):
     assert any(c in "".join(got) for c in "ʾʿḥšəʃ")
     assert not any(_foreign(c, "Latin") for t in got for c in t), "nothing left out of English training"
     assert _foreign("α", "Latin") and _foreign("א", "Latin")
+
+
+def test_hebrew_lines_with_accents_or_as_grammars_print_it():
+    """The Codex's accents kept, or as grammars print Hebrew: ֫ over a stress before the last
+    syllable (Driver's Treatise), none over a last-syllable stress."""
+    import random
+
+    from ectype import synthtrain
+
+    verse = "וַיֹּ֥אמֶר אֱלֹהִ֖ים יְהִ֣י א֑וֹר וַֽיְהִי־אֽוֹר׃"
+    assert texts.grammar_style(verse) == "וַיֹּ֫אמֶר אֱלֹהִים יְהִי אוֹר וַיְהִי־אוֹר׃"
+    assert texts.grammar_style("הַשָּׁמַ֖יִם וְר֣וּחַ הָאָֽרֶץ׃") == "הַשָּׁמַ֫יִם וְרוּחַ הָאָ֫רֶץ׃"
+    assert texts.grammar_style("תֹ֙הוּ֙") == "תֹ֫הוּ", "a pashta written twice: the first marks the stress"
+    rng = random.Random(1)
+    every = {chr(c) for c in range(0x0590, 0x05FF)}
+    forms = {synthtrain.hebrew_form(verse, rng, every) for _ in range(60)}
+    assert verse in forms and texts.without_accents(verse) in forms and texts.grammar_style(verse) in forms
+    bare = every - synthtrain.ACCENT_MARKS - {texts.STRESS}  # a font without the accents: points only
+    assert {synthtrain.hebrew_form(verse, rng, bare) for _ in range(20)} == {texts.without_accents(verse)}
 
 
 def test_training_settings_file(tmp_path):
@@ -408,7 +427,7 @@ def test_train_from_fonts_window(data, monkeypatch):
             shutil.copy(find_font(name), folder)
     _unpointed(Path(find_font("FreeSerif")), system / "Plain.ttf", "Plain Hebrew")
     monkeypatch.setattr(synthtrain, "system_font_folders", lambda: [system])
-    monkeypatch.setattr(texts, "load", lambda source, progress=None: (
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: (
         ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] if source == "hebrew-bible"
         else ["The word ḥesed in Hebrew, ʾĕlōhîm and /ʃəˈlɔm/ über ç"] if source == "transliteration"
         else ["Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν"]))

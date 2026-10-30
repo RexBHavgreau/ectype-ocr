@@ -107,8 +107,13 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   Models and the pool live in the user folder (`%LOCALAPPDATA%\Ectype OCR`), so upgrades keep
   them; a model trained before 0.5.0 (no `general.items.json`) is taken to know the pool images
   older than its training time, so the first training after upgrading can be quick too.
-- Known texts: Hebrew Bible (WLC, accents stripped, points kept) and Greek New Testament (SBLGNT).
-  More languages need a reliable public-domain text the app can download.
+- Known texts: Hebrew Bible (WLC) and Greek New Testament (SBLGNT). More languages need a
+  reliable public-domain text the app can download. Hebrew lines set from fonts (0.5.0,
+  `synthtrain.hebrew_form`, VERSION 2) come in three forms: the Codex's accents (35%), as
+  grammars print it (30%: points, and ֫ ole over a stress before the last syllable, found
+  from the Codex's accent, `texts.grammar_style`), points only (the rest, and every line of
+  a font without the accents). Beaux: the stress mark is common in grammars; accents too.
+  Matching scans to the text (`align.py`) still uses it without accents.
 - Kraken is an optional add-on (its own download), for non-Latin scripts.
 - Review (0.5.0): a punctuation mark at a word's start or end is a box of its own
   (`review.parts`), since typed beside Hebrew it jumps about in the text box; the correction log
@@ -168,8 +173,8 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   of clusters whose members are unchanged, groupings of letters whose instances are unchanged,
   and the erased backgrounds of untouched pages; same output. Expect ~70 s -> 15-20 s on Young.
 - **Better reading of Driver's Treatise**: train Hebrew on lines in fonts like Driver's and
-  measure on the Treatise; keep the stress accent (U+05AB ole, used as Driver's tone mark) in
-  the training text instead of stripping every accent; set some Train-from-fonts lines in each
+  measure on the Treatise (accents and the stress mark are in the training lines now); set
+  some Train-from-fonts lines in each
   font's italic (English, transliteration); superscript letters and figures. A checked
   transcription of a few Treatise pages (Beaux can correct or confirm one) would give real
   error rates.
