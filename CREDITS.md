@@ -60,6 +60,10 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | Tesseract language data (tessdata), downloaded on request | OCR in further languages | Tesseract contributors | Apache-2.0 |
 | Tesseract's trainable models (tessdata_best), downloaded on request | The base of a model trained on a book's corrections | Tesseract contributors | Apache-2.0 |
 | Kraken models from Kraken's repository on Zenodo, chosen and downloaded by the user | OCR of Greek, Hebrew and other scripts; the base of a Kraken model trained on a book's corrections | Each model's authors, named in its record (shown in the app) | Each model's own licence, shown in the app before download |
+| Westminster Leningrad Codex, via the Open Scriptures Hebrew Bible (`openscriptures/morphhb`), downloaded on request | Training lines set in the user's fonts; matching scanned editions | Westminster Hebrew Institute; Open Scriptures | Public domain (WLC); CC BY 4.0 (OSHB) |
+| SBL Greek New Testament (`LogosBible/SBLGNT`), downloaded on request | The same, for Greek | Michael W. Holmes; Society of Biblical Literature and Logos Bible Software | CC BY 4.0 |
+| Clementine Vulgate (`lukesmithxyz/vul`), downloaded on request | The same, for Latin | Text public domain; file by Luke Smith | Public domain |
+| Peshitta Old Testament, plain text (`ETCBC/peshitta`), downloaded on request | The same, for Syriac (only on the user's machine, for their own training) | W. Th. van Peursen, G. J. Veldman, C. Sikkel, H. Vlaardingerbroek, D. Roorda (ETCBC), doi:10.5281/zenodo.1464757 | Text CC BY-NC 4.0; programs MIT |
 | Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
 | DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
 

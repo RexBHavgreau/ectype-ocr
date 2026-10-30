@@ -6,6 +6,10 @@ are matched against (`synthtrain.py`, `align.py`).
 - "greek-nt": the SBL Greek New Testament (CC BY 4.0, github.com/LogosBible/SBLGNT).
 - "vulgate": the Clementine Vulgate (public domain), as one file of verses from
   github.com/lukesmithxyz/vul (public domain).
+- "peshitta": the Peshitta Old Testament (with the deuterocanonical books), unvowelled, from
+  the ETCBC's plain text (github.com/ETCBC/peshitta; the text CC BY-NC 4.0: free to use, not
+  commercially, with credit to W. Th. van Peursen, G. J. Veldman, C. Sikkel, H. Vlaardingerbroek
+  and D. Roorda; their programs MIT).
 - "transliteration": English with transliterated words (Hebrew made from the Hebrew Bible,
   other Semitic languages, IPA, European accents), generated (`translit.py`).
 - a file: any UTF-8 text, one passage a line (e.g. the Westcott-Hort text, or the text of
@@ -37,9 +41,15 @@ GREEK_BOOKS = ("Matt Mark Luke John Acts Rom 1Cor 2Cor Gal Eph Phil Col 1Thess 2
                "Jas 1Pet 2Pet 1John 2John 3John Jude Rev").split()
 GREEK_URL = "https://raw.githubusercontent.com/LogosBible/SBLGNT/master/data/sblgnt/text/{book}.txt"
 VULGATE_URL = "https://raw.githubusercontent.com/lukesmithxyz/vul/master/vul.tsv"
+PESHITTA_URL = "https://raw.githubusercontent.com/ETCBC/peshitta/master/plain/0.2/{book}.txt"
+PESHITTA_BOOKS = ("Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ruth Samuel_1 Samuel_2 Kings_1 Kings_2 "
+                  "Chronicles_1 Chronicles_2 Ezra Nehemia Esther Job Psalms Proverbs Ecclesiastes Song_of_Songs Isaiah "
+                  "Jeremiah Lamentations Ezekiel Daniel Hosea Joel Amos Obadiah Jonah Micah Nahum Habakkuk Zephaniah "
+                  "Haggai Zechariah Malachi Tobit_A Judith Wisdom_of_Solomon Sirach Baruch Maccabees_1_A "
+                  "Maccabees_2").split()
 SOURCES = {"hebrew-bible": "Hebrew Bible (Westminster Leningrad Codex)", "greek-nt": "Greek New Testament (SBLGNT)",
-           "vulgate": "Latin Vulgate (Clementine)"}
-LANG = {"hebrew-bible": "heb", "greek-nt": "grc", "vulgate": "lat"}
+           "vulgate": "Latin Vulgate (Clementine)", "peshitta": "Peshitta (Old Testament, ETCBC)"}
+LANG = {"hebrew-bible": "heb", "greek-nt": "grc", "vulgate": "lat", "peshitta": "syr"}
 
 # Hebrew marks left out: the accents (U+0591-U+05AF), meteg, paseq, the upper and lower dots, rafe.
 HEBREW_ACCENTS = re.compile("[֑-ֽֿ֯׀ׅׄ]")
@@ -93,6 +103,22 @@ def _greek_book(txt: str) -> list[str]:
     return out
 
 
+def _peshitta_book(txt: str) -> list[str]:
+    """Verses of one book of the ETCBC's plain Peshitta: "Chapter n" headings left out, each
+    verse a line starting with its number, long verses wrapped onto the lines after."""
+    out: list[str] = []
+    for line in txt.splitlines():
+        line = line.strip()
+        if not line or line.startswith("Chapter"):
+            continue
+        m = re.match(r"^(\d+)\s+(.*)$", line)
+        if m:
+            out.append(m.group(2))
+        elif out:
+            out[-1] += " " + line
+    return [re.sub(r"\s+", " ", v).strip() for v in out if v.strip()]
+
+
 def _vulgate(tsv: str) -> list[str]:
     """Verses of the vul.tsv file: book, abbreviation, book number, chapter, verse, text; the
     spaces it puts before colons and semicolons (French style, as the Clementine prints them)
@@ -117,7 +143,7 @@ def load(source: str, progress: Callable[[str], None] | None = None, accents: bo
     if source not in SOURCES:
         path = Path(source)
         if not path.is_file():
-            raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, greek-nt, vulgate, or a text file.")
+            raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, greek-nt, vulgate, peshitta, or a text file.")
         return [keep(line.strip()) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     cache = folder() / f"{source}.txt"
     if not cache.is_file() and source == "vulgate":
@@ -127,8 +153,9 @@ def load(source: str, progress: Callable[[str], None] | None = None, accents: bo
         cache.write_text("\n".join(verses) + "\n", encoding="utf-8", newline="\n")
     if not cache.is_file():
         verses = []
-        books, url, parse = ((HEBREW_BOOKS, HEBREW_URL, _hebrew_book) if source == "hebrew-bible"
-                             else (GREEK_BOOKS, GREEK_URL, _greek_book))
+        books, url, parse = {"hebrew-bible": (HEBREW_BOOKS, HEBREW_URL, _hebrew_book),
+                             "greek-nt": (GREEK_BOOKS, GREEK_URL, _greek_book),
+                             "peshitta": (PESHITTA_BOOKS, PESHITTA_URL, _peshitta_book)}[source]
         for k, book in enumerate(books, 1):
             say(f"downloading the {SOURCES[source]}: {book} ({k} of {len(books)})")
             verses += parse(_get(url.format(book=book)))

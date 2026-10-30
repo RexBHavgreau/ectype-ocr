@@ -39,7 +39,9 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 from . import pool, texts
 
 SCRIPTS = {"hebrew": ("heb", "hebrew-bible", "Hebrew"), "greek": ("grc", "greek-nt", "Greek"),
-           "latin": ("lat", "vulgate", "Latin"), "transliteration": ("eng", "transliteration", "Transliteration")}
+           "latin": ("lat", "vulgate", "Latin"), "syriac": ("syr", "peshitta", "Syriac"),
+           "transliteration": ("eng", "transliteration", "Transliteration")}
+RTL_LANGUAGE = {"hebrew": "he", "syriac": "syr"}  # for raqm's shaping (Syriac letters join)
 VERSION = 2  # of the generation: lines made by an older one are made again (2: Hebrew accents)
 # Hebrew lines: with the Codex's accents, as grammars print them (points and ֫ over a stress
 # before the last syllable), or with the points only; the rest of the share is the last.
@@ -216,7 +218,7 @@ def degrade(img: Image.Image, rng: random.Random) -> Image.Image:
     return Image.fromarray(out)
 
 
-def render(text: str, font: FontInfo, size: int, rtl: bool) -> Image.Image | None:
+def render(text: str, font: FontInfo, size: int, rtl: bool, language: str | None = None) -> Image.Image | None:
     face = ImageFont.truetype(str(font.path), size, index=font.index)
     direction = "rtl" if rtl else "ltr"
     try:
@@ -226,7 +228,7 @@ def render(text: str, font: FontInfo, size: int, rtl: bool) -> Image.Image | Non
     pad = int(size * 0.6)
     img = Image.new("L", (width + 2 * pad, int(size * 2.0)), 255)
     ImageDraw.Draw(img).text((pad, int(size * 1.35)), text, font=face, fill=0, anchor="ls", direction=direction,
-                             language="he" if rtl else None)
+                             language=(language or "he") if rtl else None)
     box = Image.eval(img, lambda v: 255 - v).getbbox()
     if box is None:
         return None
@@ -256,9 +258,9 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
     from .families import measure
 
     say = progress or (lambda msg: None)
-    if not features.check("raqm") and "hebrew" in scripts:
-        raise RuntimeError("Setting Hebrew needs Pillow's raqm layout (for right-to-left text and vowel points), "
-                           "which this installation lacks.")
+    if not features.check("raqm") and set(scripts) & set(RTL_LANGUAGE):
+        raise RuntimeError("Setting Hebrew or Syriac needs Pillow's raqm layout (for right-to-left text, joined "
+                           "letters and vowel points), which this installation lacks.")
     if isinstance(fonts, (str, Path)):
         folder = fonts
         fonts = fonts_in(folder)
@@ -267,14 +269,15 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
     report = {"fonts": {}, "skipped": {}, "added": {}}
     for script in scripts:
         lang, source, name = SCRIPTS[script]
-        rtl = script == "hebrew"
+        rtl = script in RTL_LANGUAGE
+        hebrew = script == "hebrew"
         by_line = script == "transliteration"  # a font without some letters sets the lines it can
         passages, needed, _ = needs(script, say)
-        if rtl:
+        if hebrew:
             passages = texts.load(source, say, accents=True)  # set in its three forms (hebrew_form)
         usable = []
         for font in fonts:
-            have = covers(font, needed | (ACCENT_MARKS | {texts.STRESS} if rtl else set()))
+            have = covers(font, needed | (ACCENT_MARKS | {texts.STRESS} if hebrew else set()))
             lv = level(font, needed, have, script)
             if lv:
                 usable.append((font, have, lv))
@@ -296,7 +299,7 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                 made, samples = 0, []
                 candidates = lines_from(passages, lines_per_font * (4 if by_line else 2), rng)
                 for text in candidates:
-                    if rtl:
+                    if hebrew:
                         text = hebrew_form(text, rng, have)
                     elif script == "latin" and rng.random() < 0.25:
                         text = with_ligatures(text)
@@ -307,7 +310,7 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                     if any(not c.isspace() and c not in have for c in text):
                         continue  # the font lacks a character of this line
                     size = rng.choice((30, 36, 42, 46, 50, 56))
-                    img = render(text, font, size, rtl)
+                    img = render(text, font, size, rtl, RTL_LANGUAGE.get(script))
                     if img is None:
                         continue
                     if len(samples) < 60:

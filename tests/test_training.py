@@ -267,6 +267,21 @@ def test_latin_from_the_vulgate(data, monkeypatch):
     assert synthtrain.with_ligatures("super faciem terrae et aquae aer") == "super faciem terræ et aquæ aer"
 
 
+def test_syriac_from_the_peshitta(data, monkeypatch):
+    """The ETCBC's plain Peshitta (chapters, numbered verses wrapped over lines) set right to
+    left, its letters joined, trains Syriac."""
+    from ectype import synthtrain
+
+    book = ("Chapter 1\n\n1 ܒܪܫܝܬ ܒܪܐ ܐܠܗܐ. ܝܬ ܫܡܝܐ ܘܝܬ ܐܪܥܐ.\n"
+            "2 ܐܪܥܐ ܗܘܬ ܬܘܗ ܘܒܘܗ̇. ܘܚܫܘܟܐ ܥܠ ܐ̈ܦܝ ܬܗܘܡܐ. ܘܪܘܚܗ ܕܐܠܗܐ ܡܪܚܦܐ ܥܠ ܐ̈ܦܝ\nܡ̈ܝܐ.\n")
+    verses = texts._peshitta_book(book)
+    assert len(verses) == 2 and verses[1].endswith("ܐ̈ܦܝ ܡ̈ܝܐ.")
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: verses * 4)
+    font = synthtrain.FontInfo(Path(_font("FreeSans")), "FreeSans")
+    r = synthtrain.generate([font], ["syriac"], lines_per_font=6)
+    assert r["fonts"]["syriac"] == ["FreeSans"] and r["added"]["syr"] == 6
+
+
 def test_training_settings_file(tmp_path):
     from ectype import trainall
 
