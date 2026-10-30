@@ -89,6 +89,12 @@ def test_installer_runs_over_the_same_install(monkeypatch, tmp_path):
     for d in (everyone, mine):
         d.mkdir(parents=True)
     setup = Path("Setup.exe")
-    assert updates.installer_command(setup, everyone)[-1] == "/ALLUSERS"
+    assert "/ALLUSERS" in updates.installer_command(setup, everyone)
     cmd = updates.installer_command(setup, mine)
-    assert cmd[-1] == "/CURRENTUSER" and "/SILENT" in cmd and "/UPDATE" in cmd
+    assert "/CURRENTUSER" in cmd and "/SILENT" in cmd and "/UPDATE" in cmd
+    assert cmd[-1] == f"/DIR={mine.resolve()}", "into the same folder, wherever it is"
+    # Installed for everyone outside C:\Program Files (on another drive): as Windows lists it.
+    other = tmp_path / "D" / "Program Files" / "Ectype OCR"
+    other.mkdir(parents=True)
+    monkeypatch.setattr(updates, "_registered", lambda app: True)
+    assert "/ALLUSERS" in updates.installer_command(setup, other)
