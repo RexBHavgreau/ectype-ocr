@@ -48,10 +48,12 @@ class TrainingError(RuntimeError):
 
 
 def tool(name: str) -> str | None:
-    """A Tesseract training tool: beside tesseract (the app's own, or the system's), or on PATH."""
+    """A Tesseract training tool: beside tesseract (the app's own, or the system's), or on PATH.
+    The Windows app may carry some in a "training" folder of their own, with their libraries."""
     cmd = tesseract_cmd()
     if cmd:
-        for candidate in (Path(cmd).with_name(name + ".exe"), Path(cmd).with_name(name)):
+        here = Path(cmd).parent
+        for candidate in (here / "training" / (name + ".exe"), here / (name + ".exe"), here / name):
             if candidate.is_file():
                 return str(candidate)
     return shutil.which(name)
