@@ -157,11 +157,21 @@ def _known_path(code: str) -> Path:
 
 def known_items(code: str) -> set[str] | None:
     """The training images the general model in use was trained with (its pool when trained), or
-    None when that isn't known (trained by an earlier version)."""
+    None when that isn't known. A model trained by an earlier version, which kept no list, knew
+    the images added to the pool before it was trained (by their files' times), so the first
+    training after an upgrade can be a quick update too."""
     try:
         return set(json.loads(_known_path(code).read_text(encoding="utf-8")))
     except (OSError, ValueError):
+        pass
+    trained = (models.entry(code).get("general") or {}).get("trained")
+    if not trained:
         return None
+    try:
+        when = time.mktime(time.strptime(trained, "%Y-%m-%d %H:%M")) + 60  # kept to the minute
+    except ValueError:
+        return None
+    return {i.id for i in _items_for(code, "train") if i.png.stat().st_mtime <= when}
 
 
 def _save_known(code: str, ids) -> None:

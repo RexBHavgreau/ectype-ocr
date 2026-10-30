@@ -4,6 +4,7 @@ matched scans (pool.py, families.py, models.py, training.py, texts.py, synthtrai
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -326,6 +327,18 @@ def test_quick_update_adds_new_corrections_to_the_model_in_use(data, tmp_path, m
     assert in_use == [len([i for i in training._items_for("eng", "test") if i.book == "Driver"])], \
         "the model in use reads only the test images it hadn't read"
     assert models.registry()["eng"]["quick_updates"] == 1
+    # A model trained by an earlier version, with no list of what it knew: the pool's images
+    # older than its training count as known.
+    import os
+
+    training._known_path("eng").unlink()
+    data = models.registry()
+    data["eng"]["general"]["trained"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + 120))
+    models.save_registry(data)
+    assert training.plan("eng")["mode"] == "none"
+    for item in training._items_for("eng", "train")[:5]:
+        os.utime(item.png, (time.time() + 3600, time.time() + 3600))  # added after it was trained
+    assert training.plan("eng") == {"mode": "quick", "new": 5, "why": "5 new images"}
     assert training.train_language("eng", mode="full")["mode"] == "full" and fits[-1][0] == "best.traineddata"
 
 

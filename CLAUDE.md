@@ -78,6 +78,9 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   afresh (`--full`, a box in the dialog) is for now and then. Beaux's complaint: two dozen
   corrections took as long as a whole training. Also: `.lstmf` cache, parallel prep and checks,
   the model in use's per-image errors kept (`<which>.errors.json`).
+  Models and the pool live in the user folder (`%LOCALAPPDATA%\Ectype OCR`), so upgrades keep
+  them; a model trained before 0.5.0 (no `general.items.json`) is taken to know the pool images
+  older than its training time, so the first training after upgrading can be quick too.
 - Known texts: Hebrew Bible (WLC, accents stripped, points kept) and Greek New Testament (SBLGNT).
   More languages need a reliable public-domain text the app can download.
 - Kraken is an optional add-on (its own download), for non-Latin scripts.
