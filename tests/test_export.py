@@ -206,3 +206,20 @@ def test_project_prepares_idml_once(analysed):
     assert "segment" not in stages and "cluster" not in stages, "fresh results are reused"
     assert prepared["layout"].pages and prepared["matches"]
     assert (ws / "cluster" / "font-matches.json").is_file()
+
+
+def test_a_font_that_fails_to_draw_is_passed_over(monkeypatch):
+    """A damaged installed font that opens but fails when a letter is drawn (FreeType's
+    "invalid reference") is skipped by font matching, not the end of the IDML export."""
+    import numpy as np
+
+    from ectype import fontmatch
+    from ectype.synth import find_font
+
+    face = fontmatch.FontFace("Broken", "Regular", str(find_font("FreeSerif")), False, 400, 1000, 450)
+
+    def broken(font, char, xh):
+        raise OSError("invalid reference")
+
+    monkeypatch.setattr(fontmatch, "_glyph_feature", broken)
+    assert fontmatch._distance(face, {"a": (10, np.zeros(10), 30.0, 1.0)}) is None

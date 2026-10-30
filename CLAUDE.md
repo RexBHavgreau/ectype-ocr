@@ -84,6 +84,9 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 - **Glyph grouping crashed** ("all input arrays must have the same shape"): the feature width
   was rounded per instance from xh * s, which cancels out but not in floating point
   (`cluster._feature`).
+- **IDML export stopped: "OSError: invalid reference"** (0.5.0): one of Beaux's installed
+  Windows fonts opens but fails when FreeType draws a letter. Font matching
+  (`fontmatch._distance`, `_horizontal_scale`) now passes over such a face.
 - **Windows text files:** write list/box/gt files with `newline="\n"`; read tool output as UTF-8.
 - **Qt in tests:** free dialogs on the interface thread (close, deleteLater, processEvents) or a
   worker thread's garbage collection crashes the run.

@@ -172,6 +172,9 @@ def _style_composites(workspace: Path) -> dict[int, dict]:
 
 
 def _distance(face: FontFace, feats: dict[str, tuple]) -> float | None:
+    """How unlike the style's letters the face's are (None: it can't be drawn). A damaged
+    font can open and then fail when a letter is drawn (FreeType's "invalid reference", one
+    of Beaux's Windows fonts, stopped the IDML export): such a face is passed over."""
     from fontTools.ttLib import TTFont
 
     size = RENDER_XH * face.units_per_em / face.x_height
@@ -184,7 +187,10 @@ def _distance(face: FontFace, feats: dict[str, tuple]) -> float | None:
     for text, (count, feat, *_) in feats.items():
         if ord(text) not in cmap:
             continue
-        f = _glyph_feature(font, text, RENDER_XH * (int(round(size)) / size))
+        try:
+            f = _glyph_feature(font, text, RENDER_XH * (int(round(size)) / size))
+        except (OSError, ValueError):
+            return None
         if f is None or f.shape != feat.shape:
             continue
         w = math.sqrt(count)
@@ -274,7 +280,10 @@ def match_styles(workspace: Path, layout=None, faces: list[FontFace] | None = No
             body_family = scored[0][1].family
         best = scored[0][1] if scored else None
         size = _point_size(best, xh, dpi) if best and xh else None
-        scale = _horizontal_scale(best, words_by_style.get(sid, []), xh * best.units_per_em / best.x_height) if best and xh else 1.0
+        try:
+            scale = _horizontal_scale(best, words_by_style.get(sid, []), xh * best.units_per_em / best.x_height) if best and xh else 1.0
+        except Exception:
+            scale = 1.0  # a font whose tables can't be read: its natural width
         out[sid] = StyleMatch(sid, st["italic"], st["zone"], st["size_class"], st["instances"], bold, best,
                               round(scored[0][0], 4) if scored else None, size, round(scale, 3),
                               [(f.label, round(d, 4)) for d, f in scored[1:6]])
