@@ -152,6 +152,20 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
     assert sum(1 for b in summary.values() if b["test"]) == 1, "one font of three kept aside, for testing"
     assert all(info.get("fingerprint") for info in pool.books("grc").values())
     assert synthtrain.generate(fonts, ["greek"], lines_per_font=12)["added"].get("grc", 0) == 0, "unchanged fonts skipped"
+    # A font whose lines were lost is set again, though nothing about it changed.
+    book = next(iter(pool.books("grc")))
+    for f in (pool.root() / "grc" / pool.slug(book)).iterdir():
+        f.unlink()
+    assert synthtrain.generate(fonts, ["greek"], lines_per_font=12)["added"]["grc"] == 12
+    # A font file touched (or the same font found in another copy) is set again: the same
+    # lines, the same images, which must be kept, not lost.
+    import os
+
+    for f in fonts.glob("*.*"):
+        os.utime(f, (1_000_000_000, 1_000_000_000))
+    synthtrain.generate(fonts, ["greek"], lines_per_font=12)
+    with pool.Writer("grc") as w:
+        assert all(w.count(b) == 12 for b in pool.books("grc"))
 
 
 def test_training_settings_file(tmp_path):

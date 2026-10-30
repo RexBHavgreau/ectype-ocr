@@ -183,7 +183,7 @@ def generate(fonts_folder: Path, scripts: list[str], lines_per_font: int = 400, 
             for k, (font, have) in enumerate(usable, 1):
                 book = f"font: {font.name}"
                 stamp = _stamp(font, lines_per_font)
-                if books.get(book, {}).get("stamp") == stamp:
+                if books.get(book, {}).get("stamp") == stamp and w.count(book):
                     say(f"{name}: {font.name} already done")
                     continue
                 say(f"{name}: setting {lines_per_font} lines in {font.name} ({k} of {len(usable)})")
