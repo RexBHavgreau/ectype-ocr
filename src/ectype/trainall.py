@@ -114,12 +114,32 @@ def codes_for(scripts: list[str]) -> list[str]:
     return codes
 
 
+def train_scripts(scripts: list[str], progress: Callable[[str], None] | None = None, iterations: int | None = None,
+                  epochs: int | None = None) -> list[str]:
+    """Train each language of the scripts on its pool (Tesseract's, and Kraken's models for
+    them). Returns the report's lines."""
+    from .train import TrainingError
+    from .training import MIN_ITEMS, train_language, trainable
+
+    say = progress or (lambda msg: None)
+    report = []
+    for code in codes_for(scripts):
+        n = trainable(code)
+        if n < MIN_ITEMS:
+            report.append(f"{code}: only {n} images in its pool; not trained.")
+            continue
+        say(f"Training {code} on its pool ({n} images)")
+        try:
+            report += train_language(code, say, iterations=iterations, epochs=epochs)["lines"]
+        except TrainingError as exc:
+            report.append(f"{code}: {exc}")
+    return report
+
+
 def run(config: Path, progress: Callable[[str], None] | None = None, iterations: int | None = None,
         epochs: int | None = None) -> list[str]:
     """Do the training the settings ask for (see the module docstring). Returns the report."""
     from . import align, pool, synthtrain
-    from .train import TrainingError
-    from .training import MIN_ITEMS, train_language, trainable
 
     say = progress or (lambda msg: None)
     settings = read(config)
@@ -156,17 +176,7 @@ def run(config: Path, progress: Callable[[str], None] | None = None, iterations:
         done_path.write_text(json.dumps(done, indent=1), encoding="utf-8")
         report.append(f"Edition {e['name']}: {r['kept']} lines matched to the text, {r['skipped']} skipped.")
     report.append("")
-    for code in codes_for(settings["scripts"]):
-        n = trainable(code)
-        if n < MIN_ITEMS:
-            report.append(f"{code}: only {n} images in its pool; not trained.")
-            continue
-        say(f"Training {code} on its pool ({n} images)")
-        try:
-            r = train_language(code, say, iterations=iterations, epochs=epochs)
-            report += r["lines"]
-        except TrainingError as exc:
-            report.append(f"{code}: {exc}")
+    report += train_scripts(settings["scripts"], say, iterations, epochs)
     report += ["", "Pools:"]
     for lang in pool.languages():
         books = pool.summary(lang)

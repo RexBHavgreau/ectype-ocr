@@ -46,11 +46,13 @@ class FontInfo:
     index: int = 0  # face in a collection
 
 
-def fonts_in(folder: Path) -> list[FontInfo]:
+def fonts_in(*folders: Path) -> list[FontInfo]:
+    """The fonts of the folders (subfolders included), each by its name once."""
     from fontTools.ttLib import TTCollection, TTFont
 
     out, seen = [], set()
-    for path in sorted(Path(folder).rglob("*")):
+    paths = [p for folder in folders if Path(folder).is_dir() for p in sorted(Path(folder).rglob("*"))]
+    for path in paths:
         if path.suffix.lower() not in FONT_SUFFIXES:
             continue
         try:
@@ -68,6 +70,62 @@ def fonts_in(folder: Path) -> list[FontInfo]:
             if name not in seen:  # the same font copied twice (in two subfolders) counts once
                 seen.add(name)
                 out.append(FontInfo(path, name, i))
+    return out
+
+
+def system_font_folders() -> list[Path]:
+    """Where the computer's installed fonts are: Windows' own and those installed for this user."""
+    import os
+    import sys
+
+    home = Path.home()
+    if sys.platform == "win32":
+        folders = [Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts",
+                   Path(os.environ.get("LOCALAPPDATA", home)) / "Microsoft" / "Windows" / "Fonts"]
+    elif sys.platform == "darwin":
+        folders = [Path("/System/Library/Fonts"), Path("/Library/Fonts"), home / "Library" / "Fonts"]
+    else:
+        folders = [Path("/usr/share/fonts"), Path("/usr/local/share/fonts"), home / ".local" / "share" / "fonts",
+                   home / ".fonts"]
+    return [f for f in folders if f.is_dir()]
+
+
+def needs(script: str, progress: Callable[[str], None] | None = None) -> tuple[list[str], set[str], set[str]]:
+    """The script's known text (its passages), every character its lines use, and its letters."""
+    passages = texts.load(SCRIPTS[script][1], progress)
+    needed = {c for p in passages[:3000] for c in unicodedata.normalize("NFC", p) if not c.isspace()}
+    return passages, needed, {c for c in needed if c.isalpha()}
+
+
+FULL, LETTERS = "full", "letters"  # how far a font supports a script
+
+
+def level(font: FontInfo, needed: set[str], have: set[str] | None = None) -> str | None:
+    """How far the font sets the script's text: FULL with nine in ten of its letters or more
+    and every mark on them (Hebrew's vowel points); LETTERS with the letters but not every
+    mark (its lines are set without marks: a typeface also met unpointed); None without."""
+    have = covers(font, needed) if have is None else have
+    letters = {c for c in needed if c.isalpha()}
+    marks = {c for c in needed if unicodedata.category(c) == "Mn"}
+    if len(letters & have) < 0.9 * len(letters):
+        return None
+    return FULL if marks <= have else LETTERS
+
+
+def without_marks(text: str) -> str:
+    return "".join(c for c in text if unicodedata.category(c) != "Mn")
+
+
+def support(fonts: list[FontInfo], scripts: list[str], progress: Callable[[str], None] | None = None,
+            done: Callable[[int, int], None] | None = None) -> dict[str, dict[str, str]]:
+    """For each font (by name), the scripts it supports and how far: {script: FULL or LETTERS}."""
+    needed = {script: needs(script, progress)[1] for script in scripts}
+    out = {}
+    for k, font in enumerate(fonts, 1):
+        levels = {script: level(font, needed[script]) for script in scripts}
+        out[font.name] = {script: lv for script, lv in levels.items() if lv}
+        if done:
+            done(k, len(fonts))
     return out
 
 
@@ -150,9 +208,10 @@ def held_out(fonts: list[FontInfo]) -> set[str]:
     return {f.name for f in order[: max(1, len(order) // 5)]}
 
 
-def generate(fonts_folder: Path, scripts: list[str], lines_per_font: int = 400, seed: int = 0,
+def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: int = 400, seed: int = 0,
              progress: Callable[[str], None] | None = None) -> dict:
-    """Generate lines in every font of the folder for each script; add them to the pools.
+    """Generate lines in every font (of a folder, or those given) for each script the font
+    supports; add them to the pools.
     Returns {"fonts": {script: [names]}, "skipped": {name: reason}, "added": {lang: n}}."""
     from .families import measure
 
@@ -160,30 +219,30 @@ def generate(fonts_folder: Path, scripts: list[str], lines_per_font: int = 400, 
     if not features.check("raqm") and "hebrew" in scripts:
         raise RuntimeError("Setting Hebrew needs Pillow's raqm layout (for right-to-left text and vowel points), "
                            "which this installation lacks.")
-    fonts = fonts_in(fonts_folder)
-    if not fonts:
-        raise FileNotFoundError(f"No fonts (.ttf, .otf, .ttc) in {fonts_folder}.")
+    if isinstance(fonts, (str, Path)):
+        folder = fonts
+        fonts = fonts_in(folder)
+        if not fonts:
+            raise FileNotFoundError(f"No fonts (.ttf, .otf, .ttc) in {folder}.")
     report = {"fonts": {}, "skipped": {}, "added": {}}
     for script in scripts:
         lang, source, name = SCRIPTS[script]
         rtl = script == "hebrew"
-        passages = texts.load(source, say)
-        needed = {c for p in passages[:3000] for c in unicodedata.normalize("NFC", p) if not c.isspace()}
-        letters = {c for c in needed if c.isalpha()}
+        passages, needed, _ = needs(script, say)
         usable = []
         for font in fonts:
             have = covers(font, needed)
-            if len(letters & have) < 0.9 * len(letters):
-                continue  # not a font for this script
-            usable.append((font, have))
-        report["fonts"][script] = [f.name for f, _ in usable]
-        test_fonts = held_out([f for f, _ in usable])
+            lv = level(font, needed, have)
+            if lv:
+                usable.append((font, have, lv))
+        report["fonts"][script] = [f.name + (" (without marks)" if lv == LETTERS else "") for f, _, lv in usable]
+        test_fonts = held_out([f for f, _, _ in usable])
         books = pool.books(lang)
         with pool.Writer(lang) as w:
-            for k, (font, have) in enumerate(usable, 1):
+            for k, (font, have, lv) in enumerate(usable, 1):
                 book = f"font: {font.name}"
-                stamp = _stamp(font, lines_per_font)
-                if books.get(book, {}).get("stamp") == stamp:
+                stamp = _stamp(font, lines_per_font) + ("" if lv == FULL else "-" + lv)
+                if books.get(book, {}).get("stamp") == stamp and w.count(book):
                     say(f"{name}: {font.name} already done")
                     continue
                 say(f"{name}: setting {lines_per_font} lines in {font.name} ({k} of {len(usable)})")
@@ -193,6 +252,8 @@ def generate(fonts_folder: Path, scripts: list[str], lines_per_font: int = 400, 
                 made, samples = 0, []
                 candidates = lines_from(passages, lines_per_font * 2, rng)
                 for text in candidates:
+                    if lv == LETTERS:
+                        text = without_marks(text)
                     if made >= lines_per_font:
                         break
                     if any(not c.isspace() and c not in have for c in text):

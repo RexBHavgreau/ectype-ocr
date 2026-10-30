@@ -4,6 +4,7 @@ matched scans (pool.py, families.py, models.py, training.py, texts.py, synthtrai
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -152,6 +153,34 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
     assert sum(1 for b in summary.values() if b["test"]) == 1, "one font of three kept aside, for testing"
     assert all(info.get("fingerprint") for info in pool.books("grc").values())
     assert synthtrain.generate(fonts, ["greek"], lines_per_font=12)["added"].get("grc", 0) == 0, "unchanged fonts skipped"
+    # Fonts chosen one by one (Training -> Train from fonts), not a folder: only those.
+    chosen = [f for f in synthtrain.fonts_in(fonts) if f.name.startswith("FreeSerif")]
+    assert synthtrain.generate(chosen, ["greek"], lines_per_font=12)["fonts"]["greek"] == ["FreeSerif Regular"]
+    # A Hebrew font without the points: its lines set without them.
+    _unpointed(Path(find_font("FreeSerif")), tmp_path / "Plain.ttf", "Plain Hebrew")
+    monkeypatch.setattr(texts, "load", lambda source, progress=None: ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] * 5)
+    plain = synthtrain.fonts_in(tmp_path / "Plain.ttf") or [synthtrain.FontInfo(tmp_path / "Plain.ttf", "Plain Hebrew Regular")]
+    r = synthtrain.generate(plain, ["hebrew"], lines_per_font=12)
+    assert r["fonts"]["hebrew"] == ["Plain Hebrew Regular (without marks)"] and r["added"]["heb"] == 12
+    lines = [i.text for i in pool.items("heb")]
+    assert lines and all(not any(0x05B0 <= ord(c) <= 0x05C7 for c in t) for t in lines), "set without points"
+    monkeypatch.setattr(texts, "load", lambda source, progress=None: [
+        "Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν ὁ λόγος.",
+        "οὗτος ἦν ἐν ἀρχῇ πρὸς τὸν θεόν. πάντα δι’ αὐτοῦ ἐγένετο, καὶ χωρὶς αὐτοῦ ἐγένετο οὐδὲ ἕν ὃ γέγονεν."])
+    # A font whose lines were lost is set again, though nothing about it changed.
+    book = next(iter(pool.books("grc")))
+    for f in (pool.root() / "grc" / pool.slug(book)).iterdir():
+        f.unlink()
+    assert synthtrain.generate(fonts, ["greek"], lines_per_font=12)["added"]["grc"] == 12
+    # A font file touched (or the same font found in another copy) is set again: the same
+    # lines, the same images, which must be kept, not lost.
+    import os
+
+    for f in fonts.glob("*.*"):
+        os.utime(f, (1_000_000_000, 1_000_000_000))
+    synthtrain.generate(fonts, ["greek"], lines_per_font=12)
+    with pool.Writer("grc") as w:
+        assert all(w.count(b) == 12 for b in pool.books("grc"))
 
 
 def test_training_settings_file(tmp_path):
@@ -224,5 +253,79 @@ def test_trained_models_window(data):
     dialog.close()
     dialog.deleteLater()
     del dialog
+    app.processEvents()
+    gc.collect()
+
+
+def _unpointed(source: Path, dest: Path, family: str) -> None:
+    """A copy of the font without Hebrew's points, under another name."""
+    from fontTools import subset
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(source))
+    keep = [u for u in font.getBestCmap() if not 0x05B0 <= u <= 0x05C7]
+    sub = subset.Subsetter(subset.Options())
+    sub.populate(unicodes=keep)
+    sub.subset(font)
+    for rec in font["name"].names:
+        if rec.nameID in (1, 4, 16):
+            rec.string = family
+    font.save(str(dest))
+
+
+def test_train_from_fonts_window(data, monkeypatch):
+    """The fonts of the computer and added folders, each with the chosen languages it supports."""
+    import os
+    import shutil
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from ectype import gui, synthtrain
+    from ectype.synth import find_font
+
+    system, mine = data / "system", data / "mine"
+    for folder, names in ((system, ("FreeSerif", "DejaVu Serif")), (mine, ("Liberation Serif",))):
+        folder.mkdir()
+        for name in names:
+            shutil.copy(find_font(name), folder)
+    _unpointed(Path(find_font("FreeSerif")), system / "Plain.ttf", "Plain Hebrew")
+    monkeypatch.setattr(synthtrain, "system_font_folders", lambda: [system])
+    monkeypatch.setattr(texts, "load", lambda source, progress=None: (
+        ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] if source == "hebrew-bible"
+        else ["Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν"]))
+    app = qt.QApplication.instance() or qt.QApplication([])
+
+    def opened():
+        d = gui.FontTrainingDialog()
+        d.scanner.wait()
+        app.processEvents()
+        return d
+
+    d = opened()
+    rows = {d.table.item(r, 0).text(): [d.table.item(r, c).text() for c in (1, 2)] for r in range(d.table.rowCount())}
+    assert rows == {"FreeSerif Regular": ["Full", "Full"], "Plain Hebrew Regular": ["Partial", "Full"]}, \
+        "only fonts with both languages (Hebrew without points too), and how far each supports them"
+    d.only_all.setChecked(False)
+    rows = {d.table.item(r, 0).text(): [d.table.item(r, c).text() for c in (1, 2)] for r in range(d.table.rowCount())}
+    assert rows["DejaVu Serif Book"] == ["—", "Full"] and rows["FreeSerif Regular"] == ["Full", "Full"]
+    d.lang_boxes["hebrew"].setChecked(False)
+    assert d.table.columnCount() == 3 and d.table.horizontalHeaderItem(1).text() == "Greek"
+    d.settings["folders"] = [str(mine)]
+    d._scan()
+    d.scanner.wait()
+    app.processEvents()
+    assert "Liberation Serif Regular" in d._shown()
+    d.table.item(d._shown().index("DejaVu Serif Book"), 0).setCheckState(gui.Qt.Unchecked)
+    assert "DejaVu Serif Book" not in [f.name for f in d.chosen_fonts()] and d.train_button.isEnabled()
+    d._accept()
+    again = opened()
+    assert again.scripts() == ["greek"] and not again.only_all.isChecked() and "Liberation Serif Regular" in again._shown()
+    assert "DejaVu Serif Book" not in again.chosen_names() and "FreeSerif Regular" in again.chosen_names()
+    import gc
+
+    for dialog in (d, again):
+        dialog.close()
+        dialog.deleteLater()
+    del d, again, dialog
     app.processEvents()
     gc.collect()

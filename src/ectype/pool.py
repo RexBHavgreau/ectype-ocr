@@ -158,9 +158,16 @@ class Writer:
     def remove(self, item: str) -> None:
         meta = self.data.pop(item, None)
         if meta:
+            if meta.get("origin") and self.by_origin.get(meta["origin"]) == item:
+                del self.by_origin[meta["origin"]]  # else the same line, added again, would be taken as kept
             folder = _dir(self.lang) / slug(meta["book"])
             for suffix in (".png", ".gt.txt"):
                 (folder / f"{item}{suffix}").unlink(missing_ok=True)
+
+    def count(self, book: str) -> int:
+        """How many of the book's items are in the pool, their images there."""
+        folder = _dir(self.lang) / slug(book)
+        return sum(1 for i, m in self.data.items() if m["book"] == book and (folder / f"{i}.png").is_file())
 
     def remove_book(self, book: str, source: str | None = None) -> int:
         gone = [i for i, m in self.data.items() if m["book"] == book and (source is None or m["source"] == source)]

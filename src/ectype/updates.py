@@ -122,8 +122,34 @@ def can_install() -> bool:
     return sys.platform == "win32" and installed_app() is not None
 
 
+APP_ID = "{2112C073-44B6-4BC2-83FD-3FD79D290C90}"  # the installer's AppId (installer.iss)
+
+
+def _registered(app: Path) -> bool | None:
+    """True if Windows lists the app installed for everyone, False if for this user, as the
+    installer recorded it; None if it can't tell (not Windows, or not listed for that folder)."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    key = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{APP_ID}_is1"
+    for hive, everyone in ((winreg.HKEY_LOCAL_MACHINE, True), (winreg.HKEY_CURRENT_USER, False)):
+        try:
+            with winreg.OpenKey(hive, key, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as k:
+                folder = winreg.QueryValueEx(k, "InstallLocation")[0]
+        except OSError:
+            continue
+        if Path(folder).resolve() == Path(app).resolve():
+            return everyone
+    return None
+
+
 def for_everyone(app: Path) -> bool:
-    """Whether the app was installed for everyone (under Program Files) rather than for this user."""
+    """Whether the app was installed for everyone rather than for this user: as Windows lists
+    it, else by whether it's under Program Files."""
+    listed = _registered(app)
+    if listed is not None:
+        return listed
     roots = [os.environ.get(k) for k in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)")]
     app = Path(app).resolve()
     for root in filter(None, roots):
@@ -170,7 +196,7 @@ def installer_command(setup: Path, app: Path) -> list[str]:
     """The installer, run silently over the existing install (same folder, tasks and kind of
     install), starting the app again afterwards."""
     return [str(setup), "/SILENT", "/SP-", "/NORESTART", "/CLOSEAPPLICATIONS", "/UPDATE",
-            "/ALLUSERS" if for_everyone(app) else "/CURRENTUSER"]
+            "/ALLUSERS" if for_everyone(app) else "/CURRENTUSER", f"/DIR={Path(app).resolve()}"]
 
 
 def run_installer(setup: Path, app: Path) -> None:
