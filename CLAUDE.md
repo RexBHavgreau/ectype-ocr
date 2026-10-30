@@ -141,7 +141,8 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 - Transliteration is a choice in Train from fonts that trains `eng` (not a language of its
   own), off by default; Hebrew in SBL academic style is generated from the WLC by rules of
   thumb (`translit.hebrew`), plus some in Gesenius' older style (ḳ, qᵉṭal). Generated IPA is
-  made-up words, so it reads worst.
+  made-up words, so it reads worst. Its lines also carry superscripts as Unicode characters
+  (note numbers word¹, verse parts 3ᵃ; Treatise read them as "!", "?", "%").
 
 ## Test material and expected results
 

@@ -9,7 +9,9 @@ drops ʾ and ʿ, and nothing shows it. Lines set from this text teach it:
   Gesenius' grammar (ḳ, qᵉṭal, ᵃ ᵒ);
 - Arabic, Akkadian, Ugaritic, Aramaic and Syriac words (ḫ ẓ ḍ ġ ǧ ṯ ḏ, â î û);
 - IPA transcriptions (ə ʃ ʒ ŋ ɛ ɔ ʔ ʕ ħ θ ð β χ ɣ ː ˈ ...);
-- European words with accents (ü ö ä ß é è ê ç ñ å ø č ř ő ā ō ...).
+- European words with accents (ü ö ä ß é è ê ç ñ å ø č ř ő ā ō ...);
+- superscripts: notes' numbers after words (word¹, word¹²) and verses' parts in references
+  (Isa. 1, 3ᵃ), which the stock model reads as "!", "?" or "%".
 
 The text is generated (the same each time): a passage is a sentence of common English words
 of scholarly prose with these words among them, sometimes in brackets, with a reference or
@@ -230,10 +232,31 @@ def _foreign(style: str, rng: random.Random, verses: list[str]) -> str:
     return word.upper() if rng.random() < 0.04 else _capital(word) if rng.random() < 0.15 else word
 
 
+SUPER_FIGURES = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+VERSE_PARTS = "ᵃᵇᶜᵈ"  # Isa. 1, 3ᵃ: the first part of the verse
+
+
+def _note(n: int) -> str:
+    """A footnote number as superscript figures: 12 -> ¹²."""
+    return "".join(SUPER_FIGURES[int(d)] for d in str(n))
+
+
+def _reference(rng: random.Random) -> str:
+    """A biblical reference, in the styles books use (Gen 12:3, Isa. 1, 3ᵃ, Ps. 7, 16), now
+    and then with the verse's part as a raised letter."""
+    book, chapter, verse = rng.choice(REFERENCES), rng.randint(1, 40), rng.randint(1, 30)
+    part = rng.choice(VERSE_PARTS[:2]) if rng.random() < 0.3 else ""
+    if rng.random() < 0.5:
+        return f"({book} {chapter}:{verse}{part})"
+    return f"{book}. {chapter}, {verse}{part}"
+
+
 def _english(rng: random.Random) -> str:
     words = [rng.choice(ENGLISH) for _ in range(rng.randint(1, 4))]
-    if rng.random() < 0.1:
-        words.append(f"({rng.choice(REFERENCES)} {rng.randint(1, 40)}:{rng.randint(1, 30)})")
+    if rng.random() < 0.12:
+        words[-1] += _note(rng.choice((1, 1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15)))  # a note's number
+    if rng.random() < 0.15:
+        words.append(_reference(rng))
     elif rng.random() < 0.05:
         words.append(rng.choice(("cf.", "e.g.", "i.e.", f"p. {rng.randint(2, 480)}", f"n. {rng.randint(1, 90)}")))
     return " ".join(words)

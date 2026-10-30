@@ -1565,7 +1565,8 @@ class FontTrainingDialog(QDialog):
                        "correcting by hand. Fonts are only read, never copied. The more typefaces like your books' "
                        "the better.\nTransliteration teaches the English model the letters English lacks: Hebrew in "
                        "SBL style (ḥ ṭ ṣ š ʾ ʿ ḇ ā ê ə), Arabic, Akkadian and Ugaritic (ḫ ẓ ḍ ġ), IPA (ʃ ŋ ɛ ʔ ː) "
-                       "and accented letters (ü ç ø č ō). Without it they are read as plain letters.")
+                       "accented letters (ü ç ø č ō), and raised note numbers and verse parts (word¹, 3ᵃ). Without it "
+                       "they are read as plain letters or as ! ? %.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         langs = QHBoxLayout()

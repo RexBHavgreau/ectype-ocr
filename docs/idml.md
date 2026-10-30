@@ -134,7 +134,8 @@ The report goes to the Log; the app offers to read the pages again.
 - Hebrew in SBL academic style, made from the Hebrew Bible (bərēʾšîṯ bārāʾ ʾĕlōhîm, rûaḥ, YHWH), some in the older style of Gesenius' grammar (ḳ, qᵉṭal);
 - Arabic (DMG letters such as ǧ ḫ ṯ ḏ ġ ḍ ẓ, and the kh/dh/sh spellings), Akkadian, Ugaritic, Aramaic and Syriac words;
 - IPA transcriptions in slashes or brackets (made-up words: every symbol, stress, length, some diacritics);
-- European words with accents (German, French, Latin with macrons, Spanish, Scandinavian, Czech, Polish, Hungarian, Turkish, Romanian, Portuguese, Icelandic).
+- European words with accents (German, French, Latin with macrons, Spanish, Scandinavian, Czech, Polish, Hungarian, Turkish, Romanian, Portuguese, Icelandic);
+- superscripts: notes' numbers after words (word¹, word¹²) and verses' parts in references (Isa. 1, 3ᵃ), stored as the Unicode superscript characters; the stock model reads them as "!", "?" or "%".
 
 A font supports it fully with nine in ten of these letters, partly with a–z and half of them; a partial font sets only the lines it has every letter of. Training keeps the modifier letters (ʾ ʿ ʰ ː ᵉ) and IPA's θ β χ as English characters, and adds the letters the model lacks, a letter with a combining mark (p̄, ɛ̃) counting as one.
 
