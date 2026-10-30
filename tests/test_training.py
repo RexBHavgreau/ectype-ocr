@@ -152,6 +152,9 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
     assert sum(1 for b in summary.values() if b["test"]) == 1, "one font of three kept aside, for testing"
     assert all(info.get("fingerprint") for info in pool.books("grc").values())
     assert synthtrain.generate(fonts, ["greek"], lines_per_font=12)["added"].get("grc", 0) == 0, "unchanged fonts skipped"
+    # Fonts chosen one by one (Training -> Train from fonts), not a folder: only those.
+    chosen = [f for f in synthtrain.fonts_in(fonts) if f.name.startswith("FreeSerif")]
+    assert synthtrain.generate(chosen, ["greek"], lines_per_font=12)["fonts"]["greek"] == ["FreeSerif Regular"]
     # A font whose lines were lost is set again, though nothing about it changed.
     book = next(iter(pool.books("grc")))
     for f in (pool.root() / "grc" / pool.slug(book)).iterdir():
@@ -238,5 +241,61 @@ def test_trained_models_window(data):
     dialog.close()
     dialog.deleteLater()
     del dialog
+    app.processEvents()
+    gc.collect()
+
+
+def test_train_from_fonts_window(data, monkeypatch):
+    """The fonts of the computer and added folders, each with the chosen languages it supports."""
+    import os
+    import shutil
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from ectype import gui, synthtrain
+    from ectype.synth import find_font
+
+    system, mine = data / "system", data / "mine"
+    for folder, names in ((system, ("FreeSerif", "DejaVu Serif")), (mine, ("Liberation Serif",))):
+        folder.mkdir()
+        for name in names:
+            shutil.copy(find_font(name), folder)
+    monkeypatch.setattr(synthtrain, "system_font_folders", lambda: [system])
+    monkeypatch.setattr(texts, "load", lambda source, progress=None: (
+        ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] if source == "hebrew-bible"
+        else ["Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν"]))
+    app = qt.QApplication.instance() or qt.QApplication([])
+
+    def opened():
+        d = gui.FontTrainingDialog()
+        d.scanner.wait()
+        app.processEvents()
+        return d
+
+    d = opened()
+    rows = {d.table.item(r, 0).text(): [d.table.item(r, c).text() for c in (1, 2)] for r in range(d.table.rowCount())}
+    assert rows == {"FreeSerif Regular": ["✓", "✓"]}, "only fonts with both languages, and each one's support shown"
+    d.only_all.setChecked(False)
+    rows = {d.table.item(r, 0).text(): [d.table.item(r, c).text() for c in (1, 2)] for r in range(d.table.rowCount())}
+    assert rows["DejaVu Serif Book"] == ["—", "✓"] and rows["FreeSerif Regular"] == ["✓", "✓"]
+    d.lang_boxes["hebrew"].setChecked(False)
+    assert d.table.columnCount() == 3 and d.table.horizontalHeaderItem(1).text() == "Greek"
+    d.settings["folders"] = [str(mine)]
+    d._scan()
+    d.scanner.wait()
+    app.processEvents()
+    assert "Liberation Serif Regular" in d._shown()
+    d.table.item(d._shown().index("DejaVu Serif Book"), 0).setCheckState(gui.Qt.Unchecked)
+    assert "DejaVu Serif Book" not in [f.name for f in d.chosen_fonts()] and d.train_button.isEnabled()
+    d._accept()
+    again = opened()
+    assert again.scripts() == ["greek"] and not again.only_all.isChecked() and "Liberation Serif Regular" in again._shown()
+    assert "DejaVu Serif Book" not in again.chosen_names() and "FreeSerif Regular" in again.chosen_names()
+    import gc
+
+    for dialog in (d, again):
+        dialog.close()
+        dialog.deleteLater()
+    del d, again, dialog
     app.processEvents()
     gc.collect()

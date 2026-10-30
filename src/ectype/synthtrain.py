@@ -46,11 +46,13 @@ class FontInfo:
     index: int = 0  # face in a collection
 
 
-def fonts_in(folder: Path) -> list[FontInfo]:
+def fonts_in(*folders: Path) -> list[FontInfo]:
+    """The fonts of the folders (subfolders included), each by its name once."""
     from fontTools.ttLib import TTCollection, TTFont
 
     out, seen = [], set()
-    for path in sorted(Path(folder).rglob("*")):
+    paths = [p for folder in folders if Path(folder).is_dir() for p in sorted(Path(folder).rglob("*"))]
+    for path in paths:
         if path.suffix.lower() not in FONT_SUFFIXES:
             continue
         try:
@@ -68,6 +70,51 @@ def fonts_in(folder: Path) -> list[FontInfo]:
             if name not in seen:  # the same font copied twice (in two subfolders) counts once
                 seen.add(name)
                 out.append(FontInfo(path, name, i))
+    return out
+
+
+def system_font_folders() -> list[Path]:
+    """Where the computer's installed fonts are: Windows' own and those installed for this user."""
+    import os
+    import sys
+
+    home = Path.home()
+    if sys.platform == "win32":
+        folders = [Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts",
+                   Path(os.environ.get("LOCALAPPDATA", home)) / "Microsoft" / "Windows" / "Fonts"]
+    elif sys.platform == "darwin":
+        folders = [Path("/System/Library/Fonts"), Path("/Library/Fonts"), home / "Library" / "Fonts"]
+    else:
+        folders = [Path("/usr/share/fonts"), Path("/usr/local/share/fonts"), home / ".local" / "share" / "fonts",
+                   home / ".fonts"]
+    return [f for f in folders if f.is_dir()]
+
+
+def needs(script: str, progress: Callable[[str], None] | None = None) -> tuple[list[str], set[str], set[str]]:
+    """The script's known text (its passages), every character its lines use, and its letters."""
+    passages = texts.load(SCRIPTS[script][1], progress)
+    needed = {c for p in passages[:3000] for c in unicodedata.normalize("NFC", p) if not c.isspace()}
+    return passages, needed, {c for c in needed if c.isalpha()}
+
+
+def supports(font: FontInfo, needed: set[str], have: set[str] | None = None) -> bool:
+    """Whether the font sets the script's text: nine in ten of its letters or more, and every
+    mark on them (Hebrew's vowel points; without them hardly a line could be set)."""
+    have = covers(font, needed) if have is None else have
+    letters = {c for c in needed if c.isalpha()}
+    marks = {c for c in needed if unicodedata.category(c) == "Mn"}
+    return len(letters & have) >= 0.9 * len(letters) and marks <= have
+
+
+def support(fonts: list[FontInfo], scripts: list[str], progress: Callable[[str], None] | None = None,
+            done: Callable[[int, int], None] | None = None) -> dict[str, set[str]]:
+    """For each font (by name), which of the scripts it supports."""
+    needed = {script: needs(script, progress)[1] for script in scripts}
+    out = {}
+    for k, font in enumerate(fonts, 1):
+        out[font.name] = {script for script in scripts if supports(font, needed[script])}
+        if done:
+            done(k, len(fonts))
     return out
 
 
@@ -150,9 +197,10 @@ def held_out(fonts: list[FontInfo]) -> set[str]:
     return {f.name for f in order[: max(1, len(order) // 5)]}
 
 
-def generate(fonts_folder: Path, scripts: list[str], lines_per_font: int = 400, seed: int = 0,
+def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: int = 400, seed: int = 0,
              progress: Callable[[str], None] | None = None) -> dict:
-    """Generate lines in every font of the folder for each script; add them to the pools.
+    """Generate lines in every font (of a folder, or those given) for each script the font
+    supports; add them to the pools.
     Returns {"fonts": {script: [names]}, "skipped": {name: reason}, "added": {lang: n}}."""
     from .families import measure
 
@@ -160,20 +208,20 @@ def generate(fonts_folder: Path, scripts: list[str], lines_per_font: int = 400, 
     if not features.check("raqm") and "hebrew" in scripts:
         raise RuntimeError("Setting Hebrew needs Pillow's raqm layout (for right-to-left text and vowel points), "
                            "which this installation lacks.")
-    fonts = fonts_in(fonts_folder)
-    if not fonts:
-        raise FileNotFoundError(f"No fonts (.ttf, .otf, .ttc) in {fonts_folder}.")
+    if isinstance(fonts, (str, Path)):
+        folder = fonts
+        fonts = fonts_in(folder)
+        if not fonts:
+            raise FileNotFoundError(f"No fonts (.ttf, .otf, .ttc) in {folder}.")
     report = {"fonts": {}, "skipped": {}, "added": {}}
     for script in scripts:
         lang, source, name = SCRIPTS[script]
         rtl = script == "hebrew"
-        passages = texts.load(source, say)
-        needed = {c for p in passages[:3000] for c in unicodedata.normalize("NFC", p) if not c.isspace()}
-        letters = {c for c in needed if c.isalpha()}
+        passages, needed, _ = needs(script, say)
         usable = []
         for font in fonts:
             have = covers(font, needed)
-            if len(letters & have) < 0.9 * len(letters):
+            if not supports(font, needed, have):
                 continue  # not a font for this script
             usable.append((font, have))
         report["fonts"][script] = [f.name for f, _ in usable]

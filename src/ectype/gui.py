@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
     QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea, QSplitter, QTableWidget,
+    QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea, QSpinBox,
+    QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
@@ -1201,6 +1202,259 @@ class IdmlDialog(QDialog):
 # Main window
 
 
+class FontTrainingDialog(QDialog):
+    """Training from fonts: the languages to train, then the fonts to set their known text in
+    (the computer's and any folders added), each with the chosen languages it supports."""
+
+    def __init__(self, parent=None):
+        from . import synthtrain
+
+        super().__init__(parent)
+        self.setWindowTitle("Train from fonts")
+        self.resize(760, 620)
+        self.settings = self._load()
+        self.fonts: list = []
+        self.support: dict[str, set[str]] = {}
+        self.scanner: Task | None = None
+        layout = QVBoxLayout(self)
+        intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament) in each "
+                       "font you choose, makes the lines look scanned, and trains each language's model on them: no "
+                       "correcting by hand. Fonts are only read, never copied. The more typefaces like your books' "
+                       "the better.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        langs = QHBoxLayout()
+        langs.addWidget(QLabel("Languages:"))
+        self.lang_boxes = {}
+        for script, (_, _, name) in synthtrain.SCRIPTS.items():
+            box = QCheckBox(name)
+            box.setChecked(script in self.settings.get("scripts", list(synthtrain.SCRIPTS)))
+            box.toggled.connect(self._scripts_changed)
+            langs.addWidget(box)
+            self.lang_boxes[script] = box
+        langs.addStretch(1)
+        layout.addLayout(langs)
+        folders = QHBoxLayout()
+        self.folders_label = QLabel()
+        self.folders_label.setWordWrap(True)
+        folders.addWidget(self.folders_label, 1)
+        add = QPushButton("Add a folder of fonts…")
+        add.clicked.connect(self.add_folder)
+        folders.addWidget(add)
+        self.clear_folders = QPushButton("Remove added folders")
+        self.clear_folders.clicked.connect(self.remove_folders)
+        folders.addWidget(self.clear_folders)
+        layout.addLayout(folders)
+        self.only_all = QCheckBox("Show only fonts with every language chosen")
+        self.only_all.setChecked(self.settings.get("only_all", True))
+        self.only_all.toggled.connect(self._fill)
+        layout.addWidget(self.only_all)
+        self.table = QTableWidget()
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionMode(QTableWidget.NoSelection)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.itemChanged.connect(self._count)
+        layout.addWidget(self.table, 1)
+        self.status = QLabel()
+        layout.addWidget(self.status)
+        row = QHBoxLayout()
+        for text, state in (("Choose all", True), ("Choose none", False)):
+            b = QPushButton(text)
+            b.clicked.connect(lambda _=False, state=state: self._check_all(state))
+            row.addWidget(b)
+        row.addStretch(1)
+        row.addWidget(QLabel("Lines per font:"))
+        self.lines = QSpinBox()
+        self.lines.setRange(50, 2000)
+        self.lines.setSingleStep(50)
+        self.lines.setValue(int(self.settings.get("lines", 400)))
+        self.lines.setToolTip("Lines set in each font for each language. 400 is a good start.")
+        row.addWidget(self.lines)
+        layout.addLayout(row)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.train_button = buttons.addButton("Train", QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._scan()
+
+    # -- what is remembered between times ------------------------------------
+
+    @staticmethod
+    def _path() -> Path:
+        from .resources import user_data_dir
+
+        return user_data_dir() / "font-training.json"
+
+    def _load(self) -> dict:
+        import json
+
+        try:
+            return json.loads(self._path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _save(self) -> None:
+        import json
+
+        self.settings.update(scripts=self.scripts(), lines=self.lines.value(), only_all=self.only_all.isChecked(),
+                             unchosen=sorted(set(self.settings.get("unchosen", [])) - set(self._shown())
+                                             | {n for n in self._shown() if n not in self.chosen_names()}))
+        try:
+            self._path().parent.mkdir(parents=True, exist_ok=True)
+            self._path().write_text(json.dumps(self.settings, indent=1), encoding="utf-8")
+        except OSError:
+            pass
+
+    # -- the fonts -----------------------------------------------------------
+
+    def scripts(self) -> list[str]:
+        return [s for s, box in self.lang_boxes.items() if box.isChecked()]
+
+    def folders(self) -> list[Path]:
+        from . import synthtrain
+
+        return synthtrain.system_font_folders() + [Path(f) for f in self.settings.get("folders", [])]
+
+    def add_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "A folder of fonts (its subfolders are included)")
+        if folder:
+            self.settings["folders"] = list(dict.fromkeys(self.settings.get("folders", []) + [folder]))
+            self._scan()
+
+    def remove_folders(self) -> None:
+        self.settings["folders"] = []
+        self._scan()
+
+    def _scan(self) -> None:
+        """Find the fonts and which of the languages each supports, off the interface thread
+        (the first time, the known texts are downloaded)."""
+        from . import synthtrain
+
+        added = self.settings.get("folders", [])
+        self.folders_label.setText("Fonts installed on this computer" + (", and in: " + "; ".join(added) if added else ""))
+        self.clear_folders.setEnabled(bool(added))
+        if self.scanner is not None and self.scanner.isRunning():
+            self._rescan = True
+            return
+        self._rescan = False
+        scripts = list(synthtrain.SCRIPTS)  # all of them, so choosing another language needs no new look
+        folders = self.folders()
+        self.train_button.setEnabled(False)
+        self.status.setText("Looking at the fonts…")
+
+        def work(progress):
+            fonts = synthtrain.fonts_in(*folders)
+            return fonts, synthtrain.support(fonts, scripts, lambda m: progress("fonts", m),
+                                             lambda k, n: progress("count", f"{k} {n}") if k % 25 == 0 or k == n else None)
+
+        self.scanner = Task(work)
+        self.scanner.progress.connect(self._scan_progress)
+        self.scanner.done.connect(self._scanned)
+        self.scanner.failed.connect(lambda tb: self.status.setText("Couldn't look at the fonts: " + tb.strip().splitlines()[-1]))
+        self.scanner.start()
+
+    def _scan_progress(self, stage: str, msg: str) -> None:
+        if stage == "count":
+            k, n = msg.split()
+            self.status.setText(f"Looking at the fonts… {k} of {n}")
+        else:
+            self.status.setText(msg)
+
+    def _scanned(self, result) -> None:
+        if self._rescan:
+            self._scan()
+            return
+        self.fonts, self.support = result
+        self._fill()
+
+    def _shown(self) -> list[str]:
+        return [self.table.item(r, 0).text() for r in range(self.table.rowCount())]
+
+    def chosen_names(self) -> list[str]:
+        return [self.table.item(r, 0).text() for r in range(self.table.rowCount())
+                if self.table.item(r, 0).checkState() == Qt.Checked]
+
+    def _fill(self) -> None:
+        from . import synthtrain
+
+        scripts = self.scripts()
+        before = {n: n in self.chosen_names() for n in self._shown()}
+        unchosen = set(self.settings.get("unchosen", []))
+        want = set(scripts)
+        if self.only_all.isChecked():
+            fonts = [f for f in self.fonts if want and want <= self.support.get(f.name, set())]
+        else:
+            fonts = [f for f in self.fonts if want & self.support.get(f.name, set())]
+        fonts.sort(key=lambda f: f.name.lower())
+        self.table.blockSignals(True)
+        self.table.clear()
+        self.table.setColumnCount(2 + len(scripts))
+        self.table.setHorizontalHeaderLabels(["Font"] + [synthtrain.SCRIPTS[s][2] for s in scripts] + ["File"])
+        self.table.setRowCount(len(fonts))
+        for r, font in enumerate(fonts):
+            item = QTableWidgetItem(font.name)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            chosen = before.get(font.name, font.name not in unchosen)
+            item.setCheckState(Qt.Checked if chosen else Qt.Unchecked)
+            item.setToolTip(str(font.path))
+            self.table.setItem(r, 0, item)
+            for c, script in enumerate(scripts, 1):
+                has = script in self.support.get(font.name, set())
+                cell = QTableWidgetItem("✓" if has else "—")
+                cell.setTextAlignment(Qt.AlignCenter)
+                cell.setToolTip(f"{synthtrain.SCRIPTS[script][2]}: " + ("supported" if has else "not supported"))
+                cell.setFlags(Qt.ItemIsEnabled)
+                self.table.setItem(r, c, cell)
+            path = QTableWidgetItem(font.path.name)
+            path.setFlags(Qt.ItemIsEnabled)
+            path.setToolTip(str(font.path))
+            self.table.setItem(r, 1 + len(scripts), path)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for c in range(1, 2 + len(scripts)):
+            header.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        self.table.blockSignals(False)
+        self._count()
+
+    def _check_all(self, state: bool) -> None:
+        self.table.blockSignals(True)
+        for r in range(self.table.rowCount()):
+            self.table.item(r, 0).setCheckState(Qt.Checked if state else Qt.Unchecked)
+        self.table.blockSignals(False)
+        self._count()
+
+    def _count(self, *_) -> None:
+        if not self.fonts:
+            return
+        n, shown, scripts = len(self.chosen_names()), self.table.rowCount(), self.scripts()
+        if not scripts:
+            self.status.setText("Choose one or more languages.")
+        elif not shown:
+            self.status.setText("No font here supports " + ("every language chosen." if self.only_all.isChecked()
+                                                              else "the languages chosen."))
+        else:
+            self.status.setText(f"{n} of {shown} fonts chosen. Each is used for the chosen languages it supports.")
+        self.train_button.setEnabled(bool(n and scripts))
+
+    def _scripts_changed(self, *_) -> None:
+        if self.fonts:
+            self._fill()
+
+    def chosen_fonts(self) -> list:
+        names = set(self.chosen_names())
+        return [f for f in self.fonts if f.name in names]
+
+    def _accept(self) -> None:
+        self._save()
+        self.accept()
+
+    def reject(self) -> None:
+        if self.scanner is not None and self.scanner.isRunning():
+            self.scanner.wait()
+        super().reject()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, project: Project | None = None):
         super().__init__()
@@ -1263,6 +1517,9 @@ class MainWindow(QMainWindow):
         self.review.message.connect(self.statusBar().showMessage)
         self.glyphs.jump.connect(self._jump)
 
+        training_menu = self.menuBar().addMenu("&Training")
+        self.actions["train_fonts"] = training_menu.addAction("Train from fonts…", self.train_from_fonts)
+        training_menu.addAction("Trained models…", lambda: ModelsDialog(self).exec())
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("Check for updates…", lambda: self.check_for_updates(manual=True))
         self.check_at_start = help_menu.addAction("Check for updates at startup")
@@ -1516,8 +1773,7 @@ class MainWindow(QMainWindow):
                                     f"(this book: {lines} lines, {words} words in other scripts).\n\n"
                                     "Every line or word you correct in Review, in any project, goes into that language's "
                                     "training pool, so what is learned from one book carries over to the next. Lines "
-                                    "set in your fonts can be added too (Train Hebrew and Greek.bat, or "
-                                    "ectype train-synthetic).")
+                                    "set in your fonts can be added too: Training → Train from fonts.")
             return
         which = "\n".join(f"• {languages.name(code)}: {n} images in its pool" for code, n in plan)
         box = QMessageBox(self)
@@ -1534,6 +1790,42 @@ class MainWindow(QMainWindow):
         box.exec()
         if box.clickedButton() is go:
             self._start(lambda progress: self.project.train_model(progress), self._trained, "Training the OCR models")
+
+    def train_from_fonts(self) -> None:
+        from . import train
+
+        problem = train.available()
+        if problem:
+            QMessageBox.warning(self, "Train from fonts", problem + " Training needs them; reinstall Ectype OCR.")
+            return
+        dialog = FontTrainingDialog(self)
+        if not dialog.exec():
+            return
+        fonts, scripts, lines = dialog.chosen_fonts(), dialog.scripts(), dialog.lines.value()
+
+        def work(progress):
+            from . import synthtrain, trainall
+
+            say = (lambda msg: progress("train", msg))
+            out = synthtrain.generate(fonts, scripts, lines, progress=say)
+            report = []
+            for script in scripts:
+                names = out["fonts"].get(script, [])
+                report.append(f"{synthtrain.SCRIPTS[script][2]}: lines set in {len(names)} fonts.")
+            report += [f"  {name}: {why}" for name, why in out["skipped"].items()]
+            return report + trainall.train_scripts(scripts, say)
+
+        self._start(work, self._trained_from_fonts, "Training from fonts")
+
+    def _trained_from_fonts(self, report: list[str]) -> None:
+        for line in report:
+            self.log.appendPlainText(line)
+        box = QMessageBox(self)
+        box.setWindowTitle("Train from fonts")
+        box.setText("Training finished.")
+        box.setInformativeText("\n".join(report) + "\n\nA model replaces the one in use only if it makes fewer "
+                               "errors. Training → Trained models shows what there is.")
+        box.exec()
 
     def _trained(self, reports) -> None:
         self.langs.set_languages(self.project.languages())
