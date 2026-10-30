@@ -1606,7 +1606,7 @@ class FontTrainingDialog(QDialog):
         self.scanner: Task | None = None
         layout = QVBoxLayout(self)
         intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament, the Latin "
-                       "Vulgate, the Peshitta) in each "
+                       "Vulgate, the Peshitta, the Qurʾān and the Arabic Bible) in each "
                        "font you choose, makes the lines look scanned, and trains each language's model on them: no "
                        "correcting by hand. Fonts are only read, never copied. The more typefaces like your books' "
                        "the better.\nTransliteration teaches the English model the letters English lacks: Hebrew in "

@@ -572,7 +572,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("train-synthetic", help="add lines set in your fonts from known text to the training pools")
     p.add_argument("--fonts", required=True, help="folder of fonts (.ttf, .otf; subfolders included)")
-    p.add_argument("--script", nargs="+", default=["hebrew", "greek"], choices=["hebrew", "greek", "latin", "syriac", "transliteration"])
+    p.add_argument("--script", nargs="+", default=["hebrew", "greek"], choices=["hebrew", "greek", "latin", "syriac", "arabic", "transliteration"])
     p.add_argument("--lines", type=int, default=400, help="lines a font (default 400)")
     p.set_defaults(func=cmd_train_synthetic)
 

@@ -64,6 +64,8 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | SBL Greek New Testament (`LogosBible/SBLGNT`), downloaded on request | The same, for Greek | Michael W. Holmes; Society of Biblical Literature and Logos Bible Software | CC BY 4.0 |
 | Clementine Vulgate (`lukesmithxyz/vul`), downloaded on request | The same, for Latin | Text public domain; file by Luke Smith | Public domain |
 | Peshitta Old Testament, plain text (`ETCBC/peshitta`), downloaded on request | The same, for Syriac (only on the user's machine, for their own training) | W. Th. van Peursen, G. J. Veldman, C. Sikkel, H. Vlaardingerbroek, D. Roorda (ETCBC), doi:10.5281/zenodo.1464757 | Text CC BY-NC 4.0; programs MIT |
+| Qurʾān, Tanzil.net's "simple" text (https://tanzil.net), downloaded on request | Training lines for Arabic, used unchanged | Tanzil Project | CC BY 3.0, verbatim, with credit and a link to Tanzil.net |
+| Smith–Van Dyck Arabic Bible (1865), eBible.org's VPL text (`arb-vd`), downloaded on request | Training lines for Arabic | Syrian Mission (Eli Smith, Cornelius Van Dyck); eBible.org | Public domain |
 | Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
 | DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
 

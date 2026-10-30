@@ -130,6 +130,7 @@ The report goes to the Log; the app offers to read the pages again.
 - the Greek New Testament: the SBL Greek New Testament, CC BY 4.0;
 - the Latin Vulgate (Clementine), public domain, from the one-file text of `lukesmithxyz/vul`; it trains Latin (`lat`, Train from fonts → Latin).
 - the Peshitta Old Testament (with the deuterocanonical books, unvowelled), the ETCBC's plain text, CC BY-NC 4.0 (free to use, not commercially, with credit); it trains Syriac (`syr`, Train from fonts → Syriac). Syriac lines are set right to left with their letters joined.
+- for Arabic, the Qurʾān (Tanzil.net's fully vowelled "simple" text, CC BY 3.0, used unchanged) and the Smith–Van Dyck Bible of 1865 (eBible.org, public domain, partly vowelled), their verses taken in turn; it trains Arabic (`ara`, Train from fonts → Arabic). Either alone is used if the other can't be downloaded. A text that can't be downloaded leaves its script without fonts in the window, and the others go on.
 - any UTF-8 text file of an edition (for example Westcott–Hort), one passage a line.
 
 **Transliteration** (`translit.py`, `--script transliteration`) trains English, not a language of its own. Tesseract's English model knows one accented letter, é: it reads ḥ as h and ā as a, drops ʾ and ʿ, and nothing shows that anything was lost. The text is generated: English sentences of scholarly prose with transliterated words among them, sometimes in brackets or quotes, with an occasional reference or page number:

@@ -40,8 +40,9 @@ from . import pool, texts
 
 SCRIPTS = {"hebrew": ("heb", "hebrew-bible", "Hebrew"), "greek": ("grc", "greek-nt", "Greek"),
            "latin": ("lat", "vulgate", "Latin"), "syriac": ("syr", "peshitta", "Syriac"),
+           "arabic": ("ara", "arabic", "Arabic"),
            "transliteration": ("eng", "transliteration", "Transliteration")}
-RTL_LANGUAGE = {"hebrew": "he", "syriac": "syr"}  # for raqm's shaping (Syriac letters join)
+RTL_LANGUAGE = {"hebrew": "he", "syriac": "syr", "arabic": "ar"}  # for raqm's shaping (Syriac and Arabic letters join)
 VERSION = 2  # of the generation: lines made by an older one are made again (2: Hebrew accents)
 # Hebrew lines: with the Codex's accents, as grammars print them (points and ֫ over a stress
 # before the last syllable), or with the points only; the rest of the share is the last.
@@ -160,8 +161,17 @@ def without_marks(text: str) -> str:
 
 def support(fonts: list[FontInfo], scripts: list[str], progress: Callable[[str], None] | None = None,
             done: Callable[[int, int], None] | None = None) -> dict[str, dict[str, str]]:
-    """For each font (by name), the scripts it supports and how far: {script: FULL or LETTERS}."""
-    needed = {script: needs(script, progress)[1] for script in scripts}
+    """For each font (by name), the scripts it supports and how far: {script: FULL or LETTERS}.
+    A script whose text can't be downloaded (no connection, a site down) is supported by none,
+    and said so, but doesn't stop the others."""
+    needed = {}
+    for script in scripts:
+        try:
+            needed[script] = needs(script, progress)[1]
+        except Exception as exc:
+            if progress:
+                progress(f"{SCRIPTS[script][2]}: its text couldn't be downloaded ({exc})")
+    scripts = [s for s in scripts if s in needed]
     out = {}
     for k, font in enumerate(fonts, 1):
         levels = {script: level(font, needed[script], script=script) for script in scripts}
@@ -272,7 +282,13 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
         rtl = script in RTL_LANGUAGE
         hebrew = script == "hebrew"
         by_line = script == "transliteration"  # a font without some letters sets the lines it can
-        passages, needed, _ = needs(script, say)
+        try:
+            passages, needed, _ = needs(script, say)
+        except Exception as exc:  # its text couldn't be downloaded: the other scripts go on
+            report["fonts"][script] = []
+            report["skipped"][name] = f"its text couldn't be downloaded ({exc})"
+            say(f"{name}: its text couldn't be downloaded ({exc})")
+            continue
         if hebrew:
             passages = texts.load(source, say, accents=True)  # set in its three forms (hebrew_form)
         usable = []

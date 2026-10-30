@@ -10,6 +10,9 @@ are matched against (`synthtrain.py`, `align.py`).
   the ETCBC's plain text (github.com/ETCBC/peshitta; the text CC BY-NC 4.0: free to use, not
   commercially, with credit to W. Th. van Peursen, G. J. Veldman, C. Sikkel, H. Vlaardingerbroek
   and D. Roorda; their programs MIT).
+- "arabic": the Qurʾān (fully vowelled; Tanzil.net's "simple" text, CC BY 3.0, used
+  unchanged, credit to Tanzil.net) and the Smith–Van Dyck Bible of 1865 (public domain,
+  partly vowelled; eBible.org's one verse a line), their verses taken in turn.
 - "transliteration": English with transliterated words (Hebrew made from the Hebrew Bible,
   other Semitic languages, IPA, European accents), generated (`translit.py`).
 - a file: any UTF-8 text, one passage a line (e.g. the Westcott-Hort text, or the text of
@@ -25,9 +28,12 @@ Downloads are kept in the user's folder.
 
 from __future__ import annotations
 
+import io
 import re
 import unicodedata
+import urllib.parse
 import urllib.request
+import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
@@ -47,9 +53,13 @@ PESHITTA_BOOKS = ("Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ru
                   "Jeremiah Lamentations Ezekiel Daniel Hosea Joel Amos Obadiah Jonah Micah Nahum Habakkuk Zephaniah "
                   "Haggai Zechariah Malachi Tobit_A Judith Wisdom_of_Solomon Sirach Baruch Maccabees_1_A "
                   "Maccabees_2").split()
+TANZIL_URL = "https://tanzil.net/pub/download/download.php"  # a form: the text chosen, the terms agreed to
+TANZIL_FORM = {"quranType": "simple", "outType": "txt-2", "agree": "true"}  # txt-2: sura|aya|text a line
+VAN_DYCK_URL = "https://ebible.org/Scriptures/arb-vd_vpl.zip"  # "GEN 1:1 text", a verse a line
 SOURCES = {"hebrew-bible": "Hebrew Bible (Westminster Leningrad Codex)", "greek-nt": "Greek New Testament (SBLGNT)",
-           "vulgate": "Latin Vulgate (Clementine)", "peshitta": "Peshitta (Old Testament, ETCBC)"}
-LANG = {"hebrew-bible": "heb", "greek-nt": "grc", "vulgate": "lat", "peshitta": "syr"}
+           "vulgate": "Latin Vulgate (Clementine)", "peshitta": "Peshitta (Old Testament, ETCBC)",
+           "quran": "Qurʾān (Tanzil.net)", "van-dyck": "Arabic Bible (Smith–Van Dyck)"}
+LANG = {"hebrew-bible": "heb", "greek-nt": "grc", "vulgate": "lat", "peshitta": "syr", "arabic": "ara"}
 
 # Hebrew marks left out: the accents (U+0591-U+05AF), meteg, paseq, the upper and lower dots, rafe.
 HEBREW_ACCENTS = re.compile("[֑-ֽֿ֯׀ׅׄ]")
@@ -119,6 +129,66 @@ def _peshitta_book(txt: str) -> list[str]:
     return [re.sub(r"\s+", " ", v).strip() for v in out if v.strip()]
 
 
+def _quran(txt: str) -> list[str]:
+    """Verses of Tanzil's txt-2 text ("sura|aya|text"); its closing notes (# lines) left out."""
+    out = []
+    for line in txt.splitlines():
+        parts = line.split("|", 2)
+        if len(parts) == 3 and not line.startswith("#") and parts[2].strip():
+            out.append(parts[2].strip())
+    return out
+
+
+def _van_dyck(data: bytes) -> list[str]:
+    """Verses of eBible.org's VPL zip: lines "GEN 1:1 text" in its one text file."""
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        name = next(n for n in z.namelist() if n.lower().endswith(".txt"))
+        txt = z.read(name).decode("utf-8-sig")
+    out = []
+    for line in txt.splitlines():
+        m = re.match(r"^[0-9A-Z]{3} \d+:\d+ (.+)$", line.strip())
+        if m:
+            out.append(re.sub(r"\s+", " ", m.group(1)).strip())
+    return out
+
+
+def _arabic(say: Callable[[str], None]) -> list[str]:
+    """The Qurʾān's verses and the Van Dyck Bible's, taken in turn (so a sample of the first has
+    both); either alone when the other can't be downloaded."""
+    texts, problems = [], []
+    for source in ("quran", "van-dyck"):
+        try:
+            texts.append(_cached(source, say))
+        except Exception as exc:  # the other may still come
+            problems.append(f"{SOURCES[source]}: {exc}")
+    if not texts:
+        raise RuntimeError("Couldn't download the Arabic texts (" + "; ".join(problems) + "). Check the connection "
+                           "and try again.")
+    out = []
+    for k in range(max(len(t) for t in texts)):
+        out += [t[k] for t in texts if k < len(t)]
+    return out
+
+
+def _cached(source: str, say: Callable[[str], None]) -> list[str]:
+    """One downloaded text's verses, from the user's folder once fetched."""
+    cache = folder() / f"{source}.txt"
+    if not cache.is_file():
+        say(f"downloading the {SOURCES[source]}")
+        if source == "quran":
+            form = urllib.parse.urlencode(TANZIL_FORM).encode()
+            with urllib.request.urlopen(urllib.request.Request(TANZIL_URL, data=form), timeout=120) as r:
+                verses = _quran(r.read().decode("utf-8"))
+        else:
+            with urllib.request.urlopen(VAN_DYCK_URL, timeout=120) as r:
+                verses = _van_dyck(r.read())
+        if len(verses) < 1000:
+            raise RuntimeError(f"the download held {len(verses)} verses, not the whole text")
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("\n".join(verses) + "\n", encoding="utf-8", newline="\n")
+    return [v for v in cache.read_text(encoding="utf-8").splitlines() if v.strip()]
+
+
 def _vulgate(tsv: str) -> list[str]:
     """Verses of the vul.tsv file: book, abbreviation, book number, chapter, verse, text; the
     spaces it puts before colons and semicolons (French style, as the Clementine prints them)
@@ -140,10 +210,13 @@ def load(source: str, progress: Callable[[str], None] | None = None, accents: bo
         from .translit import passages
 
         return passages(load("hebrew-bible", progress))
+    if source == "arabic":
+        return _arabic(say)
     if source not in SOURCES:
         path = Path(source)
         if not path.is_file():
-            raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, greek-nt, vulgate, peshitta, or a text file.")
+            raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, greek-nt, vulgate, peshitta, arabic, "
+                                    "or a text file.")
         return [keep(line.strip()) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     cache = folder() / f"{source}.txt"
     if not cache.is_file() and source == "vulgate":

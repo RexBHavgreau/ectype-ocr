@@ -282,6 +282,40 @@ def test_syriac_from_the_peshitta(data, monkeypatch):
     assert r["fonts"]["syriac"] == ["FreeSans"] and r["added"]["syr"] == 6
 
 
+def test_arabic_from_the_quran_and_the_van_dyck_bible(data, monkeypatch):
+    """Tanzil's text (sura|aya|text) and eBible.org's VPL zip, their verses taken in turn, set
+    right to left with their letters joined; a text that can't be downloaded doesn't stop the
+    other scripts."""
+    import io
+    import zipfile
+
+    from ectype import synthtrain
+
+    quran = texts._quran("1|1|بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n1|2|الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ\n\n# Tanzil Quran Text\n")
+    assert quran == ["بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ", "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("arb-vd_vpl.txt", "\ufeffGEN 1:1 في البدء خلق الله السموات والارض.\nGEN 1:2 وكانت الارض خربة وخالية\n")
+    bible = texts._van_dyck(buf.getvalue())
+    assert bible == ["في البدء خلق الله السموات والارض.", "وكانت الارض خربة وخالية"]
+    monkeypatch.setattr(texts, "_cached", lambda source, say: quran if source == "quran" else bible)
+    assert texts._arabic(print) == [quran[0], bible[0], quran[1], bible[1]]
+
+    def broken(source, progress=None, accents=False):
+        if source == "arabic":
+            raise RuntimeError("no connection")
+        return quran * 4
+
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: (quran + bible) * 3)
+    font = synthtrain.FontInfo(Path(_font("DejaVu Sans")), "DejaVu Sans")
+    r = synthtrain.generate([font], ["arabic"], lines_per_font=6)
+    assert r["added"]["ara"] == 6
+    monkeypatch.setattr(texts, "load", broken)
+    assert "arabic" not in synthtrain.support([font], ["arabic", "syriac"]).get("DejaVu Sans", {})
+    r = synthtrain.generate([font], ["arabic"], lines_per_font=6)
+    assert "couldn't be downloaded" in r["skipped"]["Arabic"]
+
+
 def test_training_settings_file(tmp_path):
     from ectype import trainall
 
