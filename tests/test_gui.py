@@ -100,6 +100,24 @@ def test_window_review_and_correction(project, tmp_path):
     w.review.save()
     word = project.ocr("p001L").lines[punct.line].words[punct.word].text
     assert ";" in word and before in word, "the mark changed, the letters kept"
+    # A letter the OCR left out of a word's box: the box stretched over it, the letter typed.
+    from PySide6.QtCore import QRectF
+
+    target = next(it for it in w.review.items if it.span is None and len(it.text) > 2 and it.text.isalpha())
+    w.review.select(target)
+    r = w.review.editor.rect()
+    w.review.editor.setRect(r.adjusted(-25, 0, 0, 0))
+    w.review.edit.setText("Z" + target.text)
+    w.review.save()
+    got = project.ocr("p001L").lines[target.line].words[target.word]
+    assert got.text == "Z" + target.text and got.box[0] == round(r.left() - 25) and "box changed" in w.review.info.text()
+    # A word the OCR missed altogether: a box drawn and typed, in its line.
+    line = project.ocr("p001L").lines[0]
+    x1 = line.box[2]
+    w.review._drawn(QRectF(x1 + 10, line.box[1], 60, line.box[3] - line.box[1]))
+    w.review.edit.setText("added")
+    w.review.save()
+    assert project.ocr("p001L").lines[0].words[-1].text == "added" and w.review.info.text() == "Added: added"
 
     w.tabs.setCurrentWidget(w.spreads)
     app.processEvents()

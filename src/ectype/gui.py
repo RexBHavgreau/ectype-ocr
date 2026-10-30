@@ -18,7 +18,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QImage, QPen, QPixmap, QTransform
+from PySide6.QtGui import QAction, QBrush, QColor, QImage, QPainterPath, QPainterPathStroker, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
@@ -130,15 +130,56 @@ class ProgressWindow(QDialog):
 
 
 class ImageView(QGraphicsView):
-    """A zoomable view; Ctrl+wheel zooms, and `zoomed` lets a partner view follow."""
+    """A zoomable view; Ctrl+wheel zooms, and `zoomed` lets a partner view follow. After
+    `start_drawing`, a drag draws a box instead of moving the page (`drawn`)."""
 
     zoomed = Signal(float)
+    drawn = Signal(QRectF)
 
     def __init__(self):
         self._scene = QGraphicsScene()  # held here, or Python frees it under Qt
         super().__init__(self._scene)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.drawing = False
+        self._band: QGraphicsRectItem | None = None
+        self._origin = QPointF()
+
+    def start_drawing(self) -> None:
+        self.drawing = True
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+
+    def stop_drawing(self) -> None:
+        self.drawing = False
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.viewport().unsetCursor()
+
+    def mousePressEvent(self, event):
+        if self.drawing and event.button() == Qt.MouseButton.LeftButton:
+            self._origin = self.mapToScene(event.position().toPoint())
+            pen = QPen(COLOURS["selected"], 2, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            self._band = self.scene().addRect(QRectF(self._origin, self._origin), pen)
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._band is not None:
+            self._band.setRect(QRectF(self._origin, self.mapToScene(event.position().toPoint())).normalized())
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._band is not None:
+            rect = self._band.rect()
+            self.scene().removeItem(self._band)
+            self._band = None
+            self.stop_drawing()
+            if rect.width() > 2 and rect.height() > 2:
+                self.drawn.emit(rect)
+            return
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -149,6 +190,7 @@ class ImageView(QGraphicsView):
             super().wheelEvent(event)
 
     def show_image(self, image: QImage) -> QGraphicsPixmapItem:
+        self._band = None
         self.scene().clear()
         item = self.scene().addPixmap(QPixmap.fromImage(image))
         self.scene().setSceneRect(QRectF(image.rect()))
@@ -378,9 +420,10 @@ class WordItem(QGraphicsRectItem):
     end, or the letters between (`review.parts`)."""
 
     def __init__(self, rect: QRectF, line: int, word: int, text: str, status: str, on_click,
-                 span: tuple[int, int] | None = None):
+                 span: tuple[int, int] | None = None, word_box: list[int] | None = None):
         super().__init__(rect)
         self.line, self.word, self.text, self.on_click, self.span = line, word, text, on_click, span
+        self.word_box = word_box
         self.set_status(status)
         self.setToolTip(text)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -393,6 +436,88 @@ class WordItem(QGraphicsRectItem):
 
     def mousePressEvent(self, event):
         self.on_click(self)
+
+
+class BoxEditor(QGraphicsRectItem):
+    """The selected word's whole box, dashed: drag an edge or a corner to stretch it over ink
+    the OCR left out (a first letter missed), or to shrink it. Only its edges take the mouse,
+    so the word's pieces inside can still be clicked."""
+
+    CURSORS = {"l": Qt.CursorShape.SizeHorCursor, "r": Qt.CursorShape.SizeHorCursor,
+               "t": Qt.CursorShape.SizeVerCursor, "b": Qt.CursorShape.SizeVerCursor,
+               "lt": Qt.CursorShape.SizeFDiagCursor, "rb": Qt.CursorShape.SizeFDiagCursor,
+               "rt": Qt.CursorShape.SizeBDiagCursor, "lb": Qt.CursorShape.SizeBDiagCursor}
+
+    def __init__(self, rect: QRectF, tolerance: float):
+        super().__init__(rect)
+        self.tol, self.start, self.edges = tolerance, QRectF(rect), ""
+        pen = QPen(COLOURS["selected"], 2, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setAcceptHoverEvents(True)
+        self.setZValue(10)
+
+    def box(self) -> list[int]:
+        r = self.rect()
+        return [round(r.left()), round(r.top()), round(r.right()), round(r.bottom())]
+
+    def changed(self) -> bool:
+        r = self.start
+        return self.box() != [round(r.left()), round(r.top()), round(r.right()), round(r.bottom())]
+
+    def boundingRect(self) -> QRectF:
+        return self.rect().adjusted(-self.tol, -self.tol, self.tol, self.tol)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRect(self.rect())
+        stroker = QPainterPathStroker()
+        stroker.setWidth(2 * self.tol)
+        return stroker.createStroke(path)
+
+    def _edges_at(self, p: QPointF) -> str:
+        r, t = self.rect(), self.tol
+        across = r.top() - t <= p.y() <= r.bottom() + t
+        along = r.left() - t <= p.x() <= r.right() + t
+        out = ""
+        if across and abs(p.x() - r.left()) <= t:
+            out += "l"
+        elif across and abs(p.x() - r.right()) <= t:
+            out += "r"
+        if along and abs(p.y() - r.top()) <= t:
+            out += "t"
+        elif along and abs(p.y() - r.bottom()) <= t:
+            out += "b"
+        return out
+
+    def hoverMoveEvent(self, event):
+        edges = self._edges_at(event.pos())
+        if edges in self.CURSORS:
+            self.setCursor(self.CURSORS[edges])
+        else:
+            self.unsetCursor()
+
+    def mousePressEvent(self, event):
+        self.edges = self._edges_at(event.pos())
+        if not self.edges:
+            event.ignore()
+
+    def mouseMoveEvent(self, event):
+        if not self.edges:
+            return
+        r, p = QRectF(self.rect()), event.pos()
+        if "l" in self.edges:
+            r.setLeft(min(p.x(), r.right() - 2))
+        if "r" in self.edges:
+            r.setRight(max(p.x(), r.left() + 2))
+        if "t" in self.edges:
+            r.setTop(min(p.y(), r.bottom() - 2))
+        if "b" in self.edges:
+            r.setBottom(max(p.y(), r.top() + 2))
+        self.setRect(r)
+
+    def mouseReleaseEvent(self, event):
+        self.edges = ""
 
 
 class ReviewTab(QWidget):
@@ -412,6 +537,9 @@ class ReviewTab(QWidget):
         self.edit.returnPressed.connect(self.save)
         save = QPushButton("Save")
         save.clicked.connect(self.save)
+        add = QPushButton("Add a word")
+        add.setToolTip("Draw a box around a word the OCR missed, then type it and Save")
+        add.clicked.connect(self.start_adding)
         self.info = QLabel()
         legend = QLabel('<span style="color:#dc2828">■ low OCR confidence</span> &nbsp; '
                         '<span style="color:#e8890c">■ glyph looks like another character</span> &nbsp; '
@@ -419,8 +547,10 @@ class ReviewTab(QWidget):
         bar = QHBoxLayout()
         bar.addWidget(self.edit, 1)
         bar.addWidget(save)
+        bar.addWidget(add)
         bar.addWidget(self.info, 1)
         self.scan, self.output = ImageView(), ImageView()
+        self.scan.drawn.connect(self._drawn)
         self.scan.zoomed.connect(lambda f: self.output.scale(f, f))
         self.output.zoomed.connect(lambda f: self.scan.scale(f, f))
         for a, b in ((self.scan, self.output), (self.output, self.scan)):
@@ -440,6 +570,8 @@ class ReviewTab(QWidget):
         layout.addWidget(holder, 1)
         self.items: list[WordItem] = []
         self.selected: WordItem | None = None
+        self.editor: BoxEditor | None = None  # the selected word's box, to stretch
+        self.adding = False  # the editor holds a box drawn for a word the OCR missed
         self.page: str | None = None
         self._syncing = False
 
@@ -477,16 +609,8 @@ class ReviewTab(QWidget):
         page = item.data(Qt.ItemDataRole.UserRole)
         self.page = page
         self.scan.show_image(QImage(str(self.project.page_image(page))))
-        self.items, self.selected = [], None
-        ocr = self.project.ocr(page)
-        fixed = self.project.corrected(page)
-        flagged = self.flags.get(page, set())
-        if ocr:
-            for li, line in enumerate(ocr.lines):
-                for wi, w in enumerate(line.words):
-                    status = ("fixed" if (li, wi) in fixed else "suspect" if (li, wi) in flagged
-                              else "low" if w.conf < LOW_CONF else "plain")
-                    self._add_word(li, wi, w, status)
+        self.items, self.selected, self.editor, self.adding = [], None, None, False
+        self._draw_words()
         pdf = self.project.output_pdf()
         pages = self.project.pages()
         image = _pdf_page_image(pdf, pages.index(page), dpi=self._page_dpi(page)) if pdf else None
@@ -500,6 +624,49 @@ class ReviewTab(QWidget):
         self.edit.clear()
         self.info.clear()
 
+    def _draw_words(self) -> None:
+        """The page's word boxes, coloured by what is known of each (made again after a change)."""
+        for it in self.items:
+            self.scan.scene().removeItem(it)
+        self._drop_editor()
+        self.items, self.selected = [], None
+        ocr = self.project.ocr(self.page)
+        fixed = self.project.corrected(self.page)
+        flagged = self.flags.get(self.page, set())
+        if ocr:
+            for li, line in enumerate(ocr.lines):
+                for wi, w in enumerate(line.words):
+                    status = ("fixed" if (li, wi) in fixed else "suspect" if (li, wi) in flagged
+                              else "low" if w.conf < LOW_CONF else "plain")
+                    self._add_word(li, wi, w, status)
+
+    def _drop_editor(self) -> None:
+        if self.editor is not None:
+            self.scan.scene().removeItem(self.editor)
+        self.editor, self.adding = None, False
+
+    def _show_editor(self, box) -> None:
+        self._drop_editor()
+        x0, y0, x1, y1 = box
+        self.editor = BoxEditor(QRectF(x0, y0, x1 - x0, y1 - y0), 6 / max(1e-6, self.scan.transform().m11()))
+        self.scan.scene().addItem(self.editor)
+
+    def start_adding(self) -> None:
+        if self.page is None:
+            return
+        self.scan.start_drawing()
+        self.info.setText("Drag a box around the word the OCR missed.")
+
+    def _drawn(self, rect: QRectF) -> None:
+        if self.selected is not None:
+            self.selected.set_status(self.selected.status)
+            self.selected = None
+        self._show_editor([rect.left(), rect.top(), rect.right(), rect.bottom()])
+        self.adding = True
+        self.edit.clear()
+        self.edit.setFocus()
+        self.info.setText("Type the word, then Save. Drag the box's edges to adjust it.")
+
     def _add_word(self, li: int, wi: int, w, status: str) -> None:
         """A word's boxes: one, or one for each punctuation mark at its start or end and one for
         its letters, so each is corrected by itself."""
@@ -510,7 +677,8 @@ class ReviewTab(QWidget):
             whole = len(pieces) == 1
             x0, y0, x1, y1 = w.box if whole else part_box(w, span)
             text = w.text if whole else "".join(c.text for c in w.chars[span[0]:span[1]])
-            it = WordItem(QRectF(x0, y0, x1 - x0, y1 - y0), li, wi, text, status, self.select, None if whole else span)
+            it = WordItem(QRectF(x0, y0, x1 - x0, y1 - y0), li, wi, text, status, self.select, None if whole else span,
+                          list(w.box))
             it.setToolTip(w.text)
             self.scan.scene().addItem(it)
             self.items.append(it)
@@ -527,10 +695,18 @@ class ReviewTab(QWidget):
             self.selected.set_status(self.selected.status)
         self.selected = item
         item.setPen(QPen(COLOURS["selected"], 3))
+        if self.adding or self.editor is None or self.editor.start != self._rect(item.word_box):
+            self._show_editor(item.word_box)  # another word: its box, to stretch over a letter it missed
         self.edit.setText(item.text)
         self.edit.setFocus()
         self.edit.selectAll()
-        self.info.setText(f"line {item.line + 1}, word {item.word + 1}")
+        self.info.setText(f"line {item.line + 1}, word {item.word + 1}. Drag the dashed box's edges to take in "
+                          "a letter it missed.")
+
+    @staticmethod
+    def _rect(box) -> QRectF:
+        x0, y0, x1, y1 = box
+        return QRectF(x0, y0, x1 - x0, y1 - y0)
 
     def select_word(self, page: str, line: int, word: int) -> None:
         pages = self.project.pages()
@@ -543,28 +719,36 @@ class ReviewTab(QWidget):
                 self.scan.centerOn(it)
 
     def save(self) -> None:
-        if self.selected is None or self.page is None:
+        if self.page is None:
             return
         text = self.edit.text().strip()
         if not text:
             return
+        update = "Press “Update after corrections” to rebuild the PDF."
+        if self.adding and self.editor is not None:
+            result = self.project.add_word(self.page, self.editor.box(), text)
+            li, wi = result["line"], result["word"]
+            flags = self.flags.get(self.page, set())  # the line's later words moved along one
+            self.flags[self.page] = {(l, w + 1) if l == li and w >= wi else (l, w) for l, w in flags}
+            self._draw_words()
+            self.info.setText(f"Added: {result['new']}")
+            self.message.emit("Word added. " + update)
+            return
+        if self.selected is None:
+            return
         # The same text saved confirms a flagged word as right: it turns green and its line
         # becomes training data, as a correction does, but the PDF needs no rebuilding.
         item = self.selected
-        result = self.project.correct(self.page, item.line, item.word, text, item.span)
-        # The word's boxes made again: a piece corrected can change where the others are.
-        for old in [it for it in self.items if (it.line, it.word) == (item.line, item.word)]:
-            self.scan.scene().removeItem(old)
-            self.items.remove(old)
-        w = self.project.ocr(self.page).lines[item.line].words[item.word]
-        self._add_word(item.line, item.word, w, "fixed")
-        self.selected = None
+        box = self.editor.box() if self.editor is not None and self.editor.changed() else None
+        result = self.project.correct(self.page, item.line, item.word, text, item.span, box)
+        self._draw_words()  # a piece corrected, or the box stretched, moves the word's other pieces
         old, new = result.get("part") or (result["old"], result["new"])
-        if old == new:
+        stretched = " (its box changed)" if box else ""
+        if old == new and not box:
             self.info.setText(f"Confirmed: {new}")
         else:
-            self.info.setText(f"Saved: {old} → {new}")
-            self.message.emit("Correction saved. Press “Update after corrections” to rebuild the PDF.")
+            self.info.setText(f"Saved: {old} → {new}{stretched}")
+            self.message.emit("Correction saved. " + update)
 
 
 # ---------------------------------------------------------------------------

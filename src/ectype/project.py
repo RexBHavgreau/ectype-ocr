@@ -146,10 +146,16 @@ class Project:
 
     # -- actions -----------------------------------------------------------------
 
-    def correct(self, page: str, line: int, word: int, text: str, span: tuple[int, int] | None = None) -> dict:
+    def correct(self, page: str, line: int, word: int, text: str, span: tuple[int, int] | None = None,
+                box: list[int] | None = None) -> dict:
         from .review import correct
 
-        return correct(self.workspace, page, line, word, text, span)
+        return correct(self.workspace, page, line, word, text, span, box)
+
+    def add_word(self, page: str, box: list[int], text: str) -> dict:
+        from .review import add_word
+
+        return add_word(self.workspace, page, box, text)
 
     def stages(self) -> list[str]:
         return STAGES.get(self.settings.mode, STAGES_TRACED)

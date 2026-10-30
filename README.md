@@ -41,7 +41,7 @@ Choose **Select PDF…** to pick the scanned book (a PDF, or page images), then 
 
 The app has four tabs:
 - **Spreads:** each scan page, upright, with its split line. Drag the red line to where the pages meet, untick "Split this spread" to keep a page whole, or rotate a page. "Split two-page spreads" in the toolbar sets the default for the whole document. Changes apply on the next Run.
-- **Review:** the scan and the output side by side, scrolling and zooming together (Ctrl+wheel). Words are boxed in red for low OCR confidence and orange where a glyph looks like another character. Click a word, type the fix, press Enter. Then press **Update after corrections**, which reruns only segmentation through the PDF.
+- **Review:** the scan and the output side by side, scrolling and zooming together (Ctrl+wheel). Words are boxed in red for low OCR confidence and orange where a glyph looks like another character. Click a word, type the fix, press Enter; saved unchanged, a flagged word is confirmed (green). Punctuation at a word's start or end has a box of its own, corrected apart from the letters. Where the OCR left a letter out of a word's box ("DMG." for "ZDMG."), drag the selected word's dashed edges over it and type the whole word; **Add a word** draws a box around a word the OCR missed altogether. Then press **Update after corrections**, which reruns only segmentation through the PDF (a stretched box takes the missed letter's ink into the word, so it is traced, not left in the background).
 - **Glyphs:** the averaged glyph sheets per style, and the probable misreadings. Double-click one to correct it.
 - **Log:** stage-by-stage progress.
 

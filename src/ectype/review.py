@@ -23,7 +23,7 @@ from urllib.parse import unquote
 from PIL import Image
 
 from . import report
-from .ocr import Char, OcrPage
+from .ocr import Char, Line, OcrPage, Word
 
 
 def _punctuation(text: str) -> bool:
@@ -57,11 +57,45 @@ def part_box(word, span: tuple[int, int]) -> list[int]:
             max(c.box[2] for c in chars), max(c.box[3] for c in chars)]
 
 
-def apply_correction(ocr: OcrPage, line: int, word: int, text: str, span: tuple[int, int] | None = None) -> str:
-    """Set a word's text, or with span (from `parts`) the text of that piece of it. Character
-    boxes are kept when the length is unchanged, else spread evenly over the piece's box
-    (from the right for right-to-left text). A corrected word counts as fully confident.
-    Returns the word's old text."""
+def place_chars(old: list[Char], text: str, box: list[int]) -> list[Char]:
+    """Characters for a word's new text in its box (left to right): the old characters that
+    stay keep their boxes, and new ones share the room between them, or the room a stretched
+    box added ("DMG." corrected to "ZDMG." with the box stretched over the Z: the Z gets the
+    new room on the left, D M G . keep theirs). Spread evenly over the box when too little
+    of the old text stays or a new character would have too little room."""
+    import difflib
+
+    x0, y0, x1, y1 = box
+    even = [Char(t, [round(x0 + k * (x1 - x0) / len(text)), y0, round(x0 + (k + 1) * (x1 - x0) / len(text)), y1], 100.0)
+            for k, t in enumerate(text)]
+    if not old:
+        return even
+    match = difflib.SequenceMatcher(None, [c.text for c in old], list(text), autojunk=False)
+    if match.ratio() < 0.5:
+        return even
+    out: list[Char] = []
+    for tag, i0, i1, j0, j1 in match.get_opcodes():
+        if tag == "equal":
+            out += [Char(c.text, list(c.box), 100.0) for c in old[i0:i1]]
+        elif j1 > j0:
+            left = out[-1].box[2] if out else x0
+            right = old[i1].box[0] if i1 < len(old) else x1
+            if (right - left) < 2 * (j1 - j0):
+                return even
+            step = (right - left) / (j1 - j0)
+            out += [Char(t, [round(left + k * step), y0, round(left + (k + 1) * step), y1], 100.0)
+                    for k, t in enumerate(text[j0:j1])]
+    return out
+
+
+def apply_correction(ocr: OcrPage, line: int, word: int, text: str, span: tuple[int, int] | None = None,
+                     box: list[int] | None = None) -> str:
+    """Set a word's text, or with span (from `parts`) the text of that piece of it; with box,
+    the word's box too, stretched over ink the OCR left out (its line's box grows with it).
+    Character boxes are kept when the length is unchanged; else the characters that stay
+    keep theirs and new ones get the room between them (`place_chars`). Right-to-left text
+    is placed in visual order. A corrected word counts as fully confident. Returns the
+    word's old text."""
     from .scripts import is_rtl
 
     w = ocr.lines[line].words[word]
@@ -69,24 +103,81 @@ def apply_correction(ocr: OcrPage, line: int, word: int, text: str, span: tuple[
     text = text.strip()
     if not text:
         raise ValueError("empty correction; delete words isn't supported")
+    if box is not None:
+        box = [int(v) for v in box]
+        if box[2] <= box[0] or box[3] <= box[1]:
+            raise ValueError("the box is empty")
+        w.box = box
+        lb = ocr.lines[line].box
+        ocr.lines[line].box = [min(lb[0], box[0]), min(lb[1], box[1]), max(lb[2], box[2]), max(lb[3], box[3])]
     start, end = span or (0, len(w.chars))
     piece = w.chars[start:end]
     if len(text) == len(piece):
         for c, t in zip(piece, text):
             c.text, c.conf = t, 100.0
     else:
-        x0, y0, x1, y1 = part_box(w, (start, end)) if piece else w.box
-        step = (x1 - x0) / len(text)
-        boxes = [[round(x0 + k * step), y0, round(x0 + (k + 1) * step), y1] for k in range(len(text))]
-        if is_rtl(text):
-            boxes.reverse()
-        piece = [Char(t, b, 100.0) for t, b in zip(text, boxes)]
+        if not piece or span is None:
+            room = list(w.box)
+        else:
+            room = part_box(w, (start, end))
+            # The room around the piece up to its neighbours (or the word's edges): a stretched box's new part.
+            others = w.chars[:start] + w.chars[end:]
+            mid = (room[0] + room[2]) / 2
+            lo = [c.box[2] for c in others if (c.box[0] + c.box[2]) / 2 < mid]
+            hi = [c.box[0] for c in others if (c.box[0] + c.box[2]) / 2 >= mid]
+            room = [max(lo) if lo else w.box[0], room[1], min(hi) if hi else w.box[2], room[3]]
+        rtl = is_rtl(text)
+        visual = list(reversed(piece)) if rtl else piece
+        placed = place_chars(visual, text[::-1] if rtl else text, room)
+        piece = list(reversed(placed)) if rtl else placed
     for c in w.chars:
         c.conf = 100.0
     w.chars = w.chars[:start] + piece + w.chars[end:]
     w.text = "".join(c.text for c in w.chars) if span else text
     w.conf = 100.0
     return old
+
+
+def insert_word(ocr: OcrPage, box: list[int], text: str) -> tuple[int, int]:
+    """A word the OCR missed, drawn on the scan: put in the line it stands on (the one its box
+    overlaps most in height, by half at least), in its place in the line's reading order; on a
+    line of its own when it stands on none. Returns (line, word)."""
+    from .scripts import is_rtl
+
+    box = [int(v) for v in box]
+    text = text.strip()
+    if not text or box[2] <= box[0] or box[3] <= box[1]:
+        raise ValueError("draw a box around the word and type its text")
+    h = box[3] - box[1]
+    best, best_overlap = None, 0.5 * h
+    for li, line in enumerate(ocr.lines):
+        overlap = min(box[3], line.box[3]) - max(box[1], line.box[1])
+        if overlap > best_overlap:
+            best, best_overlap = li, overlap
+    word = Word(text, box, 100.0, [])
+    rtl = is_rtl(text)
+    visual = place_chars([], text[::-1] if rtl else text, box)
+    word.chars = list(reversed(visual)) if rtl else visual
+    if best is None:
+        ocr.lines.append(Line(list(box), [0.0, 0.0], None, None, None, [word]))
+        return len(ocr.lines) - 1, 0
+    line = ocr.lines[best]
+    words = line.words
+    backwards = len(words) > 1 and words[0].box[0] > words[-1].box[0]  # a right-to-left line
+    mid = (box[0] + box[2]) / 2
+    at = next((k for k, w in enumerate(words) if ((w.box[0] + w.box[2]) / 2 < mid if backwards
+                                                  else (w.box[0] + w.box[2]) / 2 > mid)), len(words))
+    words.insert(at, word)
+    lb = line.box
+    line.box = [min(lb[0], box[0]), min(lb[1], box[1]), max(lb[2], box[2]), max(lb[3], box[3])]
+    return best, at
+
+
+def _shift(log: list[dict], line: int, at: int, skip: dict | None = None) -> None:
+    """A word inserted at (line, at): the log's later words on that line move along one."""
+    for e in log:
+        if e is not skip and e["line"] == line and e["word"] >= at:
+            e["word"] += 1
 
 
 def save_training_line(workspace: Path, page: str, ocr: OcrPage, line: int) -> Path:
@@ -125,30 +216,93 @@ def save_training_word(workspace: Path, page: str, ocr: OcrPage, line: int, word
     return stem.with_suffix(".png")
 
 
-def correct(workspace: Path, page: str, line: int, word: int, text: str, span: tuple[int, int] | None = None) -> dict:
-    """Apply one correction to a workspace (a word, or with span a piece of it): OCR file,
-    correction log (the whole word's text), training pair."""
-    workspace = Path(workspace)
+def _open(workspace: Path, page: str) -> OcrPage:
+    """A page's reading, its first reading kept aside (the original) before it is changed."""
     path = workspace / "ocr" / f"{page}.ocr.json"
     original = workspace / "ocr" / f"{page}.ocr.original.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     if not original.is_file():
         original.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8", newline="\n")
-    ocr = OcrPage.from_json(data)
+    return OcrPage.from_json(data)
+
+
+def _log(workspace: Path, page: str) -> tuple[Path, list[dict]]:
+    path = workspace / "corrections" / f"{page}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path, json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
+
+
+def correct(workspace: Path, page: str, line: int, word: int, text: str, span: tuple[int, int] | None = None,
+            box: list[int] | None = None) -> dict:
+    """Apply one correction to a workspace (a word, or with span a piece of it; with box, the
+    word's box stretched or shrunk): OCR file, correction log (the whole word's text and its
+    box), training pair."""
+    workspace = Path(workspace)
+    path = workspace / "ocr" / f"{page}.ocr.json"
+    ocr = _open(workspace, page)
     if span is not None:
         w = ocr.lines[line].words[word]
         if not 0 <= span[0] < span[1] <= len(w.chars):
             raise ValueError("that part of the word has changed; click it again")
         old_part = "".join(c.text for c in w.chars[span[0]:span[1]])
-    old = apply_correction(ocr, line, word, text, span)
+    old = apply_correction(ocr, line, word, text, span, box)
     new = ocr.lines[line].words[word].text
     report.write_json(path, ocr.to_json())
-    log_path = workspace / "corrections" / f"{page}.json"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log = json.loads(log_path.read_text(encoding="utf-8")) if log_path.is_file() else []
-    entry = {"line": line, "word": word, "old": old, "new": new, "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    log_path, log = _log(workspace, page)
+    entry = {"line": line, "word": word, "old": old, "new": new, "box": ocr.lines[line].words[word].box,
+             "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    if box is not None:
+        entry["resized"] = True
     if span is not None:
         entry["part"] = [old_part, text.strip()]
+    log.append(entry)
+    report.write_json(log_path, log)
+    pair = save_training_line(workspace, page, ocr, line)
+    save_training_word(workspace, page, ocr, line, word)
+    return {**entry, "training": str(pair.relative_to(workspace))}
+
+
+def _make_room(workspace: Path, page: str, original: OcrPage, log: list[dict], line: int, at: int) -> None:
+    """A word inserted at (line, at): the later words' entries in the log and their training
+    images move along one. Entries without a box (from before boxes were logged) get theirs
+    from the first reading first, so they can still be carried over."""
+    for e in log:
+        if "box" not in e:
+            try:
+                e["box"] = original.lines[e["line"]].words[e["word"]].box
+            except IndexError:
+                pass
+    _shift(log, line, at)
+    folder = workspace / "training" / "words"
+    later = []
+    for png in folder.glob(f"{page}-l{line:03d}-w*.png"):
+        try:
+            k = int(png.stem.rsplit("-w", 1)[1])
+        except ValueError:
+            continue
+        if k >= at:
+            later.append(k)
+    for k in sorted(later, reverse=True):
+        for suffix in (".png", ".gt.txt"):
+            src = folder / f"{page}-l{line:03d}-w{k:03d}{suffix}"
+            if src.is_file():
+                src.replace(folder / f"{page}-l{line:03d}-w{k + 1:03d}{suffix}")
+
+
+def add_word(workspace: Path, page: str, box: list[int], text: str) -> dict:
+    """A word the OCR missed, drawn on the scan and typed (`insert_word`): OCR file, correction
+    log (marked as added, so a new reading gets it again), training pair."""
+    workspace = Path(workspace)
+    path = workspace / "ocr" / f"{page}.ocr.json"
+    ocr = _open(workspace, page)
+    line, word = insert_word(ocr, box, text)
+    original = OcrPage.from_json(json.loads((workspace / "ocr" / f"{page}.ocr.original.json").read_text(encoding="utf-8")))
+    log_path, log = _log(workspace, page)
+    _make_room(workspace, page, original, log, line, word)
+    report.write_json(path, ocr.to_json())
+    w = ocr.lines[line].words[word]
+    entry = {"line": line, "word": word, "old": "", "new": w.text, "box": w.box, "added": True,
+             "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
     log.append(entry)
     report.write_json(log_path, log)
     pair = save_training_line(workspace, page, ocr, line)
@@ -159,8 +313,9 @@ def correct(workspace: Path, page: str, line: int, word: int, text: str, span: t
 def carry_corrections(workspace: Path, page_name: str, page: OcrPage) -> int:
     """Carry the page's corrections over to a new reading of it (other languages, a trained
     model): each corrected word's text goes to the new word that covers the same place on the
-    page. The new reading becomes the page's original, and the log points at the new words.
-    Returns how many corrections were carried over."""
+    page, with its box when it was stretched; a word added by hand that the new reading still
+    misses is added again. The new reading becomes the page's original, and the log points at
+    the new words. Returns how many corrections were carried over."""
     import copy
 
     workspace = Path(workspace)
@@ -181,18 +336,27 @@ def carry_corrections(workspace: Path, page_name: str, page: OcrPage) -> int:
         return inter / union if union > 0 else 0.0
 
     carried = 0
+    missing = []
     for e in log:
         try:
-            box = old.lines[e["line"]].words[e["word"]].box
+            box = e.get("box") or old.lines[e["line"]].words[e["word"]].box
         except IndexError:
             e["lost"] = True
             continue
         best = max(words, key=lambda t: overlap(box, t[2]), default=None)
         if best is None or overlap(box, best[2]) < 0.3:
-            e["lost"] = True
+            if e.get("added"):
+                missing.append(e)
+            else:
+                e["lost"] = True
             continue
-        apply_correction(page, best[0], best[1], e["new"])
+        apply_correction(page, best[0], best[1], e["new"], box=e["box"] if e.get("resized") or e.get("added") else None)
         e["line"], e["word"] = best[0], best[1]
+        e.pop("lost", None)
+        carried += 1
+    for e in missing:  # added after the rest, as adding moves the later words of a line along
+        e["line"], e["word"] = insert_word(page, e["box"], e["new"])
+        _shift(log, e["line"], e["word"], skip=e)
         e.pop("lost", None)
         carried += 1
     original.write_text(json.dumps(raw.to_json(), ensure_ascii=False), encoding="utf-8", newline="\n")

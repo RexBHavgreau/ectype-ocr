@@ -26,7 +26,7 @@ The **Languages** menu lists the installed Tesseract languages, each with a chec
 
 - **Where they go.** Tesseract reads from one folder, so the first download creates the user's own folder and copies the shipped languages and Tesseract's output configs beside the new ones. The folder is `%LOCALAPPDATA%\Ectype OCR\tessdata` on Windows, `~/.local/share/ectype/tessdata` on Linux, or `ECTYPE_DATA_DIR` if set.
 - **Command line:** `ectype languages --add grc lat`.
-- **Changing languages** reads the pages again on the next run. Corrections made in the Review tab are carried over to the new reading: each goes to the new word at the same place on the page (`review.carry_corrections`).
+- **Changing languages** reads the pages again on the next run. Corrections made in the Review tab are carried over to the new reading: each goes to the new word at the same place on the page (`review.carry_corrections`), with its box if it was stretched; a word added by hand that the new reading still misses is added again.
 
 ### Other scripts in the text
 

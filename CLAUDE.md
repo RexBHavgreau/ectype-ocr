@@ -78,6 +78,12 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   (`review.parts`), since typed beside Hebrew it jumps about in the text box; the correction log
   still holds the whole word's text, so `carry_corrections` works unchanged. Saving a word
   unchanged confirms it (green, and its line becomes training data).
+- Review (0.5.0): a missed letter is taken in by stretching the word's box (`BoxEditor`, dashed,
+  drag an edge), a missed word by drawing one ("Add a word", `review.add_word`). Segmentation
+  gives a word the ink inside its box, so the letter is then traced and erased from the
+  background. Letters that stay keep their boxes (`review.place_chars`). Log entries now carry
+  the word's box ("resized", "added"); adding a word shifts the line's later entries and word
+  training images along one (`_make_room`).
 - Training from fonts is in the app (Training → Train from fonts…) as well as the batch file
   `Train Hebrew and Greek.bat` (`ectype train-all`).
 
