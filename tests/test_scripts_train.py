@@ -19,6 +19,10 @@ def test_script_helpers():
     assert scripts.suggest({"Hebrew": 6, "Greek": 4, "Arabic": 1}, ["eng"]) == ["heb", "grc"]
     assert scripts.suggest({"Cyrillic": 2}, ["eng"], [{"Cyrillic": 1}, {"Cyrillic": 1}]) == [], "scattered: a guess"
     assert scripts.suggest({"Hebrew": 6}, ["eng", "heb"]) == []
+    # Wrong guesses scattered over a book, three on one page: not a script to add.
+    pages = [{"Devanagari": 1}] * 13 + [{"Devanagari": 3}] + [{}] * 12
+    assert scripts.suggest({"Devanagari": 16}, ["eng", "grc", "heb"], pages) == []
+    assert scripts.suggest({"Greek": 40}, ["eng"], [{"Greek": 5}, {"Greek": 4}] + [{}] * 24) == ["grc"]
 
 
 def _word(text, x0, conf=10.0):
