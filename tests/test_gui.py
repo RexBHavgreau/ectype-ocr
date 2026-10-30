@@ -244,3 +244,24 @@ def test_progress_window_during_a_run(project):
     assert "100%" in seen or window.bar.value() == 1000
     assert "traced:" in window.text.toPlainText()
     w.close()
+
+
+def test_work_leaves_the_tab_in_view(project):
+    """Starting work shows its progress window; the Log tab isn't brought forward."""
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    w.tabs.setCurrentWidget(w.review)
+    done = []
+    w._start(lambda progress: 1, done.append, "A task")
+    assert w.tabs.currentWidget() is w.review
+    w.task.wait()
+    for _ in range(50):
+        app.processEvents()
+        if done:
+            break
+    assert done == [1] and "— A task —" in w.log.toPlainText()
+    w.close()

@@ -1819,12 +1819,12 @@ class MainWindow(QMainWindow):
             self._languages_changed(codes)
 
     def _start(self, fn, on_done, title: str) -> None:
-        """Run fn off the interface thread with the toolbar disabled and progress in the Log."""
+        """Run fn off the interface thread with the toolbar disabled; progress in its window and
+        in the Log, which isn't brought forward (the tab in view stays)."""
         if (self.worker is not None and self.worker.isRunning()) or (self.task is not None and self.task.isRunning()):
             return
         for a in self.actions.values():
             a.setEnabled(False)
-        self.tabs.setCurrentWidget(self.log)
         self.log.appendPlainText(f"— {title} —")
         self.progress_window = ProgressWindow(title, self)
         self.progress_window.busy()
@@ -1915,7 +1915,6 @@ class MainWindow(QMainWindow):
             return
         for a in self.actions.values():
             a.setEnabled(False)
-        self.tabs.setCurrentWidget(self.log)
         self.log.appendPlainText(f"— Running from {start} —")
         self.progress_window = ProgressWindow(f"Running {self.project.settings.name or self.project.workspace.name}", self)
         self.progress_window.show()
