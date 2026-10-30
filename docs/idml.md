@@ -134,6 +134,8 @@ The report goes to the Log; the app offers to read the pages again.
 
 A font supports it fully with nine in ten of these letters, partly with a–z and half of them; a partial font sets only the lines it has every letter of. Training keeps the modifier letters (ʾ ʿ ʰ ː ᵉ) and IPA's θ β χ as English characters, and adds the letters the model lacks, a letter with a combining mark (p̄, ɛ̃) counting as one.
 
+On the fonts at hand, 300 lines in each of four fonts (3,000 iterations) brought English's character errors on a fifth font it never saw from 14.8% to 4.5%: the stock model read *qūdšāʾ ʾabbāʾ* as "qiidSa’ ‘abba’", the trained one exactly. SBL Hebrew and the accented letters came out nearly clean; made-up IPA, with no words to lean on, is the weakest.
+
 Hebrew accents (cantillation, meteg, paseq) are left out. Consonants, vowel points, dagesh, shin and sin dots, maqaf and sof pasuq are kept. Greek keeps its accents and breathings.
 
 **Scanned editions matched to their text** (`align.py`, `ectype train-scans <scan> --text hebrew-bible --edition "Letteris 1866"`). The scan is read as a project of its own in the user's folder, with the language's current model. Then each line the OCR found is looked for in the text:
