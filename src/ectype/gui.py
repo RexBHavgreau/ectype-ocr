@@ -2003,21 +2003,36 @@ class MainWindow(QMainWindow):
                                     "training pool, so what is learned from one book carries over to the next. Lines "
                                     "set in your fonts can be added too: Training → Train from fonts.")
             return
-        which = "\n".join(f"• {languages.name(code)}: {n} images in its pool" for code, n in plan)
+        from .training import plan as training_plan
+
+        plans = {code: training_plan(code) for code, _ in plan}
+        what = {"quick": "{new} new since the last training: a quick update",
+                "none": "nothing new since the last training", "full": "trained afresh"}
+
+        def line(code: str, n: int) -> str:
+            p = plans[code]
+            return f"• {languages.name(code)}: {n} images in its pool; " + what[p["mode"]].format(new=p["new"])
+
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
-        box.setText(f"Train these languages?\n\n{which}")
+        box.setText("Train these languages?\n\n" + "\n".join(line(code, n) for code, n in plan))
         box.setInformativeText(
-            "Each language's model is trained on its whole pool (this book's corrections with every other "
-            "project's), then checked on images kept aside: it replaces the model in use only if it makes fewer "
-            "errors and no book does worse. Typeface families with enough material get models of their own, "
-            "chosen automatically for each book. This can take from minutes to a few hours; the first time, "
-            "each trainable stock model (about 15 MB) is downloaded.")
+            "A quick update trains the model in use further on what is new (this book's corrections and others'), "
+            "with some earlier material so nothing is forgotten: minutes rather than hours. Training afresh starts "
+            "again from the stock model on the whole pool: slower, but worth doing now and then, after much has "
+            "been added. Either way the new model replaces the one in use only if it makes fewer errors on images "
+            "kept aside and no book does worse. The first time, each trainable stock model (about 15 MB) is "
+            "downloaded.")
+        afresh = QCheckBox("Train afresh from the stock models (slower)")
+        afresh.setChecked(all(p["mode"] == "full" for p in plans.values()))
+        afresh.setEnabled(any(p["mode"] != "full" for p in plans.values()))
+        box.setCheckBox(afresh)
         go = box.addButton("Train", QMessageBox.AcceptRole)
         box.addButton(QMessageBox.Cancel)
         box.exec()
         if box.clickedButton() is go:
-            self._start(lambda progress: self.project.train_model(progress), self._trained, "Training the OCR models")
+            mode = "full" if afresh.isChecked() else "auto"
+            self._start(lambda progress: self.project.train_model(progress, mode), self._trained, "Training the OCR models")
 
     def train_from_fonts(self) -> None:
         from . import train
@@ -2067,7 +2082,9 @@ class MainWindow(QMainWindow):
         changed = any(r["general"]["installed"] or any(f["kept"] for f in r["families"].values()) for r in reports)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
-        box.setText("Training finished." + ("" if changed else " The models in use were kept: the new ones weren't better."))
+        idle = all(r.get("mode") == "none" for r in reports)
+        box.setText("Nothing new to train on since the last training." if idle else "Training finished." + (
+            "" if changed else " The models in use were kept: the new ones weren't better."))
         box.setInformativeText("\n".join(lines) + ("\n\nRead the pages again now? Your corrections are kept." if changed else ""))
         again = box.addButton("Read again", QMessageBox.AcceptRole) if changed else None
         box.addButton("Later" if changed else "OK", QMessageBox.RejectRole)

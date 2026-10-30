@@ -212,14 +212,14 @@ def cmd_train(args: argparse.Namespace) -> int:
         if args.workspace:
             from .project import Project
 
-            reports = Project(Path(args.workspace)).train_model(lambda stage, msg: say(msg))
+            reports = Project(Path(args.workspace)).train_model(lambda stage, msg: say(msg), args.mode)
         else:
             from .training import train_language
 
             if not args.lang:
                 print("Give a project folder, or the languages to train (--lang heb grc).")
                 return 2
-            reports = [train_language(code, say) for code in args.lang]
+            reports = [train_language(code, say, mode=args.mode) for code in args.lang]
     except TrainingError as exc:
         print(exc)
         return 1
@@ -567,6 +567,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lang", nargs="+", help="languages to train, without a project (e.g. heb grc kraken_7051645)")
     p.add_argument("--iterations", type=int, help="Tesseract: training iterations (default: by the pool's size)")
     p.add_argument("--epochs", type=int, help="Kraken: most epochs (default 15)")
+    p.add_argument("--full", dest="mode", action="store_const", const="full", default="auto",
+                   help="train afresh from the stock models (default: a quick update when little is new)")
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("train-synthetic", help="add lines set in your fonts from known text to the training pools")

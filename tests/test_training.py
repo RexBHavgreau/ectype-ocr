@@ -271,6 +271,64 @@ def test_training_a_language_from_its_pool(data, tmp_path):
     assert json.dumps(r["lines"])
 
 
+def test_quick_update_adds_new_corrections_to_the_model_in_use(data, tmp_path, monkeypatch):
+    """A couple dozen corrections more: the model in use trained further on them with earlier
+    images, checked with the old model's errors kept; nothing new: nothing done."""
+    from ectype import train
+    from ectype.train import Fit
+
+    fits, reads = [], []
+
+    def fit(start, base, pairs, work, say, iterations=None):
+        work.mkdir(parents=True, exist_ok=True)
+        for name in ("int", "float"):
+            (work / name).write_bytes(f"{start}{len(pairs)}{name}".encode())
+        fits.append((Path(start).name, len(pairs), iterations))
+        return Fit(work / "int", work / "float", len(pairs), 0, "", iterations or 100)
+
+    def errors(model, items, work, name, per_item=None):
+        reads.append((name, len(items)))
+        per = {i.id: (1 if name == "candidate" else 3, 10) for i in items}
+        if per_item is not None:
+            per_item.update(per)
+        return training._by_book(items, per)
+
+    monkeypatch.setattr(train, "fit_tesseract", fit)
+    monkeypatch.setattr(train, "available", lambda: None)
+    (tmp_path / "best.traineddata").write_bytes(b"stock")
+    monkeypatch.setattr(train, "best_model", lambda code, say=None: tmp_path / "best.traineddata")
+    monkeypatch.setattr(training, "_tess_errors", errors)
+    monkeypatch.setattr(training, "_tess_current", lambda code: (
+        models.tesseract_dir(code).parent.parent.parent / "tessdata" / f"{code}_ectype.traineddata"
+        if "general" in models.choices(code) else tmp_path / "best.traineddata"))
+
+    def add(n, book, start=0):
+        with pool.Writer("eng") as w:
+            for i in range(start, start + n):
+                w.add(f"image {book} {i}".encode(), f"line {i} of {book}", book, "line", "correction", origin=f"{book}{i}")
+
+    add(60, "Young")
+    assert training.plan("eng")["mode"] == "full"
+    r = training.train_language("eng")
+    assert r["mode"] == "full" and r["general"]["installed"] and fits[-1][0] == "best.traineddata"
+    assert training.plan("eng")["mode"] == "none" and training.train_language("eng")["mode"] == "none"
+
+    add(24, "Driver")
+    p = training.plan("eng")
+    assert p["mode"] == "quick" and p["new"] == len([i for i in training._items_for("eng", "train") if i.book == "Driver"])
+    reads.clear()
+    q = training.train_language("eng")
+    assert q["mode"] == "quick" and q["general"]["installed"], q["lines"]
+    start, n, iterations = fits[-1]
+    assert start == "general.traineddata", "trained further from the model in use"
+    assert n == len(training._items_for("eng", "train")) and iterations == training.QUICK_ITERATIONS[0]
+    in_use = [k for name, k in reads if name.startswith("in_use")]
+    assert in_use == [len([i for i in training._items_for("eng", "test") if i.book == "Driver"])], \
+        "the model in use reads only the test images it hadn't read"
+    assert models.registry()["eng"]["quick_updates"] == 1
+    assert training.train_language("eng", mode="full")["mode"] == "full" and fits[-1][0] == "best.traineddata"
+
+
 def test_trained_models_window(data):
     import os
 

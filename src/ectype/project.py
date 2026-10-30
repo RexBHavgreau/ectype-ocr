@@ -242,9 +242,10 @@ class Project:
                 out.append((code, n))
         return out
 
-    def train_model(self, progress: Progress | None = None) -> list[dict]:
+    def train_model(self, progress: Progress | None = None, mode: str = "auto") -> list[dict]:
         """Train the chosen languages' models from their pools (training.py): each language's
-        general model, and its typeface families'. Then find which reads this book best."""
+        general model, and its typeface families' (mode: "auto", a quick update when little is
+        new; "full", afresh). Then find which reads this book best."""
         from .train import TrainingError
         from .training import MIN_ITEMS, choose_for_workspace, train_language
 
@@ -254,7 +255,7 @@ class Project:
         if not plan:
             raise TrainingError(f"Nothing to train yet: each language needs at least {MIN_ITEMS} corrected lines or "
                                 "words in its pool. Correct more in Review (every project's corrections count).")
-        reports = [train_language(code, say) for code, _ in plan]
+        reports = [train_language(code, say, mode=mode) for code, _ in plan]
         chosen = choose_for_workspace(self.workspace, self.book(), self.languages(), say)
         for r in reports:
             r["chosen"] = chosen.get(r["code"])

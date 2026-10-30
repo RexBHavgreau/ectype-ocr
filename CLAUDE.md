@@ -71,6 +71,13 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
   corrections, lines set in fonts, and scans matched to known text. Typeface-family models are
   chosen automatically per book; Kraken family models are stored as small packs over the general
   model. A new model replaces the one in use only if it does better.
+- Training (0.5.0): "Train OCR model" does a **quick update** when little is new
+  (`training.plan`): the model in use trained further on the new images plus 3x earlier ones
+  (replay, so nothing is forgotten), few iterations; only the families the new images touch are
+  retrained (Kraken packs of the others keep their old general model as `base`). Training
+  afresh (`--full`, a box in the dialog) is for now and then. Beaux's complaint: two dozen
+  corrections took as long as a whole training. Also: `.lstmf` cache, parallel prep and checks,
+  the model in use's per-image errors kept (`<which>.errors.json`).
 - Known texts: Hebrew Bible (WLC, accents stripped, points kept) and Greek New Testament (SBLGNT).
   More languages need a reliable public-domain text the app can download.
 - Kraken is an optional add-on (its own download), for non-Latin scripts.
