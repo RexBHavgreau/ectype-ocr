@@ -136,3 +136,24 @@ def test_italic_limit_follows_the_book():
     assert italic_limit([0.0] * 500 + [9, 10, 11, 12, 10, 9, 11, 10, 12, 8, 23, 24]) == 20.5  # median 10.5
     assert italic_limit([0.0] * 500 + [18, 20, 22, 26, 24, 21, 19, 20, 22, 27, 25, 23]) == 32.0  # median 22
     assert italic_limit([0.0] * 500 + [10, 11]) == 18.0, "too few leaning words to judge: the usual limit"
+
+
+def test_style_set_in_review_groups_the_word_so(clustered):
+    """A word set italic in Review has its letters grouped with the italic ones, whatever its
+    measured slant; bold and small capitals group apart."""
+    import json
+
+    from ectype import report
+    from ectype.cluster import collect
+
+    root, _, _ = clustered
+    page = sorted((root / "pages").glob("*.png"))[0].stem
+    first = next(i for i in collect(root) if i.page == page and i.text.isalpha() and not i.italic)
+    log = root / "corrections" / f"{page}.json"
+    log.parent.mkdir(exist_ok=True)
+    report.write_json(log, [{"line": first.line, "word": first.word, "old": "", "new": "", "style": {"italic": True, "bold": True}}])
+    try:
+        mine = [i for i in collect(root) if (i.page, i.line, i.word) == (page, first.line, first.word)]
+        assert mine and all(i.italic and i.bold and not i.smallcaps for i in mine)
+    finally:
+        log.unlink()

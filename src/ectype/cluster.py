@@ -71,13 +71,16 @@ class Instance:
     slant_unsure: bool = False  # its word's slant fell between upright and italic
     verbatim: bool = False  # its word was read doubtfully: traced from its own ink, not averaged
     page_xh: float = 0.0  # its page's x-height, for the document's (size classes)
+    bold: bool = False  # set in Review: grouped apart from the regular weight's letters
+    smallcaps: bool = False  # set in Review: small capitals, grouped apart from lower case
 
     def fingerprint(self) -> str:
         """What averaging and grouping see of it: its ink, where it sits, and its text. The same
         letter on a page read again (another letter on it corrected) has the same fingerprint."""
         h = hashlib.sha1(self.crop.tobytes())
         h.update(repr((self.crop.shape, self.crop_origin, round(self.baseline, 3), round(self.centroid_x, 3),
-                       round(self.xh, 3), self.box, self.text, self.italic, self.zone, self.size_class)).encode())
+                       round(self.xh, 3), self.box, self.text, self.italic, self.zone, self.size_class, self.bold,
+                       self.smallcaps)).encode())
         return h.hexdigest()
 
 
@@ -87,6 +90,7 @@ class Glyph:
     text: str
     size_class: float
     italic: bool
+    bold: bool
     style: int
     count: int
     zone: str
@@ -95,6 +99,7 @@ class Glyph:
     canvas: dict  # composite geometry at UPSAMPLE: baseline_row, centroid_col, width, height
     ink: list[float] | None  # composite ink box after thresholding, in x-heights from (centroid, baseline)
     instances: list[list] = field(default_factory=list)  # [page, unit]
+    smallcaps: bool = False
 
 
 def _size_class(ratio: float) -> float:
@@ -192,12 +197,20 @@ def collect(workspace: Path) -> list[Instance]:
     doc_xh = float(np.median([found[0].page_xh for _, found, _ in per_page]))
     # Italic: the book's own italic slant sets how steep a word may lean and still be italic.
     high = italic_limit([a for _, _, slants in per_page for a in slants.values()])
+    from .review import word_styles
+
     for k, found, slants in per_page:
         italic = word_italics(None, None, high=high, slants=slants)
+        styles = word_styles(workspace, page_data[k][0].stem)  # set in Review: over what was detected
         for inst in found:
             inst.size_class = _size_class(inst.xh / doc_xh)
             inst.zone = zones[k].get(inst.line, "")
             inst.italic = italic.get((inst.line, inst.word), False)
+            st = styles.get((inst.line, inst.word))
+            if st:
+                inst.italic = st.get("italic", inst.italic)
+                inst.bold, inst.smallcaps = st.get("bold", False), st.get("smallcaps", False)
+                inst.slant_unsure = False  # settled: not by shape
             instances.append(inst)
     refine_italics(instances)
     return instances
@@ -369,7 +382,7 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
         if inst.verbatim:
             verbatim.append(i)
         else:
-            by_key[(inst.text, inst.size_class, inst.italic, inst.zone)].append(i)
+            by_key[(inst.text, inst.size_class, inst.italic, inst.zone, inst.bold, inst.smallcaps)].append(i)
     groups: dict[tuple, list[list[int]]] = {}
     next_id = 0
     for key, idx in sorted(by_key.items(), key=lambda kv: (ZONES.index(kv[0][3]), kv[0][1], kv[0][2], kv[0][0])):
@@ -392,7 +405,7 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
     for i in verbatim:
         inst = instances[i]
         inst.cluster = next_id
-        groups.setdefault((inst.text, inst.size_class, inst.italic, inst.zone), []).append([i])
+        groups.setdefault((inst.text, inst.size_class, inst.italic, inst.zone, inst.bold, inst.smallcaps), []).append([i])
         next_id += 1
     return groups
 
@@ -687,7 +700,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
 
     glyphs: list[Glyph] = []
     feats: dict[int, np.ndarray] = {}
-    for (text, size_class, is_italic, zone), clusters in groups.items():
+    for (text, size_class, is_italic, zone, bold, smallcaps), clusters in groups.items():
         for members_idx in clusters:
             cid = instances[members_idx[0]].cluster
             members = by_cluster[cid]
@@ -709,7 +722,8 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
             else:
                 ink_box = None
             glyphs.append(Glyph(
-                id=cid, text=text, size_class=size_class, italic=is_italic, style=style_of[cid], count=len(members), zone=zone,
+                id=cid, text=text, size_class=size_class, italic=is_italic, bold=bold, smallcaps=smallcaps,
+                style=style_of[cid], count=len(members), zone=zone,
                 xh=round(float(np.median([m.xh for m in members])), 2), composite=name, canvas=canvas, ink=ink_box,
                 instances=[[m.page, m.unit] for m in members],
             ))

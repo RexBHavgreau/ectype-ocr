@@ -40,6 +40,8 @@ class LWord:
     italic: bool = False
     style: int = -1  # glyph style from the clusters, -1 if unknown
     superscript: list[bool] = field(default_factory=list)  # per character of text
+    bold: bool = False  # set in Review (not detected)
+    smallcaps: bool = False  # set in Review (not detected)
 
 
 @dataclass
@@ -105,7 +107,7 @@ def _word_styles(workspace: Path) -> tuple[dict[tuple[str, int], tuple[int, bool
         return units, styles
     data = json.loads(path.read_text(encoding="utf-8"))
     for g in data["glyphs"]:
-        info = (g["style"], g["italic"], g.get("zone", ""), g["size_class"])
+        info = (g["style"], g["italic"], g.get("zone", ""), g["size_class"], g.get("bold", False), g.get("smallcaps", False))
         for page, unit in g["instances"]:
             units[(page, unit)] = info
         st = styles.setdefault(g["style"], {"italic": Counter(), "zone": Counter(), "size_class": Counter(), "instances": 0})
@@ -183,7 +185,9 @@ def build_layout(workspace: Path) -> Layout:
                 classes += [i[3] for i in infos]
                 sup = _superscripts(w, units, a + b * (w.box[0] - line.box[0]), xh)
                 text, sup = plain_superscripts(w.text, sup)
-                words.append(LWord(text, list(w.box), italic, style, sup))
+                bold = _majority([i[4] for i in letters], False)
+                smallcaps = _majority([i[5] for i in letters], False)
+                words.append(LWord(text, list(w.box), italic, style, sup, bold, smallcaps))
             size_class = _majority(classes, None)
             if size_class is None:
                 size_class = round(xh / doc_xh, 1) if abs(xh / doc_xh - 1) >= 0.12 else 1.0
@@ -331,7 +335,7 @@ def join_lines(lines: list[LLine], vocabulary: set[str] | None = None) -> list[L
     carry: LWord | None = None
     for line in lines:
         for k, w in enumerate(line.words):
-            w = LWord(w.text, list(w.box), w.italic, w.style, list(w.superscript))
+            w = LWord(w.text, list(w.box), w.italic, w.style, list(w.superscript), w.bold, w.smallcaps)
             if carry is not None and k == 0 and w.text[:1].islower():
                 head = carry.text[:-1]
                 tail = re.split(r"\W", w.text, maxsplit=1)[0]
@@ -341,7 +345,7 @@ def join_lines(lines: list[LLine], vocabulary: set[str] | None = None) -> list[L
                             or ((head + tail).lower() not in vocabulary and head.lower() in vocabulary and tail.lower() in vocabulary))
                 text = (carry.text if keep else head) + w.text
                 sup = (carry.superscript if keep else carry.superscript[:-1]) + w.superscript
-                out[-1] = LWord(text, carry.box, carry.italic, carry.style, sup)
+                out[-1] = LWord(text, carry.box, carry.italic, carry.style, sup, carry.bold, carry.smallcaps)
                 carry = None
                 continue
             carry = None

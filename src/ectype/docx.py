@@ -76,12 +76,16 @@ class _Para:
     notes: dict[int, list[LWord]] = field(default_factory=dict)  # word index -> footnote words
 
 
-def _run(text: str, italic=False, superscript=False, style: str | None = None) -> str:
+def _run(text: str, italic=False, superscript=False, style: str | None = None, bold=False, smallcaps=False) -> str:
     rpr = ""
     if style:
         rpr += f'<w:rStyle w:val="{style}"/>'
+    if bold:
+        rpr += "<w:b/>"
     if italic:
         rpr += "<w:i/>"
+    if smallcaps:
+        rpr += "<w:smallCaps/>"
     if superscript:
         rpr += '<w:vertAlign w:val="superscript"/>'
     rpr = f"<w:rPr>{rpr}</w:rPr>" if rpr else ""
@@ -100,13 +104,14 @@ def _words_xml(words: list[LWord], check: set[int], notes: dict[int, int] | None
         cut = next((i for i, s in enumerate(sup) if s), len(w.text))
         style = CHECK_STYLE if k in check else None
         if cut:
-            out.append(_run(w.text[:cut], w.italic, False, style))
+            out.append(_run(w.text[:cut], w.italic, False, style, w.bold, w.smallcaps))
         if notes and k in notes:
             out.append(f'<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="{notes[k]}"/></w:r>')
         elif cut < len(w.text):
-            out.append(_run(w.text[cut:], w.italic, True, style))
+            out.append(_run(w.text[cut:], w.italic, True, style, w.bold))
         if k < len(words) - 1:
-            out.append(_run(" ", w.italic and words[k + 1].italic))
+            nxt = words[k + 1]
+            out.append(_run(" ", w.italic and nxt.italic, bold=w.bold and nxt.bold, smallcaps=w.smallcaps and nxt.smallcaps))
     if markers and len(words) in markers:
         out.append(_run(" ") + _run(markers[len(words)], style=MARKER_STYLE))
     return "".join(out)
@@ -126,7 +131,8 @@ def _note_number(words: list[LWord]) -> tuple[int | None, list[LWord]]:
     m = re.match(r"^(\d{1,3})(.*)$", words[0].text)
     if not m:
         return None, words
-    rest = [LWord(m.group(2), words[0].box, words[0].italic, words[0].style)] if m.group(2) else []
+    rest = [LWord(m.group(2), words[0].box, words[0].italic, words[0].style, bold=words[0].bold,
+                  smallcaps=words[0].smallcaps)] if m.group(2) else []
     return int(m.group(1)), rest + words[1:]
 
 
@@ -262,7 +268,7 @@ def _join(prev: list[LWord], words: list[LWord], vocab: set[str]) -> bool:
         if (tail.text.endswith(("-", "‐", "¬")) and len(tail.text) > 2 and tail.text[-2].isalpha()
                 and head.text[:1].islower() and f"{tail.text[:-1]}-{head.text}".lower() not in vocab):
             prev[-1] = LWord(tail.text[:-1] + head.text, tail.box, tail.italic, tail.style,
-                             tail.superscript[:-1] + head.superscript)
+                             tail.superscript[:-1] + head.superscript, tail.bold, tail.smallcaps)
             prev.extend(words[1:])
             return True
     prev.extend(words)

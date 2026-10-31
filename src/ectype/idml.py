@@ -266,6 +266,10 @@ def _facsimile_block(block: Block, dpi: float, style_for) -> tuple[list[_Para], 
             for j, w in enumerate(line.words):
                 t, size = typeset(w)
                 attrs = {}
+                if w.bold:  # set in Review: the replacement font's bold (italic)
+                    attrs["FontStyle"] = "Bold Italic" if w.italic else "Bold"
+                if w.smallcaps:
+                    attrs["Capitalization"] = "SmallCaps"
                 if size != t.size:
                     attrs["PointSize"] = size
                 if fit < 1.0:
