@@ -86,6 +86,18 @@ not been tagged), so the release "0.5.0" holds everything below too.
   SmallCaps, Word `<w:b/>`, `<w:smallCaps/>`. Detected italic is shown on selecting a word
   (`Project.word_styles`).
 
+**After 0.6.0** (on the branch):
+- *Arabic not offered for any font* (Beaux, 0.5.0: Times New Roman showed "—" for Arabic): the
+  Arabic texts hadn't downloaded (Tanzil's form, untested from the cloud), and the window gave
+  every font "—" without saying why. The Qurʾān now comes first from a verbatim copy of
+  Tanzil's "simple" text in a public repository (`texts.QURAN_URL`, rizaumami/quran-epub at a
+  fixed commit; SHA-1 16d8abb3, Tanzil's 2019 download), tested from here; Tanzil's form is the
+  fallback. Tanzil's notice is kept in the cached copy (its terms), skipped when read. The
+  Qurʾān uses only U+0621-0652, which Times New Roman has. A language whose text couldn't be
+  downloaded is marked "(no text)" in the font table, and the status line says why
+  (`support(failed=)`). Van Dyck (eBible) is still untested; Arabic uses the Qurʾān alone if
+  it fails.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
@@ -274,8 +286,8 @@ not been tagged), so the release "0.5.0" holds everything below too.
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
   the Treatise. A checked transcription of a few Treatise
   pages (Beaux can correct or confirm one) would give real error rates.
-- **Check the untested downloads** on Beaux's machine: Tanzil.net and eBible.org (Arabic),
-  blocked from the cloud session.
+- **Check the untested download** on Beaux's machine: eBible.org's Van Dyck (Arabic), blocked
+  from the cloud session (the Qurʾān now comes from a repository copy).
 - **Lone punctuation left as image**: the 30 words the Treatise still draws as image are
   nearly all ; : , with no ink tied to them (`traced.place_page`, "no glyph").
 - Syriac with vowels: the Peshitta text is unvowelled; vowelled Syriac is learned only from

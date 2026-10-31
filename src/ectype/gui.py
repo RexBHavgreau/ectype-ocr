@@ -1657,6 +1657,7 @@ class FontTrainingDialog(QDialog):
         self.settings = self._load()
         self.fonts: list = []
         self.support: dict[str, dict[str, str]] = {}
+        self.failed: dict[str, str] = {}  # languages whose known text couldn't be downloaded
         self.scanner: Task | None = None
         layout = QVBoxLayout(self)
         intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament, the Latin "
@@ -1796,8 +1797,10 @@ class FontTrainingDialog(QDialog):
 
         def work(progress):
             fonts = synthtrain.fonts_in(*folders)
+            failed: dict[str, str] = {}
             return fonts, synthtrain.support(fonts, scripts, lambda m: progress("fonts", m),
-                                             lambda k, n: progress("count", f"{k} {n}") if k % 25 == 0 or k == n else None)
+                                             lambda k, n: progress("count", f"{k} {n}") if k % 25 == 0 or k == n else None,
+                                             failed), failed
 
         self.scanner = Task(work)
         self.scanner.progress.connect(self._scan_progress)
@@ -1816,7 +1819,7 @@ class FontTrainingDialog(QDialog):
         if self._rescan:
             self._scan()
             return
-        self.fonts, self.support = result
+        self.fonts, self.support, self.failed = result
         self._fill()
 
     def _shown(self) -> list[str]:
@@ -1841,7 +1844,8 @@ class FontTrainingDialog(QDialog):
         self.table.blockSignals(True)
         self.table.clear()
         self.table.setColumnCount(2 + len(scripts))
-        self.table.setHorizontalHeaderLabels(["Font"] + [synthtrain.SCRIPTS[s][2] for s in scripts] + ["File"])
+        self.table.setHorizontalHeaderLabels(["Font"] + [synthtrain.SCRIPTS[s][2] + (" (no text)" if s in self.failed else "")
+                                                         for s in scripts] + ["File"])
         self.table.setRowCount(len(fonts))
         for r, font in enumerate(fonts):
             item = QTableWidgetItem(font.name)
@@ -1887,6 +1891,13 @@ class FontTrainingDialog(QDialog):
                                                               else "the languages chosen."))
         else:
             self.status.setText(f"{n} of {shown} fonts chosen. Each is used for the chosen languages it supports.")
+        missing = [s for s in scripts if s in self.failed]
+        if missing:  # every font would show "—" for it, and nothing say why
+            from . import synthtrain
+
+            self.status.setText(self.status.text() + "  " + " ".join(
+                f"{synthtrain.SCRIPTS[s][2]}: its text couldn't be downloaded ({self.failed[s]}); check the connection "
+                "and open this window again." for s in missing))
         self.train_button.setEnabled(bool(n and scripts))
 
     def _scripts_changed(self, *_) -> None:

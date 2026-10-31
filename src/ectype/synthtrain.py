@@ -167,7 +167,7 @@ def without_marks(text: str) -> str:
 
 
 def support(fonts: list[FontInfo], scripts: list[str], progress: Callable[[str], None] | None = None,
-            done: Callable[[int, int], None] | None = None) -> dict[str, dict[str, str]]:
+            done: Callable[[int, int], None] | None = None, failed: dict[str, str] | None = None) -> dict[str, dict[str, str]]:
     """For each font (by name), the scripts it supports and how far: {script: FULL or LETTERS}.
     A script whose text can't be downloaded (no connection, a site down) is supported by none,
     and said so, but doesn't stop the others."""
@@ -176,6 +176,8 @@ def support(fonts: list[FontInfo], scripts: list[str], progress: Callable[[str],
         try:
             needed[script] = needs(script, progress)[1]
         except Exception as exc:
+            if failed is not None:
+                failed[script] = str(exc)
             if progress:
                 progress(f"{SCRIPTS[script][2]}: its text couldn't be downloaded ({exc})")
     scripts = [s for s in scripts if s in needed]
