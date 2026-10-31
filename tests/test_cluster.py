@@ -126,3 +126,13 @@ def test_kept_results_make_the_same_glyphs(clustered, monkeypatch):
     monkeypatch.setattr(cluster, "_page_instances", lambda *a: (_ for _ in ()).throw(AssertionError("measured again")))
     again = cluster_workspace(root)
     assert calls == [] and json.dumps(again, sort_keys=True) == json.dumps(first, sort_keys=True)
+
+
+def test_italic_limit_follows_the_book():
+    """A book whose italic leans steeply (Driver's: 16-28 degrees) has its limit raised; one
+    whose italic leans 8-12 (Young's) keeps it near 18-20, so an upright "very" stays upright."""
+    from ectype.cluster import italic_limit
+
+    assert italic_limit([0.0] * 500 + [9, 10, 11, 12, 10, 9, 11, 10, 12, 8, 23, 24]) == 20.0
+    assert italic_limit([0.0] * 500 + [18, 20, 22, 26, 24, 21, 19, 20, 22, 27, 25, 23]) == 31.5
+    assert italic_limit([0.0] * 500 + [10, 11]) == 18.0, "too few leaning words to judge: the usual limit"
