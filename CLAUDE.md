@@ -210,13 +210,14 @@ not been tagged), so the release "0.5.0" holds everything below too.
   CC BY-NC 4.0, credited in CREDITS.md, downloaded on the user's machine for their own
   training; the repo's MIT licence covers its programs only). Train from fonts → Syriac
   trains `syr` (and installed Syriac Kraken models), set right to left with raqm's Syriac
-  shaping. Arabic (Beaux's choice, both): the Qurʾān from Tanzil.net (POST form
-  `download.php`, quranType=simple, outType=txt-2, agree=true; CC BY 3.0, unchanged, credit)
-  and the Smith–Van Dyck Bible (`ebible.org/Scriptures/arb-vd_vpl.zip`, public domain),
-  verses interleaved; trains `ara`. **Untested downloads**: tanzil.net, ebible.org and
-  peshitta.eu are blocked from the cloud session, so Beaux's machine is the first to fetch
-  them; a failing download now leaves only that script unavailable (`synthtrain.support`,
-  `generate`), where it used to stop the Train from fonts window. Hebrew lines set from fonts (0.5.0,
+  shaping. Arabic (Beaux's choice, both): the Qurʾān, Tanzil's "simple" text (CC BY 3.0,
+  unchanged, credit, notice kept), from a verbatim copy in a public repository
+  (`texts.QURAN_URL`, since 0.6.1; tested), else Tanzil's POST form `download.php`
+  (quranType=simple, outType=txt-2, agree=true; untested); and the Smith–Van Dyck Bible
+  (`ebible.org/Scriptures/arb-vd_vpl.zip`, public domain, **untested**: ebible.org and
+  tanzil.net are blocked from the cloud session), verses interleaved; trains `ara`. A failing
+  download leaves only that script unavailable (`synthtrain.support`, `generate`), marked
+  "(no text)" in the window with the reason. Hebrew lines set from fonts (0.5.0,
   `synthtrain.hebrew_form`, VERSION 2) come in three forms: the Codex's accents (35%), as
   grammars print it (30%: points, and ֫ ole over a stress before the last syllable, found
   from the Codex's accent, `texts.grammar_style`), points only (the rest, and every line of
