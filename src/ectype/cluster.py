@@ -71,13 +71,16 @@ class Instance:
     slant_unsure: bool = False  # its word's slant fell between upright and italic
     verbatim: bool = False  # its word was read doubtfully: traced from its own ink, not averaged
     page_xh: float = 0.0  # its page's x-height, for the document's (size classes)
+    bold: bool = False  # set in Review: grouped apart from the regular weight's letters
+    smallcaps: bool = False  # set in Review: small capitals, grouped apart from lower case
 
     def fingerprint(self) -> str:
         """What averaging and grouping see of it: its ink, where it sits, and its text. The same
         letter on a page read again (another letter on it corrected) has the same fingerprint."""
         h = hashlib.sha1(self.crop.tobytes())
         h.update(repr((self.crop.shape, self.crop_origin, round(self.baseline, 3), round(self.centroid_x, 3),
-                       round(self.xh, 3), self.box, self.text, self.italic, self.zone, self.size_class)).encode())
+                       round(self.xh, 3), self.box, self.text, self.italic, self.zone, self.size_class, self.bold,
+                       self.smallcaps)).encode())
         return h.hexdigest()
 
 
@@ -87,6 +90,7 @@ class Glyph:
     text: str
     size_class: float
     italic: bool
+    bold: bool
     style: int
     count: int
     zone: str
@@ -95,13 +99,14 @@ class Glyph:
     canvas: dict  # composite geometry at UPSAMPLE: baseline_row, centroid_col, width, height
     ink: list[float] | None  # composite ink box after thresholding, in x-heights from (centroid, baseline)
     instances: list[list] = field(default_factory=list)  # [page, unit]
+    smallcaps: bool = False
 
 
 def _size_class(ratio: float) -> float:
     return 1.0 if abs(ratio - 1) < 0.12 else round(round(ratio / 0.1) * 0.1, 1)
 
 
-CACHE_VERSION = 1  # of what the caches hold: kept results made by an older one are made again
+CACHE_VERSION = 2  # of what the caches hold: kept results made by an older one are made again
 
 
 class Cache:
@@ -178,33 +183,56 @@ def collect(workspace: Path) -> list[Instance]:
                 with open(kept, "rb") as f:
                     data = pickle.load(f)
                 if data.get("stamp") == stamp:
-                    found = data["instances"]
+                    found = data["instances"], data["slants"]
             except Exception:
                 found = None
         if found is None:
             found = _page_instances(png, seg_path, labels_path, ocr)
             with open(kept, "wb") as f:
-                pickle.dump({"stamp": stamp, "instances": found}, f, protocol=pickle.HIGHEST_PROTOCOL)
-        if found:
-            per_page.append((k, found))
+                pickle.dump({"stamp": stamp, "instances": found[0], "slants": found[1]}, f, protocol=pickle.HIGHEST_PROTOCOL)
+        if found[0]:
+            per_page.append((k, *found))
     if not per_page:
         return instances
-    doc_xh = float(np.median([found[0].page_xh for _, found in per_page]))
-    for k, found in per_page:
+    doc_xh = float(np.median([found[0].page_xh for _, found, _ in per_page]))
+    # Italic: the book's own italic slant sets how steep a word may lean and still be italic.
+    high = italic_limit([a for _, _, slants in per_page for a in slants.values()])
+    from .review import word_styles
+
+    for k, found, slants in per_page:
+        italic = word_italics(None, None, high=high, slants=slants)
+        styles = word_styles(workspace, page_data[k][0].stem)  # set in Review: over what was detected
         for inst in found:
             inst.size_class = _size_class(inst.xh / doc_xh)
             inst.zone = zones[k].get(inst.line, "")
+            inst.italic = italic.get((inst.line, inst.word), False)
+            st = styles.get((inst.line, inst.word))
+            if st:
+                inst.italic = st.get("italic", inst.italic)
+                inst.bold, inst.smallcaps = st.get("bold", False), st.get("smallcaps", False)
+                inst.slant_unsure = False  # settled: not by shape
             instances.append(inst)
     refine_italics(instances)
     return instances
 
 
-def _page_instances(png: Path, seg_path: Path, labels_path: Path, ocr: OcrPage) -> list[Instance]:
-    """One page's glyph instances, measured from its image (size classes and zones, which
-    depend on the whole book, are set by `collect`)."""
+def italic_limit(slants, low: float = 7.0, high: float = 18.0) -> float:
+    """The steepest slant still taken for italic in this book: ten degrees past the median of
+    its leaning words, and never under `high`. The Young chapter's italic leans 8-12 degrees
+    (limit about 20, so an upright "very", measured 22-24, stays upright); Driver's Treatise's
+    leans 16-28 (limit about 30), which a fixed 18 had taken for upright ("past", "perfect")."""
+    leaning = [a for a in slants if a is not None and low <= a <= 40]
+    if len(leaning) < 10:
+        return high
+    return max(high, float(np.median(leaning)) + 10)
+
+
+def _page_instances(png: Path, seg_path: Path, labels_path: Path, ocr: OcrPage) -> tuple[list[Instance], dict]:
+    """One page's glyph instances, measured from its image, and its words' slants (size
+    classes, zones and italics, which depend on the whole book, are set by `collect`)."""
     seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
     if not seg.units:
-        return []
+        return [], {}
     instances: list[Instance] = []
     kernel = np.ones((3, 3), np.uint8)
     gray = np.asarray(Image.open(png).convert("L"))
@@ -216,7 +244,6 @@ def _page_instances(png: Path, seg_path: Path, labels_path: Path, ocr: OcrPage) 
     base = fit_baselines(seg, ocr)
     xhs, page_xh = line_x_heights(seg)
     slants = word_slants(seg, labels)
-    italic = word_italics(seg, labels, slants=slants)
     h, w = gray.shape
     for u in seg.units:
         if not u.box or not u.components:
@@ -234,11 +261,11 @@ def _page_instances(png: Path, seg_path: Path, labels_path: Path, ocr: OcrPage) 
         instances.append(Instance(
             page=png.stem, unit=u.id, text=u.text, line=u.line, word=u.word, box=list(u.box),
             baseline=a + b * cx, centroid_x=cx, xh=xh, size_class=1.0,
-            italic=italic.get((u.line, u.word), False), conf=u.conf, crop=crop.astype(np.float32), crop_origin=(xa, ya),
+            italic=False, conf=u.conf, crop=crop.astype(np.float32), crop_origin=(xa, ya),
             slant_unsure=SLANT_UNSURE[0] <= (slants.get((u.line, u.word)) or 0.0) < SLANT_UNSURE[1],
             verbatim=ocr.lines[u.line].words[u.word].conf < VERBATIM_CONF, page_xh=page_xh,
         ))
-    return instances
+    return instances, slants
 
 
 def _letters(text: str) -> str:
@@ -355,7 +382,7 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
         if inst.verbatim:
             verbatim.append(i)
         else:
-            by_key[(inst.text, inst.size_class, inst.italic, inst.zone)].append(i)
+            by_key[(inst.text, inst.size_class, inst.italic, inst.zone, inst.bold, inst.smallcaps)].append(i)
     groups: dict[tuple, list[list[int]]] = {}
     next_id = 0
     for key, idx in sorted(by_key.items(), key=lambda kv: (ZONES.index(kv[0][3]), kv[0][1], kv[0][2], kv[0][0])):
@@ -378,7 +405,7 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
     for i in verbatim:
         inst = instances[i]
         inst.cluster = next_id
-        groups.setdefault((inst.text, inst.size_class, inst.italic, inst.zone), []).append([i])
+        groups.setdefault((inst.text, inst.size_class, inst.italic, inst.zone, inst.bold, inst.smallcaps), []).append([i])
         next_id += 1
     return groups
 
@@ -545,8 +572,9 @@ def word_slants(seg: Segmentation, labels: np.ndarray) -> dict[tuple[int, int], 
 def word_italics(seg: Segmentation, labels: np.ndarray, low: float = 7.0, high: float = 18.0,
                  slants: dict[tuple[int, int], float | None] | None = None) -> dict[tuple[int, int], bool]:
     """Italic flag per (line, word) from the word's measured slant. Book italics lean
-    about 8-15 degrees (the Young chapter's measure 8-12); steeper readings come from
-    words made mostly of diagonals ("very", "way": 22-24), so only low..high counts.
+    about 8-15 degrees (the Young chapter's measure 8-12; Driver's 16-28, so `collect` raises
+    `high` to the book's own, `italic_limit`); steeper readings come from words made mostly
+    of diagonals ("very", "way": 22-24), so only low..high counts.
     Words of one or two letters are too short to measure and follow their neighbours."""
     slant = word_slants(seg, labels) if slants is None else slants
     flags: dict[tuple[int, int], bool] = {}
@@ -672,7 +700,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
 
     glyphs: list[Glyph] = []
     feats: dict[int, np.ndarray] = {}
-    for (text, size_class, is_italic, zone), clusters in groups.items():
+    for (text, size_class, is_italic, zone, bold, smallcaps), clusters in groups.items():
         for members_idx in clusters:
             cid = instances[members_idx[0]].cluster
             members = by_cluster[cid]
@@ -694,7 +722,8 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
             else:
                 ink_box = None
             glyphs.append(Glyph(
-                id=cid, text=text, size_class=size_class, italic=is_italic, style=style_of[cid], count=len(members), zone=zone,
+                id=cid, text=text, size_class=size_class, italic=is_italic, bold=bold, smallcaps=smallcaps,
+                style=style_of[cid], count=len(members), zone=zone,
                 xh=round(float(np.median([m.xh for m in members])), 2), composite=name, canvas=canvas, ink=ink_box,
                 instances=[[m.page, m.unit] for m in members],
             ))

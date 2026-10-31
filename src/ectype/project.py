@@ -147,10 +147,29 @@ class Project:
     # -- actions -----------------------------------------------------------------
 
     def correct(self, page: str, line: int, word: int, text: str, span: tuple[int, int] | None = None,
-                box: list[int] | None = None) -> dict:
+                box: list[int] | None = None, style: dict | None = None) -> dict:
         from .review import correct
 
-        return correct(self.workspace, page, line, word, text, span, box)
+        return correct(self.workspace, page, line, word, text, span, box, style)
+
+    def word_styles(self, page: str) -> dict[tuple[int, int], dict]:
+        """Each word's style on a page: italic as detected (the glyph grouping's), and what was
+        set in Review over it (italic, bold, small capitals)."""
+        from .review import word_styles
+
+        out: dict[tuple[int, int], dict] = {}
+        clusters, seg = self.workspace / "cluster" / "clusters.json", self.workspace / "segment" / f"{page}.seg.json"
+        if clusters.is_file() and seg.is_file():
+            italic = {u: g["italic"] for g in json.loads(clusters.read_text(encoding="utf-8"))["glyphs"]
+                      for p, u in g["instances"] if p == page}
+            votes: dict[tuple[int, int], list[bool]] = {}
+            for u in json.loads(seg.read_text(encoding="utf-8"))["units"]:
+                if u["id"] in italic and u["text"].isalpha():
+                    votes.setdefault((u["line"], u["word"]), []).append(italic[u["id"]])
+            out = {k: {"italic": sum(v) * 2 > len(v)} for k, v in votes.items()}
+        for k, st in word_styles(self.workspace, page).items():
+            out.setdefault(k, {}).update(st)
+        return out
 
     def add_word(self, page: str, box: list[int], text: str) -> dict:
         from .review import add_word

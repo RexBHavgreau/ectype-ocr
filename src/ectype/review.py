@@ -232,11 +232,15 @@ def _log(workspace: Path, page: str) -> tuple[Path, list[dict]]:
     return path, json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
 
 
+STYLES = ("italic", "bold", "smallcaps")
+
+
 def correct(workspace: Path, page: str, line: int, word: int, text: str, span: tuple[int, int] | None = None,
-            box: list[int] | None = None) -> dict:
+            box: list[int] | None = None, style: dict | None = None) -> dict:
     """Apply one correction to a workspace (a word, or with span a piece of it; with box, the
-    word's box stretched or shrunk): OCR file, correction log (the whole word's text and its
-    box), training pair."""
+    word's box stretched or shrunk; with style, its italic, bold and small capitals as set in
+    Review, over what was detected): OCR file, correction log (the whole word's text, its box
+    and any style), training pair."""
     workspace = Path(workspace)
     path = workspace / "ocr" / f"{page}.ocr.json"
     ocr = _open(workspace, page)
@@ -253,6 +257,8 @@ def correct(workspace: Path, page: str, line: int, word: int, text: str, span: t
              "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
     if box is not None:
         entry["resized"] = True
+    if style:
+        entry["style"] = {k: bool(v) for k, v in style.items() if k in STYLES}
     if span is not None:
         entry["part"] = [old_part, text.strip()]
     log.append(entry)
@@ -260,6 +266,21 @@ def correct(workspace: Path, page: str, line: int, word: int, text: str, span: t
     pair = save_training_line(workspace, page, ocr, line)
     save_training_word(workspace, page, ocr, line, word)
     return {**entry, "training": str(pair.relative_to(workspace))}
+
+
+def word_styles(workspace: Path, page: str) -> dict[tuple[int, int], dict]:
+    """The styles set in Review on a page's words: (line, word) -> {"italic", "bold",
+    "smallcaps"}, the last set of each winning."""
+    path = Path(workspace) / "corrections" / f"{page}.json"
+    out: dict[tuple[int, int], dict] = {}
+    try:
+        log = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return out
+    for e in log:
+        if e.get("style") and not e.get("lost"):
+            out.setdefault((e["line"], e["word"]), {}).update(e["style"])
+    return out
 
 
 def _make_room(workspace: Path, page: str, original: OcrPage, log: list[dict], line: int, at: int) -> None:

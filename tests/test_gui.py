@@ -321,3 +321,34 @@ def gui_role():
     from PySide6.QtCore import Qt
 
     return Qt.ItemDataRole.UserRole
+
+
+def test_bold_italic_and_small_capitals_set_in_review(project):
+    """Ctrl+I (and the I button), Ctrl+B and Ctrl+Shift+K set a word's style over what was
+    detected; the box shows it, and saving keeps it in the correction log."""
+    import json
+
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.review import word_styles
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    review = w.review
+    review.show_page(review.list.currentRow())
+    item = next(it for it in review.items if it.span is None and it.text.isalpha())
+    review.select(item)
+    assert not review.style["italic"] and not review.style_buttons["italic"].isChecked()
+    review.toggle_style("italic")
+    review.toggle_style("smallcaps")
+    assert review.style_buttons["italic"].isChecked() and review.edit.font().italic()
+    assert review.edit.font().capitalization() == review.edit.font().Capitalization.SmallCaps
+    review.save()
+    assert word_styles(project.workspace, review.page)[(item.line, item.word)] == {"italic": True, "bold": False, "smallcaps": True}
+    assert "italic, small capitals" in review.info.text()
+    again = next(it for it in review.items if (it.line, it.word) == (item.line, item.word))
+    review.select(again)
+    assert review.style["italic"] and review.style["smallcaps"], "shown again when the word is chosen again"
+    w.close()

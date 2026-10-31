@@ -18,7 +18,8 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, Signal
-from PySide6.QtGui import (QAction, QBrush, QColor, QIcon, QImage, QPainterPath, QPainterPathStroker, QPen, QPixmap,
+from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QIcon, QImage, QKeySequence, QPainterPath, QPainterPathStroker,
+                           QPen, QPixmap, QShortcut,
                            QTransform)
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -625,6 +626,25 @@ class ReviewTab(QWidget):
         self.special_menu.aboutToShow.connect(self._fill_special_menu)
         self.special.setMenu(self.special_menu)
         self.pane: CharacterPane | None = None
+        # The word's style, over what was detected: Ctrl+B, Ctrl+I, and Ctrl+Shift+K for small
+        # capitals (as in Word; no button, being rare). The box shows the word in it.
+        self.style_buttons: dict[str, QToolButton] = {}
+        for key, label, tip, shortcut in (("bold", "B", "Bold (Ctrl+B)", "Ctrl+B"), ("italic", "I", "Italic (Ctrl+I)", "Ctrl+I")):
+            b = QToolButton()
+            b.setText(label)
+            f = b.font()
+            f.setBold(key == "bold")
+            f.setItalic(key == "italic")
+            b.setFont(f)
+            b.setCheckable(True)
+            b.setToolTip(tip + ". Small capitals: Ctrl+Shift+K.")
+            b.clicked.connect(lambda _=False, key=key: self.toggle_style(key))
+            self.style_buttons[key] = b
+            QShortcut(QKeySequence(shortcut), self, lambda key=key: self.toggle_style(key))
+        QShortcut(QKeySequence("Ctrl+Shift+K"), self, lambda: self.toggle_style("smallcaps"))
+        self.style = {"italic": False, "bold": False, "smallcaps": False}
+        self.style_start = dict(self.style)
+        self.page_styles: dict[tuple[int, int], dict] = {}
         add = QPushButton("Add a word")
         add.setToolTip("Draw a box around a word the OCR missed, then type it and Save")
         add.clicked.connect(self.start_adding)
@@ -634,6 +654,8 @@ class ReviewTab(QWidget):
                         '<span style="color:#1a9850">■ corrected or confirmed</span>')
         bar = QHBoxLayout()
         bar.addWidget(self.edit, 1)
+        bar.addWidget(self.style_buttons["bold"])
+        bar.addWidget(self.style_buttons["italic"])
         bar.addWidget(self.special)
         bar.addWidget(save)
         bar.addWidget(add)
@@ -697,6 +719,7 @@ class ReviewTab(QWidget):
             return
         page = item.data(Qt.ItemDataRole.UserRole)
         self.page = page
+        self.page_styles = self.project.word_styles(page)
         self.scan.show_image(QImage(str(self.project.page_image(page))))
         self.items, self.selected, self.editor, self.adding = [], None, None, False
         self._draw_words()
@@ -824,8 +847,30 @@ class ReviewTab(QWidget):
         self.edit.setText(item.text)
         self.edit.setFocus()
         self.edit.selectAll()
+        self._set_style({"italic": False, "bold": False, "smallcaps": False, **self.page_styles.get((item.line, item.word), {})})
         self.info.setText(f"line {item.line + 1}, word {item.word + 1}. Drag the dashed box's edges to take in "
                           "a letter it missed.")
+
+    def _set_style(self, style: dict, start: bool = True) -> None:
+        """The style shown for the word: its buttons, and the correction box's type."""
+        self.style = dict(style)
+        if start:
+            self.style_start = dict(style)
+        for key, b in self.style_buttons.items():
+            b.setChecked(self.style[key])
+        f = self.edit.font()
+        f.setBold(self.style["bold"])
+        f.setItalic(self.style["italic"])
+        f.setCapitalization(QFont.Capitalization.SmallCaps if self.style["smallcaps"] else QFont.Capitalization.MixedCase)
+        self.edit.setFont(f)
+
+    def toggle_style(self, key: str) -> None:
+        """Bold, italic or small capitals on or off for the selected word; kept when it is saved."""
+        if self.selected is None and not self.adding:
+            self.style_buttons.get(key) and self.style_buttons[key].setChecked(False)
+            return
+        self._set_style({**self.style, key: not self.style[key]}, start=False)
+        self.edit.setFocus()
 
     @staticmethod
     def _rect(box) -> QRectF:
@@ -864,15 +909,23 @@ class ReviewTab(QWidget):
         # becomes training data, as a correction does, but the PDF needs no rebuilding.
         item = self.selected
         box = self.editor.box() if self.editor is not None and self.editor.changed() else None
-        result = self.project.correct(self.page, item.line, item.word, text, item.span, box)
+        style = dict(self.style) if self.style != self.style_start else None
+        result = self.project.correct(self.page, item.line, item.word, text, item.span, box, style)
+        if style:
+            self.page_styles[(item.line, item.word)] = style
         self._draw_words()  # a piece corrected, or the box stretched, moves the word's other pieces
         old, new = result.get("part") or (result["old"], result["new"])
-        stretched = " (its box changed)" if box else ""
-        if old == new and not box:
+        notes = (" (its box changed)" if box else "") + (f" ({self._style_words(style)})" if style else "")
+        if old == new and not box and not style:
             self.info.setText(f"Confirmed: {new}")
         else:
-            self.info.setText(f"Saved: {old} → {new}{stretched}")
+            self.info.setText(f"Saved: {old} → {new}{notes}" if old != new else f"Saved: {new}{notes}")
             self.message.emit("Correction saved. " + update)
+
+    @staticmethod
+    def _style_words(style: dict) -> str:
+        on = [name for key, name in (("bold", "bold"), ("italic", "italic"), ("smallcaps", "small capitals")) if style[key]]
+        return ", ".join(on) if on else "roman"
 
 
 # ---------------------------------------------------------------------------

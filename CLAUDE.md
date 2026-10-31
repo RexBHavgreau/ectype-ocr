@@ -66,7 +66,27 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 **0.4.0**: Train from fonts in the app; the updater installs over the existing copy wherever it
 is; the training pool keeps lines set again.
 
-**0.5.1** (gaps filled, no new whole features, so a patch version):
+**0.5.1's work shipped as 0.5.0**: Beaux tagged main as v0.5.0 after both merges (0.5.0 had
+not been tagged), so the release "0.5.0" holds everything below too.
+
+**0.6.0** (style set in Review is a new feature, so a minor version):
+- *Italic words drawn half upright* (Treatise p. 1: *past*, *future*, *perfect* came out with
+  letters from upright and italic shapes mixed): `word_italics` took only slants of 7-18
+  degrees for italic, tuned on Young (8-12) to keep upright "very" (22-24) out; Driver's italic
+  measures 16-28, so it was "upright", and its letters joined upright clusters or stayed apart.
+  The upper limit now follows the book (`cluster.italic_limit`: median of its leaning words
+  + 10, at least 18; Young 20, Treatise 28); slants are kept per page and italics decided in
+  `collect` for the whole book (`CACHE_VERSION` 2).
+- *Style set in Review* (Beaux: the correction box had no formatting): **B** and ***I*** buttons
+  and Ctrl+B / Ctrl+I, small capitals by Ctrl+Shift+K only (Beaux: rare, no button). The box
+  shows the word in its style. Saved as the log entry's `style` ({italic, bold, smallcaps},
+  `review.word_styles`, last wins), over detection: `cluster.collect` sets the word's instances
+  (bold and small capitals are part of the grouping key, so they group apart; `Glyph.bold`,
+  `.smallcaps`), layout's `LWord.bold/.smallcaps`, IDML `FontStyle` Bold / `Capitalization`
+  SmallCaps, Word `<w:b/>`, `<w:smallCaps/>`. Detected italic is shown on selecting a word
+  (`Project.word_styles`).
+
+**0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
   reading and segmentation are unchanged (`collect`), each letter's grouping and each
