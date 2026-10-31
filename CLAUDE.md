@@ -66,7 +66,7 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 **0.4.0**: Train from fonts in the app; the updater installs over the existing copy wherever it
 is; the training pool keeps lines set again.
 
-**0.5.1** (in progress):
+**0.5.1** (gaps filled, no new whole features, so a patch version):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
   reading and segmentation are unchanged (`collect`), each letter's grouping and each
