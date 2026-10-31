@@ -212,14 +212,21 @@ def cmd_train(args: argparse.Namespace) -> int:
         if args.workspace:
             from .project import Project
 
-            reports = Project(Path(args.workspace)).train_model(lambda stage, msg: say(msg), args.mode)
+            reports = Project(Path(args.workspace)).train_model(lambda stage, msg: stage == "fraction" or say(msg),
+                                                                args.mode)
         else:
-            from .training import train_language
+            from .training import train_languages
 
             if not args.lang:
                 print("Give a project folder, or the languages to train (--lang heb grc).")
                 return 2
-            reports = [train_language(code, say, mode=args.mode) for code in args.lang]
+            done = train_languages(args.lang, say, mode=args.mode)  # side by side
+            for code, r in done.items():
+                if isinstance(r, Exception):
+                    print(f"{code}: {r}")
+            reports = [r for r in done.values() if not isinstance(r, Exception)]
+            if not reports:
+                return 1
     except TrainingError as exc:
         print(exc)
         return 1

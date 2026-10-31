@@ -40,6 +40,7 @@ import json
 import random
 import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -62,6 +63,46 @@ QUICK_ITERATIONS = (400, 3000)  # Tesseract, quick update: 4 a training image, w
 QUICK_EPOCHS = 5  # Kraken, quick update
 
 Say = Callable[[str], None]
+_REGISTRY = threading.RLock()  # models.json, read and written by languages trained side by side
+
+
+class Progress:
+    """Training's messages, and how far along it is (0 to 1) for a progress bar: `fraction(f)`
+    within this part of the whole (`part(lo, hi)`: a stage's share). Called like a function,
+    it passes a message on."""
+
+    def __init__(self, say: Say | None = None, fraction: Callable[[float], None] | None = None,
+                 lo: float = 0.0, hi: float = 1.0):
+        self._say, self._fraction, self.lo, self.hi = say, fraction, lo, hi
+
+    def __call__(self, msg: str) -> None:
+        if self._say:
+            self._say(msg)
+
+    def fraction(self, f: float) -> None:
+        if self._fraction:
+            self._fraction(self.lo + (self.hi - self.lo) * max(0.0, min(1.0, f)))
+
+    def part(self, lo: float, hi: float) -> "Progress":
+        span = self.hi - self.lo
+        return Progress(self._say, self._fraction, self.lo + span * lo, self.lo + span * hi)
+
+    def shares(self, n: int) -> list["Progress"]:
+        """n parts running at once (languages side by side): the bar shows their mean."""
+        done = [0.0] * n
+        lock = threading.Lock()
+
+        def report(k):
+            def f(x):
+                with lock:
+                    done[k] = x
+                    self.fraction(sum(done) / n)
+            return f
+        return [Progress(self._say, report(k) if self._fraction else None) for k in range(n)]
+
+
+def as_progress(progress) -> Progress:
+    return progress if isinstance(progress, Progress) else Progress(progress)
 
 
 def cer(errors: dict[str, tuple[int, int]], books: set[str] | None = None) -> float | None:
@@ -155,7 +196,7 @@ def _known_path(code: str) -> Path:
     return _model_dir(code) / "general.items.json"
 
 
-def known_items(code: str) -> set[str] | None:
+def known_items(code: str, train_items: list | None = None) -> set[str] | None:
     """The training images the general model in use was trained with (its pool when trained), or
     None when that isn't known. A model trained by an earlier version, which kept no list, knew
     the images added to the pool before it was trained (by their files' times), so the first
@@ -171,7 +212,8 @@ def known_items(code: str) -> set[str] | None:
         when = time.mktime(time.strptime(trained, "%Y-%m-%d %H:%M")) + 60  # kept to the minute
     except ValueError:
         return None
-    return {i.id for i in _items_for(code, "train") if i.png.stat().st_mtime <= when}
+    items = _items_for(code, "train") if train_items is None else train_items
+    return {i.id for i in items if i.png.stat().st_mtime <= when}
 
 
 def _save_known(code: str, ids) -> None:
@@ -224,17 +266,18 @@ def _keep_checked(code: str, which: str, model_file, per_item: dict) -> None:
                     encoding="utf-8", newline="\n")
 
 
-def plan(code: str) -> dict:
+def plan(code: str, train_items: list | None = None) -> dict:
     """What training would do now: {"mode": "quick", "full" or "none", "new": images added since
-    the general model was trained, "why"}."""
+    the general model was trained, "why"} (train_items: the pool's, if already read)."""
     code = models.stock_code(code)
-    known = known_items(code)
+    train_items = _items_for(code, "train") if train_items is None else train_items
+    known = known_items(code, train_items)
     has_general = "general" in models.choices(code)
     if models.engine_of(code) == "tesseract":
         has_general = has_general and (models.tesseract_dir(code) / "general.traineddata").is_file()
     if not has_general or known is None:
         return {"mode": "full", "new": None, "why": "no trained model to add to yet"}
-    new = [i for i in _items_for(code, "train") if i.id not in known and i.source != "confident"]
+    new = [i for i in train_items if i.id not in known and i.source != "confident"]
     if not new:
         return {"mode": "none", "new": 0, "why": "nothing new since the last training"}
     if len(new) > max(REPLAY_MIN, QUICK_SHARE * len(known)):
@@ -277,7 +320,8 @@ def _install_tess(model: Path, name: str) -> None:
     from .resources import user_tessdata_dir
 
     target = user_tessdata_dir()
-    _seed(target)
+    with _REGISTRY:  # trainings side by side: the folder seeded once
+        _seed(target)
     shutil.copyfile(model, target / f"{name}.traineddata")
 
 
@@ -294,13 +338,16 @@ def _general_tesseract(code: str, train_items, tests, work: Path, say: Say, iter
         sample, start = quick, models.tesseract_dir(code) / "general.traineddata"
         lo, hi = QUICK_ITERATIONS
         iterations = iterations or min(hi, max(lo, 4 * len(sample)))
-    fit = fit_tesseract(start, code, _pairs(sample), work / "general", say, iterations)
+    say = as_progress(say)
+    fit = fit_tesseract(start, code, _pairs(sample), work / "general", say.part(0, 0.85), iterations)
     current = _tess_current(code)
     say(f"{code}: checking it against the model in use, on {len(tests)} test images")
     which = "general" if "general" in models.choices(code) else "stock"
     before = _tess_checked(code, which, current, tests, work) if current else {}
+    say.fraction(0.9)
     per: dict = {}
     after = _tess_errors(fit.path, tests, work, "candidate", per)
+    say.fraction(1.0)
     ok, why = judge(before, after) if before else (True, "no model in use to compare with")
     if ok:
         name = models.tesseract_name(code, "general")
@@ -369,10 +416,11 @@ def _general_kraken(code: str, train_items, tests, work: Path, say: Say, epochs,
         if quick is not None and target.is_file():
             base = folder / f"base-g{entry.get('generation', 0)}.safetensors"
             shutil.copyfile(target, base)
-            data = models.registry()
-            for info in data.get(code, {}).get("families", {}).values():
-                info.setdefault("base", str(base))  # its pack was made over the model being replaced
-            models.save_registry(data)
+            with _REGISTRY:  # languages trained side by side share the record
+                data = models.registry()
+                for info in data.get(code, {}).get("families", {}).values():
+                    info.setdefault("base", str(base))  # its pack was made over the model being replaced
+                models.save_registry(data)
         shutil.copyfile(fit.path, target)
         _keep_checked(code, "general", target, per)
     return {"installed": ok, "why": why, "before": before, "after": after, "items": fit.items}
@@ -414,17 +462,20 @@ def train_language(code: str, progress: Say | None = None, iterations: int | Non
     from .families import centroid, cluster
     from .scripts import script_of
 
-    say = progress or (lambda msg: None)
+    progress = say = as_progress(progress)
     code = models.stock_code(code)
     engine = models.engine_of(code)
     lang = pool.key_for(code)
+    say(f"{_name(code)}: reading its pool")
     train_items = _items_for(code, "train")
-    if trainable(code) < MIN_ITEMS:
-        raise TrainingError(f"{_name(code)}: {trainable(code)} images to train on; at least {MIN_ITEMS} are needed. "
+    test_items = _items_for(code, "test")
+    count = sum(1 for i in train_items + test_items if i.source != "confident")
+    if count < MIN_ITEMS:
+        raise TrainingError(f"{_name(code)}: {count} images to train on; at least {MIN_ITEMS} are needed. "
                             "Correct more in Review, or add generated lines (train-synthetic).")
-    tests = _tests(_items_for(code, "test"))
+    tests = _tests(test_items)
     if mode != "full":
-        chosen = plan(code)
+        chosen = plan(code, train_items)
         if mode == "auto" or chosen["new"] is None or chosen["mode"] == "none":
             mode = chosen["mode"]  # asked for quick: unless there's nothing to add to, or nothing new
     report: dict = {"code": code, "engine": engine, "mode": mode, "families": {}, "lines": []}
@@ -436,27 +487,29 @@ def train_language(code: str, progress: Say | None = None, iterations: int | Non
         work = Path(tmp)
         if mode == "quick":
             _quick(code, train_items, tests, work, say, iterations, epochs, report)
+            progress.fraction(1.0)
             return report
         if engine == "tesseract":
-            general = _general_tesseract(code, train_items, tests, work, say, iterations)
+            general = _general_tesseract(code, train_items, tests, work, say.part(0, 0.7), iterations)
         else:
-            general = _general_kraken(code, train_items, tests, work, say, epochs)
+            general = _general_kraken(code, train_items, tests, work, say.part(0, 0.7), epochs)
         report["general"] = general
         report["lines"].append(f"{_name(code)}: general model {'updated' if general['installed'] else 'kept'} "
                                f"({general['why']}).")
-        data = models.registry()
-        entry = data.setdefault(code, {"engine": engine})
-        if general["installed"]:
-            file = str(models.kraken_dir(code) / "general.safetensors") if engine == "kraken" else None
-            entry["general"] = {"trained": time.strftime("%Y-%m-%d %H:%M"), "items": general["items"],
-                                "iterations": general.get("iterations", 0),
-                                "errors": cer(general["after"]), "books": sorted({i.book for i in train_items}),
-                                **({"file": file} if file else {})}
-            _drop_families(code, entry.get("families") or {}, {})
-            entry["families"] = {}  # trained against the old general model: made again below
-            entry["quick_updates"] = 0
-            _save_known(code, (i.id for i in train_items))
-        models.save_registry(data)
+        with _REGISTRY:  # languages trained side by side share the record
+            data = models.registry()
+            entry = data.setdefault(code, {"engine": engine})
+            if general["installed"]:
+                file = str(models.kraken_dir(code) / "general.safetensors") if engine == "kraken" else None
+                entry["general"] = {"trained": time.strftime("%Y-%m-%d %H:%M"), "items": general["items"],
+                                    "iterations": general.get("iterations", 0),
+                                    "errors": cer(general["after"]), "books": sorted({i.book for i in train_items}),
+                                    **({"file": file} if file else {})}
+                _drop_families(code, entry.get("families") or {}, {})
+                entry["families"] = {}  # trained against the old general model: made again below
+                entry["quick_updates"] = 0
+                _save_known(code, (i.id for i in train_items))
+            models.save_registry(data)
 
         # Families: only over an installed general model.
         if "general" in models.choices(code):
@@ -466,21 +519,36 @@ def train_language(code: str, progress: Say | None = None, iterations: int | Non
             for book, fam in cluster(prints).items():
                 groups.setdefault(fam, []).append(book)
             kept = {}
+            sources = pool.books(lang)
+            jobs = []
             for fam, books in sorted(groups.items()):
                 fid = f"f{fam}"
+                # A family is for scanned books: one of fonts alone (Train from fonts) adds little
+                # over the general model, which their lines train anyway, and Hebrew set in 77
+                # fonts made 77 families, trained one after another for hours.
+                if all(sources.get(b, {}).get("source") == "synthetic" for b in books):
+                    continue
                 items = [i for i in train_items if i.book in books]
                 if sum(1 for i in items if i.source != "confident") < family_min:
                     continue
-                ftests = _tests(_items_for(code, "test"), books=set(books))
+                ftests = _tests(test_items, books=set(books))
                 if not ftests:
                     # No test images of its own (fonts not kept aside): keep a tenth of its training images.
                     own = sorted((i for i in items if i.source != "confident"), key=lambda i: i.id)
                     ftests = own[::10][:TEST_PER_BOOK * 2]
                     items = [i for i in items if i not in ftests]
+                jobs.append((fam, fid, books, items, ftests))
+
+            def one(job):
+                fam, fid, books, items, ftests = job
                 say(f"{code}: training a model for typeface family {fam} ({', '.join(books[:3])}"
                     f"{'…' if len(books) > 3 else ''})")
-                fit = (_family_tesseract if engine == "tesseract" else _family_kraken)(
-                    code, fid, items, ftests, work, say, iterations if engine == "tesseract" else epochs)
+                return job, (_family_tesseract if engine == "tesseract" else _family_kraken)(
+                    code, fid, items, ftests, work, lambda m: say(m),  # messages only: the bar counts families
+                    iterations if engine == "tesseract" else epochs)
+
+            results = _families_side_by_side(code, engine, jobs, one, work, progress.part(0.7, 1.0))
+            for (fam, fid, books, items, ftests), fit in results:
                 report["families"][fid] = {**fit, "books": books}
                 verdict = (f"{100 * cer(fit['before']):.2f}% -> {100 * cer(fit['after']):.2f}%"
                            if cer(fit["before"]) is not None and cer(fit["after"]) is not None else "")
@@ -490,52 +558,117 @@ def train_language(code: str, progress: Say | None = None, iterations: int | Non
                     kept[fid] = {"centroid": centroid([prints[b] for b in books]), "books": books,
                                  "script": script_of(code), "errors": cer(fit["after"]),
                                  **({"pack": fit["pack"]} if engine == "kraken" else {})}
-            data = models.registry()
-            entry = data.setdefault(code, {"engine": engine})
-            _drop_families(code, entry.get("families", {}), kept)
-            entry["families"] = kept
-            entry["generation"] = entry.get("generation", 0) + 1
-            entry["pool_items"] = len(pool.index(lang))
-            models.save_registry(data)
+            with _REGISTRY:  # languages trained side by side share the record
+                data = models.registry()
+                entry = data.setdefault(code, {"engine": engine})
+                _drop_families(code, entry.get("families", {}), kept)
+                entry["families"] = kept
+                entry["generation"] = entry.get("generation", 0) + 1
+                entry["pool_items"] = len(pool.index(lang))
+                models.save_registry(data)
     _prune_bases(code)
+    progress.fraction(1.0)
     return report
+
+
+def train_languages(codes: list[str], progress=None, **kw) -> dict[str, dict | Exception]:
+    """`train_language` for each language, side by side (each uses about a processor core while
+    training; each gets its share of the cores, `train.cores_for`). progress: a Progress, whose
+    bar shows the languages' mean. Returns code -> its report, or the TrainingError that stopped it."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .train import TrainingError, cores_for, share_of_cores
+
+    progress = as_progress(progress)
+    shares = progress.shares(len(codes)) if codes else []
+    cores = share_of_cores()
+    workers = max(1, min(len(codes), cores))
+
+    def one(k):
+        with cores_for(cores // workers):
+            try:
+                return train_language(codes[k], shares[k], **kw)
+            except TrainingError as exc:
+                shares[k].fraction(1.0)
+                return exc
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return dict(zip(codes, ex.map(one, range(len(codes)))))
+
+
+def _families_side_by_side(code: str, engine: str, jobs: list, one, work: Path, progress) -> list:
+    """Each family's training (`one(job)`): Tesseract's side by side, each with its share of the
+    cores (`train.cores_for`), the general model's errors on their test images read first, so
+    they share what is kept; Kraken's one after another (each takes the processors itself)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .resources import user_tessdata_dir
+    from .train import cores_for, share_of_cores
+
+    if not jobs:
+        return []
+    fraction = getattr(progress, "fraction", None)
+    if engine != "tesseract":
+        out = []
+        for k, job in enumerate(jobs):
+            out.append(one(job))
+            if fraction:
+                fraction((k + 1) / len(jobs))
+        return out
+    general = user_tessdata_dir() / f"{models.tesseract_name(code, 'general')}.traineddata"
+    _tess_checked(code, "general", general, [i for job in jobs for i in job[4]], work)
+    cores = share_of_cores()  # this language's: all, unless languages train side by side
+    workers = max(1, min(len(jobs), cores))
+
+    def shared(job):
+        with cores_for(cores // workers):
+            return one(job)
+    out, done = [], 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for result in ex.map(shared, jobs):
+            out.append(result)
+            done += 1
+            if fraction:
+                fraction(done / len(jobs))
+    return out
 
 
 def _quick(code: str, train_items, tests, work: Path, say: Say, iterations, epochs, report: dict) -> None:
     """A quick update (see the module docstring): the general model trained further on the new
     images with earlier ones, then the families with a book among the new images."""
+    say = as_progress(say)
     engine = models.engine_of(code)
-    known = known_items(code) or set()
+    known = known_items(code, train_items) or set()
     mine = [i for i in train_items if i.source != "confident"]
     new = [i for i in mine if i.id not in known]
     old = [i for i in mine if i.id in known]
     replay = _sample(old, min(len(old), max(REPLAY_MIN, QUICK_REPLAY * len(new))), seed=len(known))
     say(f"{code}: quick update: {len(new)} new images, trained with {len(replay)} earlier ones")
     if engine == "tesseract":
-        general = _general_tesseract(code, train_items, tests, work, say, iterations, quick=new + replay)
+        general = _general_tesseract(code, train_items, tests, work, say.part(0, 0.7), iterations, quick=new + replay)
     else:
-        general = _general_kraken(code, train_items, tests, work, say, epochs, quick=new + replay)
+        general = _general_kraken(code, train_items, tests, work, say.part(0, 0.7), epochs, quick=new + replay)
     report["general"] = general
     report["lines"].append(f"{_name(code)}: quick update on {len(new)} new images: general model "
                            f"{'updated' if general['installed'] else 'kept'} ({general['why']}).")
-    data = models.registry()
-    entry = data.setdefault(code, {"engine": engine})
-    changed = general["installed"]
-    if general["installed"]:
-        g = entry.setdefault("general", {})
-        g.update(trained=time.strftime("%Y-%m-%d %H:%M"), items=general["items"],
-                 iterations=general.get("iterations", 0), errors=cer(general["after"]),
-                 books=sorted({i.book for i in train_items}))
-        entry["quick_updates"] = entry.get("quick_updates", 0) + 1
-        _save_known(code, (i.id for i in train_items))
-    models.save_registry(data)
+    with _REGISTRY:  # languages trained side by side share the record
+        data = models.registry()
+        entry = data.setdefault(code, {"engine": engine})
+        changed = general["installed"]
+        if general["installed"]:
+            g = entry.setdefault("general", {})
+            g.update(trained=time.strftime("%Y-%m-%d %H:%M"), items=general["items"],
+                     iterations=general.get("iterations", 0), errors=cer(general["after"]),
+                     books=sorted({i.book for i in train_items}))
+            entry["quick_updates"] = entry.get("quick_updates", 0) + 1
+            _save_known(code, (i.id for i in train_items))
+        models.save_registry(data)
 
     families = dict(entry.get("families") or {})
     touched = {i.book for i in new}
-    for fid, info in families.items():
+    again = [(fid, info) for fid, info in families.items() if touched & set(info.get("books") or [])]
+    say.fraction(0.7 if again else 1.0)
+    for k, (fid, info) in enumerate(again, 1):
         books = info.get("books") or []
-        if not touched & set(books):
-            continue
         items = [i for i in train_items if i.book in books]
         ftests = _tests(_items_for(code, "test"), books=set(books))
         if not ftests:
@@ -547,9 +680,10 @@ def _quick(code: str, train_items, tests, work: Path, say: Say, iterations, epoc
         fquick = fnew + _sample(fold, min(len(fold), max(REPLAY_MIN, QUICK_REPLAY * len(fnew))), seed=len(fnew))
         say(f"{code}: training typeface family {fid[1:]} further ({len(fnew)} new images)")
         if engine == "tesseract":
-            fit = _family_tesseract(code, fid, items, ftests, work, say, iterations, quick=fquick)
+            fit = _family_tesseract(code, fid, items, ftests, work, lambda m: say(m), iterations, quick=fquick)
         else:
-            fit = _family_kraken(code, fid, items, ftests, work, say, epochs or QUICK_EPOCHS)
+            fit = _family_kraken(code, fid, items, ftests, work, lambda m: say(m), epochs or QUICK_EPOCHS)
+        say.fraction(0.7 + 0.3 * k / len(again))
         report["families"][fid] = {**fit, "books": books}
         report["lines"].append(f"  family {fid[1:]} ({', '.join(books)}): "
                                f"{'its own model, trained further' if fit['kept'] else 'the general model reads it as well; dropped'}")
@@ -561,12 +695,13 @@ def _quick(code: str, train_items, tests, work: Path, say: Say, iterations, epoc
             _drop_families(code, {fid: info}, {})
             families.pop(fid)
     if changed:
-        data = models.registry()
-        entry = data.setdefault(code, {"engine": engine})
-        entry["families"] = families
-        entry["generation"] = entry.get("generation", 0) + 1
-        entry["pool_items"] = len(pool.index(pool.key_for(code)))
-        models.save_registry(data)
+        with _REGISTRY:  # languages trained side by side share the record
+            data = models.registry()
+            entry = data.setdefault(code, {"engine": engine})
+            entry["families"] = families
+            entry["generation"] = entry.get("generation", 0) + 1
+            entry["pool_items"] = len(pool.index(pool.key_for(code)))
+            models.save_registry(data)
     _prune_bases(code)
 
 

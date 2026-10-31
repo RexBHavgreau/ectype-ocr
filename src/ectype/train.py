@@ -31,9 +31,11 @@ import json
 import os
 import random
 import shutil
+import threading
 import subprocess
 import unicodedata
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -95,15 +97,99 @@ def _run(args: list[str], cwd: Path | None = None, timeout: float = 3600, one_th
                           timeout=timeout, env=env, **subprocess_flags())
 
 
+def _iteration(line: str, iterations: int, fraction) -> None:
+    """lstmtraining's "At iteration 1200/1200/1200, ..." as how far along the training is:
+    the second quarter to the last tenth of the whole."""
+    import re
+
+    m = re.match(r"At iteration \d+/(\d+)/\d+", line)
+    if m:
+        fraction(0.25 + 0.65 * min(1.0, int(m.group(1)) / max(1, iterations)))
+
+
+def _run_reporting(args: list[str], cwd: Path | None, timeout: float, on_line,
+                   threads: int | None = None) -> subprocess.CompletedProcess:
+    """A Tesseract tool's run whose output lines are passed on as they come (to follow its
+    progress); the result as `_run` gives it, the output in stdout. threads: at most so many."""
+    env = tesseract_env()
+    if threads:
+        env = {**(env or os.environ), "OMP_THREAD_LIMIT": str(threads)}
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                            errors="replace", cwd=cwd, env=env, **subprocess_flags())
+    timer = threading.Timer(timeout, proc.kill)
+    timer.start()
+    lines = []
+    try:
+        for line in proc.stdout:
+            lines.append(line)
+            on_line(line.strip())
+        proc.wait()
+    finally:
+        timer.cancel()
+    text = "".join(lines)
+    return subprocess.CompletedProcess(args, proc.returncode, text, text)
+
+
+# Trainings side by side (families, languages) share the processor cores. Each thread of work
+# has its share (`cores_for`: all of them, unless trainings run beside it); a Tesseract run takes
+# its threads from CORES while it runs, so together they never use more than there are: three
+# lstmtrainings with four threads each on four cores took ten times as long as one after another.
+# Kraken's trainer uses them all: one at a time.
+class _Cores:
+    def __init__(self, n: int):
+        self.n = self.free = max(1, n)
+        self._cond = threading.Condition()
+
+    @contextmanager
+    def take(self, k: int = 1):
+        k = max(1, min(k, self.n))
+        with self._cond:
+            self._cond.wait_for(lambda: self.free >= k)
+            self.free -= k
+        try:
+            yield k
+        finally:
+            with self._cond:
+                self.free += k
+                self._cond.notify_all()
+
+
+CORES = _Cores(os.cpu_count() or 1)
+KRAKEN_ONE = threading.Lock()
+_SHARE = threading.local()
+
+
+def share_of_cores() -> int:
+    """This thread of work's share of the processor cores."""
+    return getattr(_SHARE, "cores", CORES.n)
+
+
+@contextmanager
+def cores_for(n: int):
+    """Work in this thread gets n cores (a training among others side by side)."""
+    old = getattr(_SHARE, "cores", None)
+    _SHARE.cores = max(1, n)
+    try:
+        yield
+    finally:
+        if old is None:
+            del _SHARE.cores
+        else:
+            _SHARE.cores = old
+
+
 def _side_by_side(fn, items: list) -> list:
     """fn over the items, several at a time (Tesseract runs, one processor each), in order."""
     from concurrent.futures import ThreadPoolExecutor
 
-    workers = max(1, min(len(items), os.cpu_count() or 1))
+    def one_core(i):
+        with CORES.take(1):
+            return fn(i)
+    workers = max(1, min(len(items), share_of_cores()))
     if workers == 1:
-        return [fn(i) for i in items]
+        return [one_core(i) for i in items]
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(fn, items))
+        return list(pool.map(one_core, items))
 
 
 def best_model(base: str, progress: Callable[[str], None] | None = None) -> Path:
@@ -235,8 +321,9 @@ def _lstmf(png: Path, text: str, work: Path, n: int) -> Path | None:
         return None
     try:
         kept.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(lstmf, kept.with_suffix(".part"))
-        kept.with_suffix(".part").replace(kept)
+        part = kept.with_suffix(f".{threading.get_ident()}.part")  # trainings side by side may make the same line
+        shutil.copyfile(lstmf, part)
+        part.replace(kept)
         return kept
     except OSError:
         return lstmf
@@ -290,7 +377,17 @@ def fit_tesseract(start: Path, base: str, pairs: list[tuple[Path, str]], work: P
             skipped = len(pairs) - len(kept)
             added, traineddata = "", start
     progress(f"{base}: preparing {len(kept)} images")
-    made = _side_by_side(lambda job: _lstmf(job[1][0], job[1][1], work, job[0]), list(enumerate(kept)))
+    fraction = getattr(progress, "fraction", None) or (lambda f: None)  # a progress bar's, if any
+    prepared = [0]
+
+    def prepare(job):
+        out = _lstmf(job[1][0], job[1][1], work, job[0])
+        prepared[0] += 1
+        if prepared[0] % 50 == 0:
+            fraction(0.25 * prepared[0] / len(kept))  # preparing: the first quarter
+        return out
+
+    made = _side_by_side(prepare, list(enumerate(kept)))
     files = [f for f in made if f is not None]
     skipped += len(made) - len(files)
     if len(files) < MIN_LINES // 2:
@@ -301,9 +398,12 @@ def fit_tesseract(start: Path, base: str, pairs: list[tuple[Path, str]], work: P
     iterations = iterations or min(12000, max(600, 3 * len(files)))
     progress(f"{base}: training on {len(files)} images, {iterations} iterations")
     old = ["--old_traineddata", str(start)] if traineddata != start else []
-    out = _run([tool("lstmtraining"), "--model_output", str(work / "model"), "--continue_from", str(work / f"{base}.lstm"),
-                *old, "--traineddata", str(traineddata), "--train_listfile", str(work / "list.txt"),
-                "--max_iterations", str(iterations), "--target_error_rate", "0.005"], cwd=work, timeout=12 * 3600)
+    with CORES.take(share_of_cores()) as threads:
+        out = _run_reporting([tool("lstmtraining"), "--model_output", str(work / "model"),
+                              "--continue_from", str(work / f"{base}.lstm"), *old, "--traineddata", str(traineddata),
+                              "--train_listfile", str(work / "list.txt"), "--max_iterations", str(iterations),
+                              "--target_error_rate", "0.005"], cwd=work, timeout=12 * 3600,
+                             on_line=lambda line: _iteration(line, iterations, fraction), threads=threads)
     checkpoint = work / "model_checkpoint"
     if not checkpoint.is_file():
         raise TrainingError("Training didn't finish: " + (out.stderr or out.stdout).strip()[-300:])
@@ -360,9 +460,10 @@ def fit_kraken(start: str, pairs: list[tuple[Path, str]], work: Path, held: list
         lists[part].write_text("\n".join(str(p) for p in sorted(folder.glob("*.png"))) + "\n", encoding="utf-8", newline="\n")
     progress(f"Kraken: training on {len(pairs)} images, up to {epochs} epochs")
     out = work / "model"
-    kraken._run(["train", "-f", "path", "-i", start, "--resize", "union", "-o", str(out),
-                 "-t", str(lists["train"]), "-e", str(lists["eval"]), "-N", str(epochs), "-q", "early",
-                 "--lag", "4", "--min-epochs", str(min(3, epochs))], timeout=12 * 3600)
+    with KRAKEN_ONE:
+        kraken._run(["train", "-f", "path", "-i", start, "--resize", "union", "-o", str(out),
+                     "-t", str(lists["train"]), "-e", str(lists["eval"]), "-N", str(epochs), "-q", "early",
+                     "--lag", "4", "--min-epochs", str(min(3, epochs))], timeout=12 * 3600)
     best = sorted(out.glob("best_*.safetensors")) or sorted(out.glob("*.safetensors"))
     if not best:
         raise TrainingError("Kraken's training didn't save a model.")

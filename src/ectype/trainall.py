@@ -121,21 +121,19 @@ def train_scripts(scripts: list[str], progress: Callable[[str], None] | None = N
                   epochs: int | None = None) -> list[str]:
     """Train each language of the scripts on its pool (Tesseract's, and Kraken's models for
     them). Returns the report's lines."""
-    from .train import TrainingError
-    from .training import MIN_ITEMS, train_language, trainable
+    from .training import MIN_ITEMS, as_progress, train_languages, trainable
 
-    say = progress or (lambda msg: None)
-    report = []
+    say = as_progress(progress)
+    report, ready = [], []
     for code in codes_for(scripts):
         n = trainable(code)
         if n < MIN_ITEMS:
             report.append(f"{code}: only {n} images in its pool; not trained.")
             continue
         say(f"Training {code} on its pool ({n} images)")
-        try:
-            report += train_language(code, say, iterations=iterations, epochs=epochs)["lines"]
-        except TrainingError as exc:
-            report.append(f"{code}: {exc}")
+        ready.append(code)
+    for code, r in train_languages(ready, say, iterations=iterations, epochs=epochs).items():  # side by side
+        report += [f"{code}: {r}"] if isinstance(r, Exception) else r["lines"]
     return report
 
 

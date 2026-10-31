@@ -561,3 +561,110 @@ def test_train_from_fonts_window(data, monkeypatch):
     del d, again, dialog
     app.processEvents()
     gc.collect()
+
+
+def test_pool_keeps_each_lines_text_in_its_index(data):
+    """A line's text is kept in the pool's index, so listing a pool of 150,000 lines doesn't open
+    each one's .gt.txt; a pool from an earlier version learns them once."""
+    with pool.Writer("eng") as w:
+        for i in range(3):
+            w.add(f"image {i}".encode(), f"line {i}", "Young", "line", "correction", origin=f"Young{i}")
+    index = pool.index("eng")
+    assert sorted(m["text"] for m in index.values()) == ["line 0", "line 1", "line 2"]
+    # An index written before 0.6.2: no texts in it.
+    path = pool._dir("eng") / "index.json"
+    old = {i: {k: v for k, v in m.items() if k != "text"} for i, m in index.items()}
+    path.write_text(json.dumps(old), encoding="utf-8")
+    assert sorted(i.text for i in pool.items("eng")) == ["line 0", "line 1", "line 2"]
+    assert all("text" in m for m in pool.index("eng").values()), "learned and kept"
+    for gt in pool._dir("eng").rglob("*.gt.txt"):
+        gt.unlink()
+    assert sorted(i.text for i in pool.items("eng")) == ["line 0", "line 1", "line 2"], "not read again"
+
+
+def test_families_only_for_real_books_trained_side_by_side(data, tmp_path, monkeypatch):
+    """Fonts alone (Train from fonts) make no family of their own; a family with a scanned book
+    in it is trained. Families are trained side by side, and the bar follows the stages."""
+    from ectype import train
+    from ectype.train import Fit
+
+    fits = []
+
+    def fit(start, base, pairs, work, say, iterations=None):
+        work.mkdir(parents=True, exist_ok=True)
+        for name in ("int", "float"):
+            (work / name).write_bytes(f"{start}{len(pairs)}{name}".encode())
+        fits.append((work.name, len(pairs)))
+        getattr(say, "fraction", lambda f: None)(0.5)
+        return Fit(work / "int", work / "float", len(pairs), 0, "", iterations or 100)
+
+    def errors(model, items, work, name, per_item=None):
+        per = {i.id: (3 if name.startswith("in_use") else 1, 10) for i in items}
+        if per_item is not None:
+            per_item.update(per)
+        return training._by_book(items, per)
+
+    monkeypatch.setattr(train, "fit_tesseract", fit)
+    monkeypatch.setattr(train, "available", lambda: None)
+    (tmp_path / "best.traineddata").write_bytes(b"stock")
+    monkeypatch.setattr(train, "best_model", lambda code, say=None: tmp_path / "best.traineddata")
+    monkeypatch.setattr(training, "_tess_errors", errors)
+    monkeypatch.setattr(training, "_tess_current", lambda code: tmp_path / "best.traineddata")
+    prints = {"Young": [0.5, 1.0, 0.3, 0.5, 10.0], "font: Near Young": [0.5, 1.0, 0.3, 0.5, 10.5],
+              "font: Far A": [0.9, 3.0, 0.8, 1.2, 30.0], "font: Far B": [0.9, 3.0, 0.8, 1.2, 30.5]}
+    with pool.Writer("eng") as w:
+        for book in prints:
+            source = "correction" if book == "Young" else "synthetic"
+            for i in range(30):
+                w.add(f"image {book} {i}".encode(), f"line {i} of {book}", book, "line", source, origin=f"{book}{i}")
+    for book, fp in prints.items():
+        pool.set_book("eng", book, fingerprint=fp, **({"source": "synthetic"} if book.startswith("font") else {}))
+    groups = families.cluster(prints)
+    assert groups["Young"] == groups["font: Near Young"] != groups["font: Far A"] == groups["font: Far B"]
+    shown = []
+    bar = training.Progress(None, shown.append)
+    r = training.train_language("eng", bar, family_min=10, mode="full")
+    trained = [set(f["books"]) for f in r["families"].values()]
+    assert trained == [{"Young", "font: Near Young"}], r["lines"]
+    assert shown[-1] == 1.0 and shown == sorted(shown), "the bar only goes forward"
+    assert shown[0] == pytest.approx(0.5 * 0.85 * 0.7), "the general model: half its fitting (of 0.85 of its 0.7)"
+
+
+def test_progress_parts_and_languages_side_by_side():
+    shown = []
+    p = training.Progress(None, shown.append)
+    p.part(0.5, 1.0).part(0, 0.5).fraction(1.0)
+    assert shown == [0.75]
+    a, b = p.shares(2)
+    a.fraction(1.0)
+    b.fraction(0.5)
+    assert shown[-2:] == [0.5, 0.75], "the mean of the languages"
+    said = []
+    training.Progress(said.append)("hello")
+    training.as_progress(said.append).part(0, 0.5).fraction(0.3)  # no bar: nothing to show
+    assert said == ["hello"]
+
+
+def test_lstmtraining_iterations_move_the_bar():
+    from ectype.train import _iteration
+
+    shown = []
+    _iteration("At iteration 100/600/600, mean rms=1.2%, delta=3.4%, BCER train=5%", 1200, shown.append)
+    _iteration("Loaded file model_checkpoint, unpacking...", 1200, shown.append)
+    assert shown == [pytest.approx(0.25 + 0.65 * 600 / 1200)]
+
+
+def test_languages_trained_side_by_side_report_each(data, monkeypatch):
+    from ectype.train import TrainingError
+
+    def one(code, progress, **kw):
+        if code == "grc":
+            raise TrainingError("grc: too few")
+        progress.fraction(1.0)
+        return {"code": code, "lines": [code]}
+
+    monkeypatch.setattr(training, "train_language", one)
+    shown = []
+    out = training.train_languages(["heb", "grc", "eng"], training.Progress(None, shown.append))
+    assert list(out) == ["heb", "grc", "eng"] and isinstance(out["grc"], TrainingError)
+    assert out["heb"]["lines"] == ["heb"] and shown[-1] == pytest.approx(1.0)
