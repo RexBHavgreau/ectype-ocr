@@ -98,6 +98,20 @@ not been tagged), so the release "0.5.0" holds everything below too.
   (`support(failed=)`). Van Dyck (eBible) is still untested; Arabic uses the Qurʾān alone if
   it fails.
 
+**0.6.2** (planned, Beaux agreed; from a training on v0.5.0 that ran 4+ hours):
+- *Why it was slow*: Hebrew trained **77 typeface families**, nearly one per font set in Train
+  from fonts (a font's 360-400 lines pass `FAMILY_MIN` 200 alone), each trained and checked in
+  turn; Greek's pool held **149,600 lines**, and `pool.items` opens each line's .gt.txt and
+  checks its .png (about 2 million file openings per training, each scanned by Defender:
+  0.3% CPU, only Ectype OCR.exe in Task Manager), and would then have trained hundreds of
+  single-font families. Short-lived tesseract.exe shown "Suspended" were line preparation.
+- Fixes: (1) each line's text kept in the pool's index.json (read once from .gt.txt for old
+  pools); (2) families trained only when they hold at least one real book (corrections or a
+  matched edition), font lines still training the general model; (3) a progress bar following
+  the real stages (lines prepared, lstmtraining's iterations, checks) and a timer; (4)
+  families, and languages, trained side by side, one per core (lstmtraining itself is mostly
+  one core; preparation and checks already used them all).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
