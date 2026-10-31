@@ -86,7 +86,7 @@ not been tagged), so the release "0.5.0" holds everything below too.
   SmallCaps, Word `<w:b/>`, `<w:smallCaps/>`. Detected italic is shown on selecting a word
   (`Project.word_styles`).
 
-**After 0.6.0** (on the branch):
+**0.6.1** (a fix):
 - *Arabic not offered for any font* (Beaux, 0.5.0: Times New Roman showed "—" for Arabic): the
   Arabic texts hadn't downloaded (Tanzil's form, untested from the cloud), and the window gave
   every font "—" without saying why. The Qurʾān now comes first from a verbatim copy of
