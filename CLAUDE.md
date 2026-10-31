@@ -69,7 +69,7 @@ is; the training pool keeps lines set again.
 **0.5.1's work shipped as 0.5.0**: Beaux tagged main as v0.5.0 after both merges (0.5.0 had
 not been tagged), so the release "0.5.0" holds everything below too.
 
-**After 0.5.0** (on the branch):
+**0.6.0** (style set in Review is a new feature, so a minor version):
 - *Italic words drawn half upright* (Treatise p. 1: *past*, *future*, *perfect* came out with
   letters from upright and italic shapes mixed): `word_italics` took only slants of 7-18
   degrees for italic, tuned on Young (8-12) to keep upright "very" (22-24) out; Driver's italic
