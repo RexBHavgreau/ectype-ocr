@@ -66,6 +66,38 @@ merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 **0.4.0**: Train from fonts in the app; the updater installs over the existing copy wherever it
 is; the training pool keeps lines set again.
 
+**0.5.1** (gaps filled, no new whole features, so a patch version):
+- *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
+  keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
+  reading and segmentation are unchanged (`collect`), each letter's grouping and each
+  composite by the fingerprints of the instances in it (`Instance.fingerprint`); results not
+  used in a run are removed. Traced's check pictures (`*.overlay.png`) are saved with fast
+  compression (they took half its time). Erased backgrounds are not kept: about 1 s a book.
+- *Italic in training lines* (Treatise italic was often misread: "faken", "zs seliing"): for
+  Transliteration and Latin, a font's italic face of the same weight (`synthtrain.italic_of`,
+  among the chosen and installed fonts) sets a run of one to four words in 30% of lines and
+  whole lines in 8% (`_italic_runs`, `render_runs`); the text is unchanged. Their lines are
+  made again (`SCRIPT_VERSION` 3); fingerprints come from all-roman lines only.
+- *Raised characters read again* (`raised.py`, after check_words in `ocr._ocr_one`): note
+  numbers and verse parts the model read as "!", "?", "%", ">". A run of up to three at a word's
+  end (before closing punctuation), or a lone mark of one or two starting a line, is raised when
+  every separate piece of ink centred in its box ends 0.3 x-heights above the baseline (whole
+  pieces: Tesseract's box can hold only the top of a y's arm or a t's crossbar, which looked
+  raised; x-height = hOCR x_size - ascenders - descenders). Letters only a-h after a figure.
+  Read again enlarged x3/x5, plain/sharpened, digits and a-h only, until two readings agree;
+  stored as ¹ ᵃ. Treatise: all note marks and most verse parts right (13ᵇ, 547ᵈ, 27ᵇ); 171ᵃ
+  read 171⁴, who³ unchanged. About 1.8 s a page.
+
+## Decisions Beaux made about proposals (so they aren't offered again)
+
+- Rejected: applying one correction everywhere the same misreading occurs ("too much can go
+  wrong").
+- Not for now: showing words dropped as noise as faint boxes in Review to restore them.
+- Not build work, in Beaux's view: lone punctuation left as image, the odd "2" of the
+  Treatise's "12.", the browser Review lacking the app's new tools.
+- An English known text for Train from fonts: only a maybe (corrections already teach plain
+  English; special characters are Transliteration's).
+
 ## Lessons learned (problems and their causes)
 
 - **Tesseract's training tools on Windows** (0.3.1): in the UB Mannheim package,
@@ -212,20 +244,15 @@ is; the training pool keeps lines set again.
 - A stretched box (Review): a word with its first letter left out of its box came out
   "xclamation" with the "e" left in the background; stretched and retyped, "exclamation" with
   nothing left behind.
-- Update after corrections on Young (17 pages), 69 s: segment 2 s (only corrected pages,
-  already), cluster 43 s (collect 16, averaging 21, grouping 12), fonts 4 s, traced 20 s.
+- Update after corrections on Young (17 pages): 69 s in 0.5.0 (segment 2, cluster 43, fonts
+  4, traced 20); about 21 s since (cluster 4-6, traced 11), with identical output.
 
 ## Planned
 
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
-- **Faster "Update after corrections"**: keep per-page cluster instances (collect), composites
-  of clusters whose members are unchanged, groupings of letters whose instances are unchanged,
-  and the erased backgrounds of untouched pages; same output. Expect ~70 s -> 15-20 s on Young.
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
-  the Treatise; set some Train-from-fonts lines in each font's italic (English,
-  transliteration), since italic is still often misread; reread raised characters by
-  themselves (superscript figures and letters). A checked transcription of a few Treatise
+  the Treatise. A checked transcription of a few Treatise
   pages (Beaux can correct or confirm one) would give real error rates.
 - **Check the untested downloads** on Beaux's machine: Tanzil.net and eBible.org (Arabic),
   blocked from the cloud session.

@@ -110,3 +110,19 @@ def test_running_lines():
     for z in zones[1:7]:
         assert z == {0: "head"}  # a footnote on many pages is not a running foot
     assert zones[7] == {7: "foot"}  # a lone folio
+
+
+def test_kept_results_make_the_same_glyphs(clustered, monkeypatch):
+    """Run again with nothing changed: the pages' instances, groupings and composites are taken
+    from the cache (none averaged again), and the result is the same."""
+    import json
+
+    from ectype import cluster
+
+    root, _, first = clustered
+    calls = []
+    real = cluster.average
+    monkeypatch.setattr(cluster, "average", lambda members, **kw: calls.append(1) or real(members, **kw))
+    monkeypatch.setattr(cluster, "_page_instances", lambda *a: (_ for _ in ()).throw(AssertionError("measured again")))
+    again = cluster_workspace(root)
+    assert calls == [] and json.dumps(again, sort_keys=True) == json.dumps(first, sort_keys=True)

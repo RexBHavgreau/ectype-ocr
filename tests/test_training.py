@@ -316,6 +316,26 @@ def test_arabic_from_the_quran_and_the_van_dyck_bible(data, monkeypatch):
     assert "couldn't be downloaded" in r["skipped"]["Arabic"]
 
 
+def test_latin_lines_with_italic_words(data, monkeypatch):
+    """A font's italic face (found among the fonts) sets a run of words, or a whole line, of some
+    Latin-alphabet lines, as books set italic; the text is the same either way."""
+    from ectype import synthtrain
+
+    fonts = synthtrain.fonts_in(Path(_font("Liberation Serif")).parent)
+    roman = next(f for f in fonts if f.name == "Liberation Serif Regular")
+    italic = synthtrain.italic_of(roman, fonts)
+    assert italic is not None and italic.style == "Italic" and synthtrain.italic_of(italic, fonts) is None
+    monkeypatch.setattr(synthtrain, "system_font_folders", lambda: [])
+    verses = ["In principio creavit Deus caelum et terram terra autem erat inanis et vacua"] * 4
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: verses)
+    mixed = []
+    real = synthtrain.render_runs
+    monkeypatch.setattr(synthtrain, "render_runs", lambda runs, size: mixed.append(runs) or real(runs, size))
+    r = synthtrain.generate([roman, italic], ["latin"], lines_per_font=30)
+    assert r["added"]["lat"] == 60 and mixed, "some of the roman font's lines have italic in them"
+    assert all(any(f is not None and f.style == "Italic" for _, f in runs) for runs in mixed)
+
+
 def test_training_settings_file(tmp_path):
     from ectype import trainall
 
