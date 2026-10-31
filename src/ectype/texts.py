@@ -53,6 +53,10 @@ PESHITTA_BOOKS = ("Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ru
                   "Jeremiah Lamentations Ezekiel Daniel Hosea Joel Amos Obadiah Jonah Micah Nahum Habakkuk Zephaniah "
                   "Haggai Zechariah Malachi Tobit_A Judith Wisdom_of_Solomon Sirach Baruch Maccabees_1_A "
                   "Maccabees_2").split()
+# Tanzil's "simple" text, unchanged with its notice, as kept in a public repository (its 2019
+# download, SHA-1 16d8abb3...): reachable where tanzil.net's own form isn't, and testable.
+QURAN_URL = ("https://raw.githubusercontent.com/rizaumami/quran-epub/d96dab765d712634ba17d1550cd5d1dc15c25b36/"
+             "src/quran/quran-simple.txt")
 TANZIL_URL = "https://tanzil.net/pub/download/download.php"  # a form: the text chosen, the terms agreed to
 TANZIL_FORM = {"quranType": "simple", "outType": "txt-2", "agree": "true"}  # txt-2: sura|aya|text a line
 VAN_DYCK_URL = "https://ebible.org/Scriptures/arb-vd_vpl.zip"  # "GEN 1:1 text", a verse a line
@@ -130,13 +134,40 @@ def _peshitta_book(txt: str) -> list[str]:
 
 
 def _quran(txt: str) -> list[str]:
-    """Verses of Tanzil's txt-2 text ("sura|aya|text"); its closing notes (# lines) left out."""
+    """Verses of Tanzil's txt-2 text ("sura|aya|text"); its closing notice (# lines) left out
+    (`_tanzil_notice` keeps it)."""
     out = []
     for line in txt.splitlines():
         parts = line.split("|", 2)
         if len(parts) == 3 and not line.startswith("#") and parts[2].strip():
             out.append(parts[2].strip())
     return out
+
+
+def _tanzil_notice(txt: str) -> list[str]:
+    """Tanzil's copyright notice (its # lines), which its terms ask to keep with any copy."""
+    return [line.rstrip() for line in txt.splitlines() if line.startswith("#")]
+
+
+def _get_quran() -> tuple[list[str], list[str]]:
+    """The Qurʾān's verses and Tanzil's notice: from the repository's copy, else Tanzil's form."""
+    problems = []
+    for fetch in (lambda: _get(QURAN_URL), _tanzil_form):
+        try:
+            txt = fetch()
+            verses = _quran(txt)
+            if len(verses) >= 6000:
+                return verses, _tanzil_notice(txt)
+            problems.append(f"{len(verses)} verses")
+        except Exception as exc:
+            problems.append(str(exc))
+    raise RuntimeError("; ".join(problems))
+
+
+def _tanzil_form() -> str:
+    form = urllib.parse.urlencode(TANZIL_FORM).encode()
+    with urllib.request.urlopen(urllib.request.Request(TANZIL_URL, data=form), timeout=120) as r:
+        return r.read().decode("utf-8")
 
 
 def _van_dyck(data: bytes) -> list[str]:
@@ -175,18 +206,17 @@ def _cached(source: str, say: Callable[[str], None]) -> list[str]:
     cache = folder() / f"{source}.txt"
     if not cache.is_file():
         say(f"downloading the {SOURCES[source]}")
+        notice: list[str] = []
         if source == "quran":
-            form = urllib.parse.urlencode(TANZIL_FORM).encode()
-            with urllib.request.urlopen(urllib.request.Request(TANZIL_URL, data=form), timeout=120) as r:
-                verses = _quran(r.read().decode("utf-8"))
+            verses, notice = _get_quran()
         else:
             with urllib.request.urlopen(VAN_DYCK_URL, timeout=120) as r:
                 verses = _van_dyck(r.read())
         if len(verses) < 1000:
             raise RuntimeError(f"the download held {len(verses)} verses, not the whole text")
         cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text("\n".join(verses) + "\n", encoding="utf-8", newline="\n")
-    return [v for v in cache.read_text(encoding="utf-8").splitlines() if v.strip()]
+        cache.write_text("\n".join(verses + notice) + "\n", encoding="utf-8", newline="\n")
+    return [v for v in cache.read_text(encoding="utf-8").splitlines() if v.strip() and not v.startswith("#")]
 
 
 def _vulgate(tsv: str) -> list[str]:

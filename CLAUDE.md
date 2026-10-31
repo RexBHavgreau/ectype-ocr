@@ -86,6 +86,18 @@ not been tagged), so the release "0.5.0" holds everything below too.
   SmallCaps, Word `<w:b/>`, `<w:smallCaps/>`. Detected italic is shown on selecting a word
   (`Project.word_styles`).
 
+**0.6.1** (a fix):
+- *Arabic not offered for any font* (Beaux, 0.5.0: Times New Roman showed "—" for Arabic): the
+  Arabic texts hadn't downloaded (Tanzil's form, untested from the cloud), and the window gave
+  every font "—" without saying why. The Qurʾān now comes first from a verbatim copy of
+  Tanzil's "simple" text in a public repository (`texts.QURAN_URL`, rizaumami/quran-epub at a
+  fixed commit; SHA-1 16d8abb3, Tanzil's 2019 download), tested from here; Tanzil's form is the
+  fallback. Tanzil's notice is kept in the cached copy (its terms), skipped when read. The
+  Qurʾān uses only U+0621-0652, which Times New Roman has. A language whose text couldn't be
+  downloaded is marked "(no text)" in the font table, and the status line says why
+  (`support(failed=)`). Van Dyck (eBible) is still untested; Arabic uses the Qurʾān alone if
+  it fails.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
@@ -198,13 +210,14 @@ not been tagged), so the release "0.5.0" holds everything below too.
   CC BY-NC 4.0, credited in CREDITS.md, downloaded on the user's machine for their own
   training; the repo's MIT licence covers its programs only). Train from fonts → Syriac
   trains `syr` (and installed Syriac Kraken models), set right to left with raqm's Syriac
-  shaping. Arabic (Beaux's choice, both): the Qurʾān from Tanzil.net (POST form
-  `download.php`, quranType=simple, outType=txt-2, agree=true; CC BY 3.0, unchanged, credit)
-  and the Smith–Van Dyck Bible (`ebible.org/Scriptures/arb-vd_vpl.zip`, public domain),
-  verses interleaved; trains `ara`. **Untested downloads**: tanzil.net, ebible.org and
-  peshitta.eu are blocked from the cloud session, so Beaux's machine is the first to fetch
-  them; a failing download now leaves only that script unavailable (`synthtrain.support`,
-  `generate`), where it used to stop the Train from fonts window. Hebrew lines set from fonts (0.5.0,
+  shaping. Arabic (Beaux's choice, both): the Qurʾān, Tanzil's "simple" text (CC BY 3.0,
+  unchanged, credit, notice kept), from a verbatim copy in a public repository
+  (`texts.QURAN_URL`, since 0.6.1; tested), else Tanzil's POST form `download.php`
+  (quranType=simple, outType=txt-2, agree=true; untested); and the Smith–Van Dyck Bible
+  (`ebible.org/Scriptures/arb-vd_vpl.zip`, public domain, **untested**: ebible.org and
+  tanzil.net are blocked from the cloud session), verses interleaved; trains `ara`. A failing
+  download leaves only that script unavailable (`synthtrain.support`, `generate`), marked
+  "(no text)" in the window with the reason. Hebrew lines set from fonts (0.5.0,
   `synthtrain.hebrew_form`, VERSION 2) come in three forms: the Codex's accents (35%), as
   grammars print it (30%: points, and ֫ ole over a stress before the last syllable, found
   from the Codex's accent, `texts.grammar_style`), points only (the rest, and every line of
@@ -274,8 +287,8 @@ not been tagged), so the release "0.5.0" holds everything below too.
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
   the Treatise. A checked transcription of a few Treatise
   pages (Beaux can correct or confirm one) would give real error rates.
-- **Check the untested downloads** on Beaux's machine: Tanzil.net and eBible.org (Arabic),
-  blocked from the cloud session.
+- **Check the untested download** on Beaux's machine: eBible.org's Van Dyck (Arabic), blocked
+  from the cloud session (the Qurʾān now comes from a repository copy).
 - **Lone punctuation left as image**: the 30 words the Treatise still draws as image are
   nearly all ; : , with no ink tied to them (`traced.place_page`, "no glyph").
 - Syriac with vowels: the Peshitta text is unvowelled; vowelled Syriac is learned only from

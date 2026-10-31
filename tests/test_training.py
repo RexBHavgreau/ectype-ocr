@@ -311,7 +311,10 @@ def test_arabic_from_the_quran_and_the_van_dyck_bible(data, monkeypatch):
     r = synthtrain.generate([font], ["arabic"], lines_per_font=6)
     assert r["added"]["ara"] == 6
     monkeypatch.setattr(texts, "load", broken)
-    assert "arabic" not in synthtrain.support([font], ["arabic", "syriac"]).get("DejaVu Sans", {})
+    failed = {}
+    assert "arabic" not in synthtrain.support([font], ["arabic", "syriac"], failed=failed).get("DejaVu Sans", {})
+    assert failed == {"arabic": "no connection"}, "the window can say which text couldn't be downloaded"
+    assert texts._quran("1|1|بِسْمِ\n# notice\n") == ["بِسْمِ"] and texts._tanzil_notice("1|1|x\n# notice\n") == ["# notice"]
     r = synthtrain.generate([font], ["arabic"], lines_per_font=6)
     assert "couldn't be downloaded" in r["skipped"]["Arabic"]
 
