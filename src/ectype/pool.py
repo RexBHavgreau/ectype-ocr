@@ -10,7 +10,7 @@ engines, so that what is learned from one book carries over to the next:
   project's, so that training on corrections doesn't unlearn what the model already reads well.
   They are only ever trained on, never used to test.
 
-    <user folder>/pool/<language>/index.json        id -> {book, unit, source, origin, split}
+    <user folder>/pool/<language>/index.json        id -> {book, unit, source, origin, split, text}
     <user folder>/pool/<language>/books.json        book -> {fingerprint, source, name}
     <user folder>/pool/<language>/<book>/<id>.png   the image, with <id>.gt.txt beside it
 
@@ -148,7 +148,7 @@ class Writer:
         (folder / f"{new}.png").write_bytes(image)
         (folder / f"{new}.gt.txt").write_text(text + "\n", encoding="utf-8", newline="\n")
         self.data[new] = {"book": book, "unit": unit, "source": source, "origin": origin,
-                          "split": "train" if source == "confident" else split or _split(new),
+                          "split": "train" if source == "confident" else split or _split(new), "text": text,
                           **({"stamp": stamp} if stamp else {})}
         if origin:
             self.by_origin[origin] = new
@@ -187,14 +187,26 @@ class Writer:
 
 
 def items(lang: str, split: str | None = None, sources: tuple[str, ...] = SOURCES) -> list[Item]:
-    out = []
-    for i, m in index(lang).items():
+    """The pool's items, their text from the index: a pool of 150,000 lines (Greek set in many
+    fonts) once took hours to list, a small text file opened for each, and each opening
+    scanned by Windows' virus checker. A pool from before keeps its texts in the index after
+    the first listing."""
+    data = index(lang)
+    out, learned = [], 0
+    for i, m in data.items():
         if (split is None or m["split"] == split) and m["source"] in sources:
             png = _dir(lang) / slug(m["book"]) / f"{i}.png"
-            gt = png.with_suffix("").with_suffix(".gt.txt")
-            if png.is_file() and gt.is_file():
-                out.append(Item(i, lang, m["book"], m["unit"], m["source"], m["split"], png,
-                                gt.read_text(encoding="utf-8").strip()))
+            text = m.get("text")
+            if text is None:
+                gt = png.with_suffix("").with_suffix(".gt.txt")
+                if not gt.is_file():
+                    continue
+                text = m["text"] = gt.read_text(encoding="utf-8").strip()
+                learned += 1
+            if png.is_file():
+                out.append(Item(i, lang, m["book"], m["unit"], m["source"], m["split"], png, text))
+    if learned:
+        _save(_dir(lang) / "index.json", data)  # kept, so it is read from the index from now on
     return out
 
 

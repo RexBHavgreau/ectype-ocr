@@ -266,7 +266,7 @@ class Project:
         general model, and its typeface families' (mode: "auto", a quick update when little is
         new; "full", afresh). Then find which reads this book best."""
         from .train import TrainingError
-        from .training import MIN_ITEMS, choose_for_workspace, train_language
+        from .training import MIN_ITEMS, Progress, choose_for_workspace, train_languages
 
         progress = progress or (lambda stage, msg: None)
         say = lambda msg: progress("train", msg)  # noqa: E731
@@ -274,7 +274,14 @@ class Project:
         if not plan:
             raise TrainingError(f"Nothing to train yet: each language needs at least {MIN_ITEMS} corrected lines or "
                                 "words in its pool. Correct more in Review (every project's corrections count).")
-        reports = [train_language(code, say, mode=mode) for code, _ in plan]
+        bar = Progress(say, lambda f: progress("fraction", f"{f:.4f}"))
+        done = train_languages([code for code, _ in plan], bar, mode=mode)  # side by side
+        failed = {code: r for code, r in done.items() if isinstance(r, Exception)}
+        if len(failed) == len(done):
+            raise next(iter(failed.values()))
+        reports = [r if not isinstance(r, Exception) else {"code": code, "mode": mode, "general": {"installed": False},
+                                                           "families": {}, "lines": [f"{code}: {r}"]}
+                   for code, r in done.items()]
         chosen = choose_for_workspace(self.workspace, self.book(), self.languages(), say)
         for r in reports:
             r["chosen"] = chosen.get(r["code"])

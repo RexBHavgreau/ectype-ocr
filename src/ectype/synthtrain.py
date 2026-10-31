@@ -327,6 +327,7 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
     from .families import measure
 
     say = progress or (lambda msg: None)
+    fraction = getattr(progress, "fraction", None) or (lambda f: None)  # how far along, for a bar
     if not features.check("raqm") and set(scripts) & set(RTL_LANGUAGE):
         raise RuntimeError("Setting Hebrew or Syriac needs Pillow's raqm layout (for right-to-left text, joined "
                            "letters and vowel points), which this installation lacks.")
@@ -336,7 +337,8 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
         if not fonts:
             raise FileNotFoundError(f"No fonts (.ttf, .otf, .ttc) in {folder}.")
     report = {"fonts": {}, "skipped": {}, "added": {}}
-    for script in scripts:
+    for si, script in enumerate(scripts):
+        fraction(si / len(scripts))
         lang, source, name = SCRIPTS[script]
         rtl = script in RTL_LANGUAGE
         hebrew = script == "hebrew"
@@ -368,6 +370,7 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                 italics[font.name] = (face, covers(face, needed)) if face else None
         with pool.Writer(lang) as w:
             for k, (font, have, lv) in enumerate(usable, 1):
+                fraction((si + (k - 1) / len(usable)) / len(scripts))
                 book = f"font: {font.name}"
                 stamp = _stamp(font, lines_per_font, script) + ("" if lv == FULL else "-" + lv)
                 if books.get(book, {}).get("stamp") == stamp and w.count(book):
@@ -409,4 +412,5 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                 pool.set_book(lang, book, source="synthetic", stamp=stamp, split=split, fingerprint=measure(samples))
                 if made < lines_per_font // 2:
                     report["skipped"][font.name] = f"only {made} lines could be set"
+    fraction(1.0)
     return report

@@ -17,7 +17,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QIcon, QImage, QKeySequence, QPainterPath, QPainterPathStroker,
                            QPen, QPixmap, QShortcut,
                            QTransform)
@@ -85,9 +85,16 @@ STAGE_NAMES = {"preprocess": "Preparing the pages", "ocr": "Reading the text (OC
                "substitute": "Writing the PDF", "textlayer": "Writing the PDF", "train": "Training the OCR model"}
 
 
+def elapsed_text(seconds: int) -> str:
+    """Running time as the timer shows it: 0:42, 12:05, 4:07:31."""
+    h, rest = divmod(max(0, int(seconds)), 3600)
+    m, s = divmod(rest, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 class ProgressWindow(QDialog):
-    """A run in progress: what it is doing, a progress bar with a percentage, and the log.
-    Hiding it leaves the run going; the Log tab has the same lines."""
+    """A run in progress: what it is doing, a progress bar with a percentage, how long it has
+    been running, and the log. Hiding it leaves the run going; the Log tab has the same lines."""
 
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
@@ -99,6 +106,12 @@ class ProgressWindow(QDialog):
         self.bar.setRange(0, 1000)
         self.bar.setFormat("%p%")
         self.bar.setTextVisible(True)
+        self.clock = QLabel("Running for 0:00")
+        self._started = QElapsedTimer()
+        self._started.start()
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(1000)
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.buttons = QDialogButtonBox()
@@ -107,8 +120,12 @@ class ProgressWindow(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.stage)
         layout.addWidget(self.bar)
+        layout.addWidget(self.clock)
         layout.addWidget(self.text, 1)
         layout.addWidget(self.buttons)
+
+    def _tick(self) -> None:
+        self.clock.setText(f"Running for {elapsed_text(self._started.elapsed() // 1000)}")
 
     def busy(self) -> None:
         """No measure of how far along it is: the bar just shows activity."""
@@ -122,7 +139,14 @@ class ProgressWindow(QDialog):
         self.bar.setRange(0, 1000)
         self.bar.setValue(round(1000 * max(0.0, min(1.0, f))))
 
+    def stop_clock(self) -> None:
+        if self._timer.isActive():
+            self._timer.stop()
+            self._tick()
+            self.clock.setText(self.clock.text().replace("Running for", "Took"))
+
     def finish(self, ok: bool, message: str) -> None:
+        self.stop_clock()
         self.bar.setRange(0, 1000)
         if ok:
             self.bar.setValue(1000)
@@ -2053,16 +2077,20 @@ class MainWindow(QMainWindow):
             self.langs.set_languages(codes)
             self._languages_changed(codes)
 
-    def _start(self, fn, on_done, title: str) -> None:
+    def _start(self, fn, on_done, title: str, measured: bool = False) -> None:
         """Run fn off the interface thread with the toolbar disabled; progress in its window and
-        in the Log, which isn't brought forward (the tab in view stays)."""
+        in the Log, which isn't brought forward (the tab in view stays). measured: fn reports how
+        far along it is ("fraction" messages, training), so the bar shows it."""
         if (self.worker is not None and self.worker.isRunning()) or (self.task is not None and self.task.isRunning()):
             return
         for a in self.actions.values():
             a.setEnabled(False)
         self.log.appendPlainText(f"— {title} —")
         self.progress_window = ProgressWindow(title, self)
-        self.progress_window.busy()
+        if measured:
+            self.progress_window.set_fraction(0.0)
+        else:
+            self.progress_window.busy()
         self.progress_window.show()
         self.task = Task(fn)
         self.task.progress.connect(self._progress_line)
@@ -2071,6 +2099,10 @@ class MainWindow(QMainWindow):
         self.task.start()
 
     def _progress_line(self, stage: str, msg: str) -> None:
+        if stage == "fraction":  # how far along (training): the bar, not a line of the log
+            if self.progress_window is not None:
+                self.progress_window.set_fraction(float(msg))
+            return
         self.log.appendPlainText(f"{stage}: {msg}")
         self.statusBar().showMessage(f"{stage}: {msg}")
         if self.progress_window is not None:
@@ -2078,6 +2110,8 @@ class MainWindow(QMainWindow):
 
     def _close_progress(self) -> None:
         if self.progress_window is not None:
+            self.progress_window.stop_clock()
+            self.log.appendPlainText(self.progress_window.clock.text())
             self.progress_window.close()
             self.progress_window = None
 
@@ -2275,7 +2309,8 @@ class MainWindow(QMainWindow):
         box.exec()
         if box.clickedButton() is go:
             mode = "full" if afresh.isChecked() else "auto"
-            self._start(lambda progress: self.project.train_model(progress, mode), self._trained, "Training the OCR models")
+            self._start(lambda progress: self.project.train_model(progress, mode), self._trained, "Training the OCR models",
+                        measured=True)
 
     def train_from_fonts(self) -> None:
         from . import train
@@ -2291,17 +2326,18 @@ class MainWindow(QMainWindow):
 
         def work(progress):
             from . import synthtrain, trainall
+            from .training import Progress
 
-            say = (lambda msg: progress("train", msg))
-            out = synthtrain.generate(fonts, scripts, lines, progress=say)
+            say = Progress(lambda msg: progress("train", msg), lambda f: progress("fraction", f"{f:.4f}"))
+            out = synthtrain.generate(fonts, scripts, lines, progress=say.part(0, 0.3))  # setting lines, then training
             report = []
             for script in scripts:
                 names = out["fonts"].get(script, [])
                 report.append(f"{synthtrain.SCRIPTS[script][2]}: lines set in {len(names)} fonts.")
             report += [f"  {name}: {why}" for name, why in out["skipped"].items()]
-            return report + trainall.train_scripts(scripts, say)
+            return report + trainall.train_scripts(scripts, say.part(0.3, 1.0))
 
-        self._start(work, self._trained_from_fonts, "Training from fonts")
+        self._start(work, self._trained_from_fonts, "Training from fonts", measured=True)
 
     def _trained_from_fonts(self, report: list[str]) -> None:
         for line in report:

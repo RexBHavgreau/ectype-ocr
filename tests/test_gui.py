@@ -254,6 +254,49 @@ def test_progress_window_during_a_run(project):
     w.close()
 
 
+def test_training_shows_how_far_along_and_for_how_long(project):
+    """A training's bar follows its "fraction" messages (which aren't lines of the Log), and the
+    window shows how long it has been running; the Log keeps how long it took."""
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow, elapsed_text
+
+    assert [elapsed_text(s) for s in (42, 725, 4 * 3600 + 451)] == ["0:42", "12:05", "4:07:31"]
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    gate = []
+
+    def work(progress):
+        progress("train", "heb: training on 360 images")
+        progress("fraction", "0.4200")
+        while not gate:
+            time.sleep(0.01)
+        return 1
+
+    done = []
+    w._start(work, done.append, "Training the OCR models", measured=True)
+    window = w.progress_window
+    for _ in range(300):
+        app.processEvents()
+        if window.bar.value() == 420:
+            break
+        time.sleep(0.01)
+    assert window.bar.maximum() == 1000 and window.bar.value() == 420
+    assert window.clock.text().startswith("Running for 0:0")
+    gate.append(1)
+    w.task.wait()
+    for _ in range(50):
+        app.processEvents()
+        if done:
+            break
+    log = w.log.toPlainText()
+    assert done == [1] and "fraction" not in log and "train: heb: training on 360 images" in log
+    assert "Took 0:0" in log
+    w.close()
+
+
 def test_the_ectype_icon():
     """The app's icon, at every size it comes in, from the package (as the installed app has it)."""
     from PySide6.QtWidgets import QApplication

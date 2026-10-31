@@ -98,19 +98,36 @@ not been tagged), so the release "0.5.0" holds everything below too.
   (`support(failed=)`). Van Dyck (eBible) is still untested; Arabic uses the Qurʾān alone if
   it fails.
 
-**0.6.2** (planned, Beaux agreed; from a training on v0.5.0 that ran 4+ hours):
+**0.6.2** (Beaux agreed; from a training on v0.5.0 that ran 4+ hours):
 - *Why it was slow*: Hebrew trained **77 typeface families**, nearly one per font set in Train
   from fonts (a font's 360-400 lines pass `FAMILY_MIN` 200 alone), each trained and checked in
-  turn; Greek's pool held **149,600 lines**, and `pool.items` opens each line's .gt.txt and
-  checks its .png (about 2 million file openings per training, each scanned by Defender:
+  turn; Greek's pool held **149,600 lines**, and `pool.items` opened each line's .gt.txt and
+  checked its .png (about 2 million file openings per training, each scanned by Defender:
   0.3% CPU, only Ectype OCR.exe in Task Manager), and would then have trained hundreds of
   single-font families. Short-lived tesseract.exe shown "Suspended" were line preparation.
-- Fixes: (1) each line's text kept in the pool's index.json (read once from .gt.txt for old
-  pools); (2) families trained only when they hold at least one real book (corrections or a
-  matched edition), font lines still training the general model; (3) a progress bar following
-  the real stages (lines prepared, lstmtraining's iterations, checks) and a timer; (4)
-  families, and languages, trained side by side, one per core (lstmtraining itself is mostly
-  one core; preparation and checks already used them all).
+- *Pool text in the index*: each line's text is in index.json (`pool.Writer.add`); an older
+  pool reads its .gt.txt files once and keeps them (`pool.items`). A training reads the pool
+  once (`train_language` passes its items to `plan` / `known_items`).
+- *Families only for real books*: a family made of fonts alone (every book's `source`
+  "synthetic") isn't trained; its lines still train the general model.
+- *Progress bar and timer*: `training.Progress` (messages, and `fraction` within a stage's
+  `part(lo, hi)`; `shares(n)` for parts side by side, the bar their mean). General model 0-0.7
+  (lines prepared 0-0.25 of it, lstmtraining's "At iteration a/b/c" lines to 0.9, read as they
+  come by `train._run_reporting`, then the checks), families 0.7-1 by families done; Train
+  from fonts: setting lines 0-0.3 (by fonts), training 0.3-1. The app passes it as
+  `progress("fraction", "0.42")`, which `MainWindow._progress_line` sends to the bar and not
+  the Log (`_start(..., measured=True)`). Every run's window shows "Running for 0:42"
+  (`elapsed_text`); the Log keeps "Took …".
+- *Cores*: families (`_families_side_by_side`) and languages (`training.train_languages`,
+  used by the app, `train-all` and `ectype train`) train side by side. **Lesson**: three
+  lstmtrainings with their own threads (OpenMP, all cores each) on 4 cores ran ten times
+  slower than one after another; each kept to one thread lost on the general model (one
+  thread: 219 s, threads: 137-159 s). So each thread of work has a share of the cores
+  (`train.cores_for`, `share_of_cores`: all, divided among trainings side by side), a
+  Tesseract run takes its threads from `train.CORES` while it runs (OMP_THREAD_LIMIT), and
+  Kraken's trainer (all cores itself) runs one at a time (`KRAKEN_ONE`). 4 cores, 4 books in
+  3 families: 159 s -> 100 s. Shared files: registry blocks under `training._REGISTRY`,
+  lstmf cache written through a per-thread .part file.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
