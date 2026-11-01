@@ -185,6 +185,7 @@ def test_changing_the_lines_found(data, tmp_path):
     xml = ElementTree.parse(manuscript.page_xml(ws, "p001")).getroot()
     ns = {"p": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15"}
     assert len(xml.findall(".//p:TextLine", ns)) == 3 and len(xml.findall(".//p:Baseline", ns)) == 3
+    assert Path(xml.find("p:Page", ns).get("imageFilename")).is_absolute()
 
 
 def test_sample_pages_from_the_middle_of_the_book(tmp_path):

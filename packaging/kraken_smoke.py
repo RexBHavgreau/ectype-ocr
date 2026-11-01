@@ -33,7 +33,7 @@ def run(engine: str, *args: str, stdin: str | None = None) -> object:
 
 
 def main() -> int:
-    engine, work = sys.argv[1], Path(sys.argv[2])
+    engine, work = sys.argv[1], Path(sys.argv[2]).resolve()  # whole paths: Kraken reads a PageXML's image beside it
     work.mkdir(parents=True, exist_ok=True)
     records = run(engine, "list")
     print(f"{len(records)} recognition models")

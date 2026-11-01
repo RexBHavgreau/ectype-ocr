@@ -718,7 +718,9 @@ def page_xml(ws: Path, page: str) -> Path:
 
     ws = Path(ws)
     data = lines_of(ws, page)
-    image = ws / "pages" / f"{page}.png"
+    # The whole path: Kraken takes a relative one as beside the XML file (the release check
+    # failed so: "All 1 samples in dataset invalid").
+    image = (ws / "pages" / f"{page}.png").resolve()
     w, h = Image.open(image).size
     pts = (lambda ps: " ".join(f"{int(x)},{int(y)}" for x, y in ps))
     regions = data.get("regions") or []

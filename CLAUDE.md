@@ -169,6 +169,8 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   on pages whose lines were changed (`page_xml` PageXML, worker `segtrain`, "-i default" =
   Kraken's model). **Lesson**: Kraken's `-q early` has no maximum number of rounds (max_epochs
   -1); segtrain on one page kept improving for 15+ rounds, so it uses `-q fixed -N 10`.
+  **Lesson**: a PageXML's `imageFilename` is read relative to the XML's folder; a relative
+  one failed on Windows ("All 1 samples in dataset invalid"), so `page_xml` writes it whole.
   **Train for this book…** picks sample pages (`sample_pages`: at random, skipping the first
   and last tenth, or chosen) shown in Review's "Sample pages" view.
 - *Tested here* on a Masoretic codex page Beaux sent (Kraken 7.1.1, CPU): lines found in about
