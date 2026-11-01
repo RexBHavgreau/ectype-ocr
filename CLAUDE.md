@@ -332,6 +332,10 @@ read once, with no message):
   (BiblIA, Zenodo) and whatever Greek manuscript models exist (to check). Zenodo and
   download.pytorch.org are blocked from the cloud session; PyPI's torch installs (slowly).
   Letters need to be 30-40 px high (a 552 px wide page was far too small).
+  Beaux's design for choosing (gui `LanguageButton` menu): the first item is "Switch to
+  Manuscript Mode" / "Switch to Print Mode"; the two modes' language lists don't overlap, so
+  names stay short ("Hebrew", not "Hebrew (manuscript)"). In Manuscript Mode each language
+  has a submenu of hands to read with, named by the user (mostly their own trained models).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
