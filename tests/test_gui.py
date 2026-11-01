@@ -316,10 +316,10 @@ def test_work_leaves_the_tab_in_view(project):
 
     app = QApplication.instance() or QApplication([])
     w = MainWindow(project)
-    w.tabs.setCurrentWidget(w.review)
+    w.tabs.setCurrentWidget(w.review_stack)
     done = []
     w._start(lambda progress: 1, done.append, "A task")
-    assert w.tabs.currentWidget() is w.review
+    assert w.tabs.currentWidget() is w.review_stack
     w.task.wait()
     for _ in range(50):
         app.processEvents()
@@ -395,3 +395,54 @@ def test_bold_italic_and_small_capitals_set_in_review(project):
     review.select(again)
     assert review.style["italic"] and review.style["smallcaps"], "shown again when the word is chosen again"
     w.close()
+
+
+def test_manuscript_mode_menu_and_the_kraken_view(tmp_path, monkeypatch):
+    """Manuscript Mode: the Languages menu's switch and hands, the Review tab's Kraken view
+    (correct a line, cut and join lines), sample pages to train for the book."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QApplication
+
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
+    from test_manuscript import FakeKraken, _book, _hand
+
+    from ectype import manuscript
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    p = _book(tmp_path, pages=3)
+    a = _hand(tmp_path, "Square")
+    p.set_hands("heb", [a])
+    fake = FakeKraken({manuscript.hands()[a]["file"]: [("אבג", 95.0), ("דהו", 55.0), ("זח", 97.0)]})
+    manuscript.read_workspace(p.workspace, p.settings, sessions=lambda n: fake)
+    w = MainWindow(p)
+    assert w.langs.text() == "Manuscript: Hebrew (Square)"
+    labels = [x.text() for x in w.langs.menu_.actions()]
+    assert labels[0] == "Switch to Print Mode" and "Hebrew  (1 hand)" in labels and "Greek" in labels
+    assert w.review_stack.currentWidget() is w.ms_review and not w.tabs.isTabVisible(w.tabs.indexOf(w.glyphs))
+    assert w.actions["train_book"].isEnabled() and not w.actions["train_fonts"].isEnabled()
+    r = w.ms_review
+    assert r.list.count() == 3 and len(r.items) == 3
+    assert [it.status for it in r.items] == ["plain", "unsure", "plain"]
+    r.select(r.items[1])
+    assert r.edit.text() == "דהו" and "55% sure" in r.info.text()
+    r.edit.setText("דהז")
+    r.save()
+    assert r.items[1].status == "fixed" and r.selected.line["index"] == 2, "on to the next line"
+    assert [w_.text for w_ in p.ocr("p001").lines[1].words] == ["דהז"]
+    r.start_split()
+    r._clicked(r.items[0], QPointF(200, 60))
+    assert len(r.items) == 4 and manuscript.edited_pages(p.workspace) == ["p001"]
+    r.select(r.items[0])
+    r.join()
+    assert len(r.items) == 3
+    r.show_view("least")
+    assert r.list.count() >= 1
+    p.choose_sample(pages=["p002"])
+    r.show_view("sample")
+    assert r.list.count() == 1 and r.page == "p002"
+    w._script_requested("print")
+    assert w.langs.text().startswith("Languages:") and w.review_stack.currentWidget() is w.review
+    assert [x.text() for x in w.langs.menu_.actions()][0] == "Switch to Manuscript Mode"
+    w.close()
+    app.processEvents()

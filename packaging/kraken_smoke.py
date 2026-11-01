@@ -3,7 +3,8 @@
     python packaging/kraken_smoke.py <ectype-kraken.exe> <work folder>
 
 Lists the repository's models, downloads a Greek one, reads a line with it through `serve`,
-and trains it for one epoch on a few lines, as the app does. Needs only Pillow besides the engine.
+and trains it for one epoch on a few lines, as the app does; then finds the lines of a page,
+reads them, and trains the line-finding (Manuscript Mode). Needs only Pillow besides the engine.
 """
 
 from __future__ import annotations
@@ -81,6 +82,40 @@ def main() -> int:
     print("read with the pack:", packed)
     if "lines" not in packed:
         sys.exit("couldn't read with the pack")
+
+    # Manuscript Mode: Kraken's own line-finding (the model that comes with Kraken must be in
+    # the engine), reading the lines it found, and training the line-finding for one round.
+    page = Image.new("L", (1200, 700), 255)
+    d = ImageDraw.Draw(page)
+    for i, text in enumerate(LINES[:6]):
+        d.text((60, 90 + 100 * i), text, font=font, fill=0, anchor="ls")
+    page.save(work / "page.png")
+    seg = run(engine, "serve", stdin=json.dumps({"op": "segment", "image": str(work / "page.png"),
+                                                 "direction": "horizontal-lr"}) + "\n")
+    print("lines found:", len(seg.get("lines", [])), seg.get("error", ""))
+    if not seg.get("lines"):
+        sys.exit("the line-finding found no lines")
+    read = run(engine, "serve", stdin=json.dumps({"model": model, "image": str(work / "page.png"),
+                                                  "direction": "horizontal-lr", "baselines": seg["lines"]}) + "\n")
+    print("read the lines found:", [l["text"] for l in read.get("lines", [])][:3], read.get("error", ""))
+    if "lines" not in read:
+        sys.exit("couldn't read the lines found")
+    pts = (lambda ps: " ".join(f"{x},{y}" for x, y in ps))
+    body = "".join(f'<TextLine id="l{i}"><Coords points="{pts(l["boundary"])}"/><Baseline points="{pts(l["baseline"])}"/>'
+                   "</TextLine>" for i, l in enumerate(seg["lines"]))
+    xml = ('<?xml version="1.0" encoding="UTF-8"?><PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/'
+           '2019-07-15"><Metadata><Creator>smoke</Creator><Created>2026-01-01T00:00:00</Created><LastChange>'
+           f'2026-01-01T00:00:00</LastChange></Metadata><Page imageFilename="{work / "page.png"}" imageWidth="1200" '
+           f'imageHeight="700"><TextRegion id="r0"><Coords points="0,0 1200,0 1200,700 0,700"/>{body}</TextRegion>'
+           "</Page></PcGts>")
+    (work / "page.xml").write_text(xml, encoding="utf-8")
+    (work / "seg.txt").write_text(str(work / "page.xml") + "\n", encoding="utf-8", newline="\n")
+    result = run(engine, "segtrain", "-i", "default", "-o", str(work / "seg"), "-f", "page", "-t", str(work / "seg.txt"),
+                 "-e", str(work / "seg.txt"), "-N", "1", "-q", "fixed", "--resize", "union")
+    seg_weights = sorted((work / "seg").glob("*.safetensors"))
+    print("line-finding trained:", result, [w.name for w in seg_weights])
+    if result.get("returncode") or not seg_weights:
+        sys.exit("training the line-finding saved no model")
 
     # Not part of the check: training PP-OCRv6 tiny once crashed here without a message.
     # Try it, and print what happens (the engine prints a trace if PyTorch crashes).

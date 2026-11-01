@@ -12,8 +12,12 @@ Commands (results as JSON on stdout; progress as "progress <done> <total>" lines
     list                       the repository's recognition models
     get <doi> <folder>         download a model's files
     serve                      read lines: one JSON request a line on stdin, one answer a
-                               line on stdout, until stdin closes (see `_read`)
+                               line on stdout, until stdin closes (`Reader.read`; with
+                               "op": "segment", `Reader.segment`, and with "baselines",
+                               `Reader.read_baselines`: manuscripts)
     train <ketos args...>      `ketos train` with the given arguments
+    segtrain <ketos args...>   `ketos segtrain` (line-finding); "-i default" starts from
+                               the model that comes with Kraken
     pack <base> <trained> <out>     a family's model as its changes from the general one
     compose <base> <pack> <out>     the family's model rebuilt from them
 """
@@ -25,7 +29,7 @@ import os
 import sys
 from pathlib import Path
 
-PROTOCOL = 1
+PROTOCOL = 2  # 2: line-finding and reading of found lines (manuscripts), segtrain
 
 
 def _out(data) -> None:
@@ -210,6 +214,10 @@ class Reader:
     def __init__(self):
         self.models = {}
         self.tmp = None
+        if os.environ.get("ECTYPE_THREADS"):  # one of several readers side by side: its share of the cores
+            import torch
+
+            torch.set_num_threads(max(1, int(os.environ["ECTYPE_THREADS"])))
 
     def model(self, path: str, pack: str | None = None):
         key = (path, pack)
@@ -246,6 +254,72 @@ class Reader:
             out.append({"text": record.prediction, "chars": chars})
         return {"lines": out}
 
+    def segmenter(self, path: str | None):
+        key = ("segment", path or "")
+        if key not in self.models:
+            from kraken.tasks import SegmentationTaskModel
+
+            self.models[key] = SegmentationTaskModel.load_model(path or None)
+        return self.models[key]
+
+    def segment(self, request: dict) -> dict:
+        """Kraken's own line-finding (its baseline segmenter, the model that comes with
+        Kraken unless one trained for the book is given), for manuscripts. Request: {"op":
+        "segment", "image", "direction": "horizontal-rl"|"horizontal-lr", "model"?}. Answer:
+        {"lines": [{"baseline": [[x, y], ...], "boundary": [[x, y], ...], "region": i or
+        None}, ...] in reading order, "regions": [[[x, y], ...], ...]}."""
+        from kraken.configs import SegmentationInferenceConfig
+        from PIL import Image
+
+        image = Image.open(request["image"])
+        seg = self.segmenter(request.get("model")).predict(
+            image, SegmentationInferenceConfig(text_direction=request.get("direction", "horizontal-lr")))
+        regions, index = [], {}
+        for kind, regs in (seg.regions or {}).items():
+            for r in regs:
+                index[r.id] = len(regions)
+                regions.append([[int(x), int(y)] for x, y in r.boundary])
+        lines = []
+        for line in seg.lines or []:
+            if not line.baseline or not line.boundary:
+                continue
+            region = next((index[r] for r in (line.regions or []) if r in index), None)
+            lines.append({"baseline": [[int(x), int(y)] for x, y in line.baseline],
+                          "boundary": [[int(x), int(y)] for x, y in line.boundary], "region": region})
+        return {"lines": lines, "regions": regions, "size": list(image.size)}
+
+    def read_baselines(self, request: dict) -> dict:
+        """Read found lines (baseline and outline) with one model. Request: {"model", "pack"?,
+        "image", "direction", "baselines": [{"baseline", "boundary"}, ...]}. Answer: {"lines":
+        [{"text", "chars": [[char, [x0, y0, x1, y1], confidence 0-100], ...], "conf"}, ...]}, each
+        line's text and characters in reading order (right to left for Hebrew)."""
+        from kraken.configs import RecognitionInferenceConfig
+        from kraken.containers import BaselineLine, Segmentation
+        from PIL import Image
+
+        model = self.model(request["model"], request.get("pack"))
+        image = Image.open(request["image"])
+        direction = request.get("direction", "horizontal-lr")
+        lines = [BaselineLine(id=f"l{i}", baseline=[tuple(p) for p in b["baseline"]],
+                              boundary=[tuple(p) for p in b["boundary"]]) for i, b in enumerate(request["baselines"])]
+        seg = Segmentation(type="baselines", imagename=request["image"], text_direction=direction,
+                           script_detection=False, lines=lines)
+        base_dir = "R" if direction == "horizontal-rl" else "L"
+        out = []
+        for record in model.predict(image, seg, RecognitionInferenceConfig(num_line_workers=0, bidi_reordering=False)):
+            try:
+                record = record.logical_order(base_dir=base_dir)
+            except Exception:  # an older record type: as it comes
+                pass
+            chars, confs = [], []
+            for char, cut, conf in record:
+                xs, ys = [p[0] for p in cut], [p[1] for p in cut]
+                chars.append([char, [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))], round(100 * float(conf), 1)])
+                confs.append(float(conf))
+            out.append({"text": record.prediction, "chars": chars,
+                        "conf": round(100 * sum(confs) / len(confs), 1) if confs else 0.0})
+        return {"lines": out}
+
 
 def serve() -> None:
     reader = Reader()
@@ -253,13 +327,19 @@ def serve() -> None:
         if not line.strip():
             continue
         try:
-            _out(reader.read(json.loads(line)))
+            request = json.loads(line)
+            if request.get("op") == "segment":
+                _out(reader.segment(request))
+            elif "baselines" in request:
+                _out(reader.read_baselines(request))
+            else:
+                _out(reader.read(request))
         except Exception as exc:  # one bad request doesn't end the session
             _out({"error": f"{type(exc).__name__}: {exc}"})
 
 
-def train(args: list[str]) -> int:
-    """`ketos train`, its output sent to stderr so stdout holds only the JSON answer."""
+def train(args: list[str], command: str = "train") -> int:
+    """`ketos train` (or segtrain), its output sent to stderr so stdout holds only the JSON answer."""
     import contextlib
 
     from kraken.ketos import cli
@@ -270,7 +350,12 @@ def train(args: list[str]) -> int:
             # On the CPU, loading data in this process (no worker processes, which a frozen
             # program would have to start as copies of itself), with all cores for the maths.
             threads = str(max(1, (os.cpu_count() or 2) - 1))
-            cli.main(args=["--device", "cpu", "--workers", "0", "--threads", threads, "--seed", "0", "train", *args],
+            if command == "segtrain" and "-i" in args and args[args.index("-i") + 1] == "default":
+                from importlib import resources
+
+                args = list(args)
+                args[args.index("-i") + 1] = str(resources.files("kraken").joinpath("blla.mlmodel"))
+            cli.main(args=["--device", "cpu", "--workers", "0", "--threads", threads, "--seed", "0", command, *args],
                      prog_name="ketos", standalone_mode=False)
         except SystemExit as exc:
             code = int(exc.code or 0)
@@ -302,8 +387,8 @@ def main(argv: list[str] | None = None) -> int:
             _out(get(rest[0], rest[1]))
         elif command == "serve":
             serve()
-        elif command == "train":
-            return train(rest)
+        elif command in ("train", "segtrain"):
+            return train(rest, command)
         elif command == "pack":
             _out(make_pack(rest[0], rest[1], rest[2]))
         elif command == "compose":

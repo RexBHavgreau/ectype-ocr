@@ -101,6 +101,12 @@ def check_at_start(settings: dict) -> bool:
     return bool(settings.get("check_updates", True))
 
 
+def all_cores(settings: dict) -> bool:
+    """Read manuscripts with all the processor's cores (several Kraken readers side by side);
+    off, one reader with half of them, leaving the machine free for other work."""
+    return bool(settings.get("all_cores", True))
+
+
 def should_offer(result: dict, settings: dict, manual: bool) -> bool:
     """Offer a newer version: always when the user asked; at start, unless they chose to skip it."""
     if result.get("status") != "newer":
