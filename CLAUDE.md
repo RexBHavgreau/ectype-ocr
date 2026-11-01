@@ -320,6 +320,18 @@ read once, with no message):
 
 ## Planned
 
+- **Manuscripts (0.7.0, Beaux's idea, not yet agreed in detail)**: "Hebrew (manuscript)" and
+  "Greek (manuscript)" as languages of their own, beside Hebrew and Greek: their own Kraken
+  models and pools (handwriting kept out of the print models and back), for texts with no
+  digital text yet. Different expectations: Kraken's line-finding (`blla`, ships with
+  Kraken; tested on a Masoretic codex page with three columns and Masorah: all main lines,
+  Masorah magna and parva found, a few long lines split, about 30 s a page on a CPU), a
+  searchable PDF and transcription rather than traced type, no Train from fonts, no matching
+  to the WLC/SBLGNT by default (it would "correct" real variants), Review by whole lines with
+  marks for abbreviations and uncertain letters. Starting models: Kraken's medieval Hebrew
+  (BiblIA, Zenodo) and whatever Greek manuscript models exist (to check). Zenodo and
+  download.pytorch.org are blocked from the cloud session; PyPI's torch installs (slowly).
+  Letters need to be 30-40 px high (a 552 px wide page was far too small).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
