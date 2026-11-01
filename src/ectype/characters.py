@@ -60,6 +60,10 @@ SETS: dict[str, list[str]] = {
                                                                                     0x05C5, 0x05C7])
                      + " ־ ׀ ׃ ׆ ׳ ״"),
     "Hebrew accents": _chars(" ".join("◌" + chr(c) for c in range(0x0591, 0x05B0))),
+    # Transcribing manuscripts (Leiden conventions): [lost] ⟨added by the editor⟩ (abbreviation
+    # expanded) {superfluous} ⟦erased by the scribe⟧ \inserted above/ , ⸢damaged⸣, and a dot
+    # under a letter read uncertainly.
+    "Editorial marks": _chars("[ ] ⟨ ⟩ ( ) { } ⟦ ⟧ \\ / ⸢ ⸣ ◌\u0323 ◌\u0307 ‹ › ⁅ ⁆ ⸂ ⸃ ° ※ ·"),
     "Punctuation": _chars("— – ‐ ‘ ’ ‚ “ ” „ « » ‹ › † ‡ § ¶ · • … ′ ″ ‰ ° × ÷ ± ¬ ¦ ⸀ ⸁ ⸂ ⸃ ⸄ ⸅ ℵ ℶ"),
 }
 

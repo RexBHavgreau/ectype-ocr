@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
     QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea, QSpinBox,
-    QSplitter, QTableWidget,
+    QSplitter, QStackedWidget, QTableWidget,
     QTableWidgetItem, QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
@@ -124,8 +124,11 @@ class ProgressWindow(QDialog):
         layout.addWidget(self.text, 1)
         layout.addWidget(self.buttons)
 
+    def seconds(self) -> int:
+        return self._started.elapsed() // 1000
+
     def _tick(self) -> None:
-        self.clock.setText(f"Running for {elapsed_text(self._started.elapsed() // 1000)}")
+        self.clock.setText(f"Running for {elapsed_text(self.seconds())}")
 
     def busy(self) -> None:
         """No measure of how far along it is: the bar just shows activity."""
@@ -1022,11 +1025,17 @@ class GlyphsTab(QWidget):
 
 
 class LanguageButton(QToolButton):
-    """The OCR languages: a checkable list of the installed ones, and "Add languages…"."""
+    """The OCR languages: a checkable list of the installed ones, and "Add languages…". Its
+    first item switches between Print and Manuscript Mode, whose lists don't overlap: in
+    Manuscript Mode each language has the hands to read it with (gui_manuscript)."""
 
     changed = Signal(list)
     add_requested = Signal()
     models_requested = Signal()
+    script_requested = Signal(str)  # "print" or "manuscript"
+    hands_changed = Signal(str, list)  # a manuscript language's hands, in order
+    reading_changed = Signal(str)  # how several hands read: "every" or "unsure"
+    new_hand_requested = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -1035,11 +1044,45 @@ class LanguageButton(QToolButton):
         self.setMenu(self.menu_)
         self.boxes: dict[str, QCheckBox] = {}
         self.selected: list[str] = ["eng"]
+        self.ms_settings = None  # the book's settings while in Manuscript Mode
+
+    def set_manuscript(self, settings) -> None:
+        """Manuscript Mode's menu: Switch to Print Mode, then each language's hands."""
+        from .gui_manuscript import fill_manuscript_menu
+        from .manuscript import LANGUAGES, hand_name
+
+        self.ms_settings = settings
+        self.menu_.clear()
+        self.boxes = {}
+        self.menu_.addAction("Switch to Print Mode", lambda: self.script_requested.emit("print"))
+        self.menu_.addSeparator()
+        fill_manuscript_menu(self, self.menu_, settings)
+        self.menu_.addSeparator()
+        self.menu_.addAction("Add languages…", self.add_requested.emit)
+        self.menu_.addAction("Trained models…", self.models_requested.emit)
+        parts = []
+        for lang in settings.ms_languages:
+            hands = settings.hands.get(lang, [])
+            parts.append(LANGUAGES.get(lang, lang) + (f" ({', '.join(hand_name(h) for h in hands)})" if hands else ""))
+        text = "; ".join(parts) if parts else "no hand chosen"
+        self.setText(f"Manuscript: {text}" if len(text) < 60 else f"Manuscript: {text[:57]}…")
+        self.setToolTip("Manuscript Mode: " + text)
+
+    def toggle_hand(self, lang: str, hand: str, on: bool) -> None:
+        hands = list(self.ms_settings.hands.get(lang, [])) if self.ms_settings else []
+        if on and hand not in hands:
+            hands.append(hand)
+        elif not on and hand in hands:
+            hands.remove(hand)
+        self.hands_changed.emit(lang, hands)
 
     def set_languages(self, selected: list[str]) -> None:
+        self.ms_settings = None
         self.selected = list(selected) or ["eng"]
         self.menu_.clear()
         self.boxes = {}
+        self.menu_.addAction("Switch to Manuscript Mode", lambda: self.script_requested.emit("manuscript"))
+        self.menu_.addSeparator()
         codes = languages.installed()
         for code in self.selected:  # chosen but not installed (yet): listed, so they can be unticked
             if code not in codes:
@@ -1968,7 +2011,7 @@ class MainWindow(QMainWindow):
         self.mode = QComboBox()
         self.mode.addItems([label for _, label in MODES])
         self.mode.currentIndexChanged.connect(self._mode_changed)
-        bar.addWidget(self.mode)
+        self.mode_action = bar.addWidget(self.mode)
         self.page_image = QComboBox()
         self.page_image.addItems(["Page image: grayscale", "Page image: black and white (smallest)"])
         self.page_image.setToolTip("Text-layer mode: how the scanned page is kept under the text")
@@ -1978,6 +2021,10 @@ class MainWindow(QMainWindow):
         self.langs.changed.connect(self._languages_changed)
         self.langs.add_requested.connect(self.add_languages)
         self.langs.models_requested.connect(lambda: ModelsDialog(self).exec())
+        self.langs.script_requested.connect(self._script_requested)
+        self.langs.hands_changed.connect(self._hands_changed)
+        self.langs.reading_changed.connect(self._reading_changed)
+        self.langs.new_hand_requested.connect(self._new_hand)
         bar.addWidget(self.langs)
         self.split = QCheckBox("Split two-page spreads")
         self.split.toggled.connect(self._split_changed)
@@ -1989,24 +2036,41 @@ class MainWindow(QMainWindow):
                                 ("export", "Export PDF…", self.export),
                                 ("export_idml", "Export IDML…", self.export_idml)):
             self.actions[key] = bar.addAction(text, slot)
+        from .gui_manuscript import ManuscriptReviewTab
+
         self.tabs = QTabWidget()
         self.spreads = SpreadsTab(self.project)
         self.review = ReviewTab(self.project)
+        self.ms_review = ManuscriptReviewTab(self.project)  # Manuscript Mode's Review: the Kraken view
+        self.review_stack = QStackedWidget()
+        self.review_stack.addWidget(self.review)
+        self.review_stack.addWidget(self.ms_review)
         self.glyphs = GlyphsTab(self.project)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.tabs.addTab(self.spreads, "Spreads")
-        self.tabs.addTab(self.review, "Review")
+        self.tabs.addTab(self.review_stack, "Review")
         self.tabs.addTab(self.glyphs, "Glyphs")
         self.tabs.addTab(self.log, "Log")
         self.setCentralWidget(self.tabs)
         self.spreads.changed.connect(self.statusBar().showMessage)
         self.review.message.connect(self.statusBar().showMessage)
+        self.ms_review.message.connect(self.statusBar().showMessage)
         self.glyphs.jump.connect(self._jump)
 
         training_menu = self.menuBar().addMenu("&Training")
         self.actions["train_fonts"] = training_menu.addAction("Train from fonts…", self.train_from_fonts)
+        self.actions["train_book"] = training_menu.addAction("Train for this book…", self.train_for_book)
+        self.actions["train_book"].setToolTip("Manuscript Mode: correct a few pages first, train the hands on them, "
+                                              "then read the rest")
         training_menu.addAction("Trained models…", lambda: ModelsDialog(self).exec())
+        settings_menu = self.menuBar().addMenu("&Settings")
+        self.all_cores = settings_menu.addAction("Read manuscripts with all processor cores")
+        self.all_cores.setCheckable(True)
+        self.all_cores.setChecked(updates.all_cores(updates.load_settings()))
+        self.all_cores.setToolTip("Several Kraken readers side by side (faster); off, one reader with half the cores, "
+                                  "leaving the computer free for other work")
+        self.all_cores.toggled.connect(self._all_cores_changed)
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("Check for updates…", lambda: self.check_for_updates(manual=True))
         self.check_at_start = help_menu.addAction("Check for updates at startup")
@@ -2018,7 +2082,7 @@ class MainWindow(QMainWindow):
 
     def load(self, project: Project) -> None:
         self.project = project
-        for tab in (self.spreads, self.review, self.glyphs):
+        for tab in (self.spreads, self.review, self.ms_review, self.glyphs):
             tab.project = project
         self.mode.blockSignals(True)
         self.mode.setCurrentIndex(next((k for k, (m, _) in enumerate(MODES) if m == project.settings.mode), 0))
@@ -2026,8 +2090,7 @@ class MainWindow(QMainWindow):
         self.page_image.blockSignals(True)
         self.page_image.setCurrentIndex(1 if project.settings.page_image == "bw" else 0)
         self.page_image.blockSignals(False)
-        self.page_image_action.setVisible(project.settings.mode == "text")
-        self.langs.set_languages(project.languages())
+        self._show_script()
         self.split.blockSignals(True)
         self.split.setChecked(project.settings.split_spreads)
         self.split.blockSignals(False)
@@ -2036,15 +2099,91 @@ class MainWindow(QMainWindow):
         self._show_source()
         self.refresh()
         if project.pages():
-            self.tabs.setCurrentWidget(self.review)
+            self.tabs.setCurrentWidget(self.review_stack)
+
+    def _show_script(self) -> None:
+        """Print or Manuscript Mode in the toolbar, the Review tab and the menus."""
+        ms = self.project.manuscript()
+        if ms:
+            self.langs.set_manuscript(self.project.settings)
+        else:
+            self.langs.set_languages(self.project.languages())
+        self.mode_action.setVisible(not ms)  # a manuscript's output is the scan with its text
+        self.page_image_action.setVisible(ms or self.project.settings.mode == "text")
+        self.review_stack.setCurrentWidget(self.ms_review if ms else self.review)
+        self.tabs.setTabVisible(self.tabs.indexOf(self.glyphs), not ms)
+        self.actions["train_fonts"].setEnabled(not ms)
+        self.actions["train_book"].setEnabled(ms)
+        self.actions["export_idml"].setVisible(not ms)
+
+    def _script_requested(self, script: str) -> None:
+        self.project.set_script(script)
+        self._show_script()
+        self.refresh()
+        self.statusBar().showMessage(
+            "Manuscript Mode: choose the hands to read with under each language, then Run." if script == "manuscript"
+            else "Print Mode: the pages are read with the OCR languages again on the next Run.")
+
+    def _hands_changed(self, lang: str, hands: list) -> None:
+        self.project.set_hands(lang, hands)
+        self.langs.set_manuscript(self.project.settings)
+        self.statusBar().showMessage("Hands chosen. Run to read the pages with them.")
+
+    def _reading_changed(self, how: str) -> None:
+        self.project.set_hand_reading(how)
+        self.statusBar().showMessage("Every line is read with every hand." if how == "every" else
+                                     "Other hands read only the lines the first is unsure of.")
+
+    def _new_hand(self, lang: str) -> None:
+        from .gui_manuscript import new_hand
+
+        hand = new_hand(self, lang)
+        if hand:
+            self.project.set_hands(lang, list(self.project.settings.hands.get(lang, [])) + [hand])
+            self.langs.set_manuscript(self.project.settings)
+
+    def _all_cores_changed(self, on: bool) -> None:
+        settings = updates.load_settings()
+        settings["all_cores"] = on
+        updates.save_settings(settings)
+
+    def train_for_book(self) -> None:
+        from .gui_manuscript import TrainForBookDialog
+
+        pages = self.project.pages()
+        if not pages:
+            QMessageBox.information(self, "Train for this book", "Run first: the pages are read, then a few are chosen "
+                                    "to correct.")
+            return
+        dialog = TrainForBookDialog(pages, self.project.settings.sample, self)
+        if not dialog.exec():
+            return
+        n, chosen = dialog.choice()
+        sample = self.project.choose_sample(n, chosen)
+        self.tabs.setCurrentWidget(self.review_stack)
+        self.ms_review.show_view("sample")
+        self.statusBar().showMessage(f"Sample pages: {', '.join(sample)}. Correct their lines, then Train OCR model.")
 
     def refresh(self) -> None:
         self.spreads.refresh()
-        self.review.refresh()
+        if self.project.manuscript():
+            self.ms_review.refresh()
+        else:
+            self.review.refresh()
         self.glyphs.refresh()
         has_pdf = self.project.output_pdf() is not None
+        self.actions["train_fonts"].setEnabled(not self.project.manuscript())
+        self.actions["train_book"].setEnabled(self.project.manuscript())
         self.actions["export"].setEnabled(has_pdf)
         self.actions["export_idml"].setEnabled(any((self.project.workspace / "ocr").glob("*.ocr.json")))
+        if self.project.manuscript():
+            n = self.project.manuscript_corrections()
+            self.actions["train"].setText(f"Train OCR model ({n} lines)…" if n else "Train OCR model…")
+            self.actions["train"].setToolTip("Train the hands on the lines you corrected, and the line-finding on the "
+                                             "lines you changed")
+            self.actions["update"].setEnabled(bool(self.project.pages()))
+            self.actions["run"].setEnabled(bool(self.project.settings.source))
+            return
         lines, words = self.project.corrected_lines(), self.project.corrected_words()
         count = ", ".join(t for t in (f"{lines} lines" if lines else "", f"{words} words in other scripts" if words else "") if t)
         self.actions["train"].setText(f"Train OCR model ({count})…" if count else "Train OCR model…")
@@ -2111,6 +2250,7 @@ class MainWindow(QMainWindow):
     def _close_progress(self) -> None:
         if self.progress_window is not None:
             self.progress_window.stop_clock()
+            self.took = elapsed_text(self.progress_window.seconds())  # for the report at the end
             self.log.appendPlainText(self.progress_window.clock.text())
             self.progress_window.close()
             self.progress_window = None
@@ -2157,7 +2297,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Spreads will be " + ("split" if on else "kept whole") + ". Run to apply.")
 
     def _jump(self, page: str, line: int, word: int) -> None:
-        self.tabs.setCurrentWidget(self.review)
+        self.tabs.setCurrentWidget(self.review_stack)
         self.review.select_word(page, line, word)
 
     def _show_source(self) -> None:
@@ -2211,7 +2351,7 @@ class MainWindow(QMainWindow):
             a.setEnabled(True)
         self.refresh()
         self._show_source()
-        self.tabs.setCurrentWidget(self.review)
+        self.tabs.setCurrentWidget(self.review_stack)
         self.offer_languages()
 
     def offer_languages(self) -> None:
@@ -2262,6 +2402,9 @@ class MainWindow(QMainWindow):
     # -- training --------------------------------------------------------------
 
     def train_model(self) -> None:
+        if self.project.manuscript():
+            self._train_manuscript()
+            return
         from . import train
 
         problem = train.available()
@@ -2312,6 +2455,46 @@ class MainWindow(QMainWindow):
             self._start(lambda progress: self.project.train_model(progress, mode), self._trained, "Training the OCR models",
                         measured=True)
 
+    def _train_manuscript(self) -> None:
+        from . import manuscript
+
+        hands = manuscript.chosen_hands(self.project.settings)
+        if not hands:
+            QMessageBox.information(self, "Train OCR model", "Choose a hand first: Languages → a language → its hands.")
+            return
+        lines = [f"• {manuscript.hand_name(h)}: {len(manuscript.hand_items(h))} corrected lines (every book's)"
+                 for h in hands]
+        edited = manuscript.edited_pages(self.project.workspace)
+        if edited:
+            lines.append(f"• Line-finding: {len(edited)} pages whose lines you changed")
+        box = QMessageBox(self)
+        box.setWindowTitle("Train OCR model")
+        box.setText("Train the hands on the lines corrected in Review?\n\n" + "\n".join(lines))
+        box.setInformativeText(f"A hand needs at least {manuscript.HAND_MIN} corrected lines. Each is trained on its "
+                               "lines with warped, blurred and faded copies of them, and replaces the hand in use only "
+                               "if it reads the lines kept aside better. Without an NVIDIA graphics card this can take "
+                               "a while.")
+        go = box.addButton("Train", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        if box.clickedButton() is go:
+            self._start(lambda progress: self.project.train_manuscript(progress), self._trained_manuscript,
+                        "Training the hands", measured=True)
+
+    def _trained_manuscript(self, report: list[str]) -> None:
+        for line in report:
+            self.log.appendPlainText(line)
+        box = QMessageBox(self)
+        box.setWindowTitle("Train OCR model")
+        box.setText(f"Training finished in {getattr(self, 'took', '') or 'a moment'}.")
+        box.setInformativeText("\n".join(report) + "\n\nRead the pages again with the trained hands now? "
+                               "Your corrections are kept.")
+        again = box.addButton("Read again", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is again:
+            self.run("read")
+
     def train_from_fonts(self) -> None:
         from . import train
 
@@ -2344,7 +2527,7 @@ class MainWindow(QMainWindow):
             self.log.appendPlainText(line)
         box = QMessageBox(self)
         box.setWindowTitle("Train from fonts")
-        box.setText("Training finished.")
+        box.setText(f"Training finished in {getattr(self, 'took', '') or 'a moment'}.")
         box.setInformativeText("\n".join(report) + "\n\nA model replaces the one in use only if it makes fewer "
                                "errors. Training → Trained models shows what there is.")
         box.exec()
@@ -2362,7 +2545,8 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
         idle = all(r.get("mode") == "none" for r in reports)
-        box.setText("Nothing new to train on since the last training." if idle else "Training finished." + (
+        box.setText("Nothing new to train on since the last training." if idle else
+                    f"Training finished in {getattr(self, 'took', '') or 'a moment'}." + (
             "" if changed else " The models in use were kept: the new ones weren't better."))
         box.setInformativeText("\n".join(lines) + ("\n\nRead the pages again now? Your corrections are kept." if changed else ""))
         again = box.addButton("Read again", QMessageBox.AcceptRole) if changed else None

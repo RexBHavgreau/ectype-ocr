@@ -126,6 +126,7 @@ def train_scripts(scripts: list[str], progress: Callable[[str], None] | None = N
     say = as_progress(progress)
     report, ready = [], []
     for code in codes_for(scripts):
+        say(f"{code}: counting its pool's images")  # an older pool's line texts are read here, once
         n = trainable(code)
         if n < MIN_ITEMS:
             report.append(f"{code}: only {n} images in its pool; not trained.")

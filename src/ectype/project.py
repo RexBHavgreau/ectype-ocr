@@ -22,8 +22,9 @@ STAGES_TRACED = ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
 STAGES_SUBSTITUTE = ["preprocess", "ocr", "segment", "substitute"]
 STAGES_TEXT = ["preprocess", "ocr", "textlayer"]
 STAGES = {"traced": STAGES_TRACED, "substitute": STAGES_SUBSTITUTE, "text": STAGES_TEXT}
+STAGES_MANUSCRIPT = ["preprocess", "read", "textlayer"]  # Kraken's lines read with the hands, a searchable PDF
 # Rough share of a run's time per stage, for the progress bar (OCR takes the most).
-STAGE_WEIGHT = {"preprocess": 12, "ocr": 50, "segment": 12, "cluster": 8, "fonts": 6, "traced": 12,
+STAGE_WEIGHT = {"preprocess": 12, "ocr": 50, "read": 75, "segment": 12, "cluster": 8, "fonts": 6, "traced": 12,
                 "substitute": 12, "textlayer": 10}
 OUTPUT_FOLDER = {"traced": "traced", "substitute": "substitute", "text": "textlayer"}
 
@@ -38,6 +39,11 @@ class Settings:
     page_image: str = "gray"  # text mode: "gray" or "bw" (black and white, smallest)
     declined_languages: list = field(default_factory=list)  # languages the user chose not to add when offered
     name: str = ""  # output file name without .pdf
+    script: str = "print"  # "print", or "manuscript" (Manuscript Mode: manuscript.py)
+    ms_languages: list = field(default_factory=list)  # Manuscript Mode's languages, in order
+    hands: dict = field(default_factory=dict)  # Manuscript Mode: language -> its hands (ids) to read with, in order
+    hand_reading: str = "unsure"  # several hands: "every" line with every hand, or others only on "unsure" lines
+    sample: list = field(default_factory=list)  # "Train for this book": the pages chosen to correct first
 
 
 class Project:
@@ -121,7 +127,7 @@ class Project:
         return OcrPage.from_json(json.loads(path.read_text(encoding="utf-8"))) if path.is_file() else None
 
     def output_pdf(self) -> Path | None:
-        folder = OUTPUT_FOLDER.get(self.settings.mode, "traced")
+        folder = "textlayer" if self.manuscript() else OUTPUT_FOLDER.get(self.settings.mode, "traced")
         name = (self.settings.name or self.workspace.name) + ".pdf"
         path = self.workspace / folder / name
         return path if path.is_file() else None
@@ -177,12 +183,77 @@ class Project:
         return add_word(self.workspace, page, box, text)
 
     def stages(self) -> list[str]:
+        if self.manuscript():
+            return STAGES_MANUSCRIPT
         return STAGES.get(self.settings.mode, STAGES_TRACED)
 
     def update_stage(self) -> str:
-        """Where to start again after OCR corrections: the stage after OCR."""
+        """Where to start again after OCR corrections: the stage after OCR (reading)."""
         stages = self.stages()
-        return stages[stages.index("ocr") + 1]
+        return stages[stages.index("read" if self.manuscript() else "ocr") + 1]
+
+    # -- Manuscript Mode (manuscript.py) -------------------------------------------------
+
+    def manuscript(self) -> bool:
+        return self.settings.script == "manuscript"
+
+    def set_script(self, script: str) -> None:
+        """Print or Manuscript Mode. Each keeps its own languages; pages are read again on the next run."""
+        self.settings.script = "manuscript" if script == "manuscript" else "print"
+        self.save_settings()
+
+    def set_hands(self, lang: str, hand_ids: list[str]) -> None:
+        """The hands a manuscript language is read with, in order; the language is chosen while it has one."""
+        s = self.settings
+        s.hands = {**s.hands, lang: list(hand_ids)}
+        if hand_ids and lang not in s.ms_languages:
+            s.ms_languages = s.ms_languages + [lang]
+        if not hand_ids:
+            s.hands.pop(lang, None)
+            s.ms_languages = [c for c in s.ms_languages if c != lang]
+        self.save_settings()
+
+    def set_hand_reading(self, how: str) -> None:
+        from .manuscript import EVERY, UNSURE
+
+        self.settings.hand_reading = EVERY if how == EVERY else UNSURE
+        self.save_settings()
+
+    def correct_line(self, page: str, index: int, text: str) -> dict:
+        from .manuscript import correct_line
+
+        return correct_line(self.workspace, page, index, text, self.settings, self.book())
+
+    def manuscript_corrections(self) -> int:
+        """Lines corrected or confirmed in this manuscript."""
+        from .manuscript import corrections_of
+
+        return sum(len(corrections_of(self.workspace, p)) for p in self.pages())
+
+    def train_manuscript(self, progress: Progress | None = None) -> list[str]:
+        """Train the book's hands on their corrected lines and the line-finding on its changed lines."""
+        from .manuscript import train_book
+        from .training import Progress as Bar
+
+        progress = progress or (lambda stage, msg: None)
+        bar = Bar(lambda msg: progress("train", msg), lambda f: progress("fraction", f"{f:.4f}"))
+        return train_book(self.workspace, self.settings, bar)
+
+    def choose_sample(self, n: int = 5, pages: list[str] | None = None) -> list[str]:
+        """"Train for this book": the pages to correct first (given, or n at random from the middle)."""
+        from .manuscript import sample_pages
+
+        self.settings.sample = sorted(pages) if pages is not None else sample_pages(self.pages(), n)
+        self.save_settings()
+        return self.settings.sample
+
+    def read_pages(self, pages: list[str], progress: Progress | None = None) -> dict:
+        """Read some pages again (after their lines were changed in Review), and remake their OCR files."""
+        from . import updates
+        from .manuscript import read_workspace
+
+        return read_workspace(self.workspace, self.settings, all_cores=updates.all_cores(updates.load_settings()),
+                              pages=pages)
 
     def languages(self) -> list[str]:
         """The OCR languages chosen. A per-book model of an earlier version counts as the
@@ -333,6 +404,13 @@ class Project:
                     msg += f"; words in scripts the OCR languages don't cover: {found}"
                     if out["suggest_languages"]:
                         msg += "; add " + ", ".join(name(c) for c in out["suggest_languages"])
+            elif stage == "read":
+                from . import updates
+                from .manuscript import read_workspace
+
+                out = read_workspace(ws, s, on_page=on_page, all_cores=updates.all_cores(updates.load_settings()))
+                msg = (f"{out['lines']} lines on {out['pages']} pages; {out['unsure']} unsure"
+                       + (f", {out['disagree']} read differently by the hands" if out["disagree"] else ""))
             elif stage == "segment":
                 from .segment import segment_workspace
 

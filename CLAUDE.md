@@ -129,6 +129,56 @@ not been tagged), so the release "0.5.0" holds everything below too.
   3 families: 159 s -> 100 s. Shared files: registry blocks under `training._REGISTRY`,
   lstmf cache written through a per-thread .part file.
 
+**0.7.0** (on the branch; Manuscript Mode is a new feature; it also holds the small fixes once
+meant for 0.6.3, from Beaux's first 0.6.2 training: Train from fonts with Hebrew's 112,433 lines
+ran over an hour and sat at 30% for minutes while the old pool's line texts were read once):
+- *Small fixes*: `trainall.train_scripts` says "<code>: counting its pool's images"; the report
+  at the end says how long it took (`MainWindow.took`, from `ProgressWindow.seconds`); Kraken
+  training learns from augmented copies of each line (Kraken 7's own `--augment`,
+  `train.fit_kraken`).
+- *Manuscript Mode* (`manuscript.py`, `gui_manuscript.py`; Beaux's design): `Settings.script`
+  "print"/"manuscript"; the Languages menu's first item switches ("Switch to Manuscript
+  Mode" / "Switch to Print Mode"); the two lists don't overlap (`manuscript.LANGUAGES`: heb, grc,
+  syr, ara, lat; `Settings.ms_languages`). Each language has a submenu of **hands**: Kraken
+  models the user names (`hands/hands.json` in the user folder, `new_hand` copies an installed
+  handwriting model or another hand; `starting_points`). Under the ticked hands, two choices
+  (one unticks the other): every line with every hand, or other hands only on lines the first
+  is unsure of (`Settings.hand_reading` "every"/"unsure"; unsure = mean confidence < 85 or a
+  character < 50; Kraken reads whole lines). The surest reading is kept; lines the hands read
+  differently are flagged. **No known text at all** (Beaux: it would bias the reading).
+- *Reading* (stages preprocess, read, textlayer): the Kraken worker's `serve` takes `"op":
+  "segment"` (Kraken's baseline line-finding, `blla.mlmodel` from the kraken package, or the
+  book's `ms/segmenter.safetensors`) and `"baselines"` (read found lines; logical order from
+  `record.logical_order(base_dir)`). `ms/<page>.lines.json` (lines; "edited", "found"),
+  `ms/<page>.read.json` (readings by hand, cached by line key and the hand file's stamp),
+  `ms/corrections/<page>.json` (line key -> text); `write_ocr` makes `ocr/<page>.ocr.json` so
+  the text layer is made as for print. Pages are found again when the image changes or the
+  book's line-finding was trained, unless the page has corrections or changed lines.
+  **Settings → Read manuscripts with all processor cores** (`updates.all_cores`, default on):
+  a Kraken process per four cores, threads shared (`cores_plan`, `ECTYPE_THREADS`); off, one
+  process with half the cores.
+- *Review's Kraken view* (`ManuscriptReviewTab` in a `QStackedWidget` with the print Review;
+  the Glyphs tab hidden): each line a band (red unsure, orange hands differ, green corrected,
+  grey unread); correct a whole line, Enter goes on to the next; stretch (BoxEditor), join with
+  next, cut (click where), delete, draw a line, read the page again. List views: by page,
+  least sure lines first (`least_sure`, disagreements first), sample pages. Ω has an
+  "Editorial marks" set (Leiden: [ ] ⟨ ⟩ ( ) { } ⟦ ⟧ \ / ⸢ ⸣, dot below).
+- *Training* (Train OCR model in Manuscript Mode, `train_book`): each hand on its corrected
+  lines from every book (`hands/<id>/lines`, line pictures cut by the outline), a tenth held
+  out, replaced only if better (`train_hand`, at least `HAND_MIN` 10 lines); the line-finding
+  on pages whose lines were changed (`page_xml` PageXML, worker `segtrain`, "-i default" =
+  Kraken's model). **Lesson**: Kraken's `-q early` has no maximum number of rounds (max_epochs
+  -1); segtrain on one page kept improving for 15+ rounds, so it uses `-q fixed -N 10`.
+  **Lesson**: a PageXML's `imageFilename` is read relative to the XML's folder; a relative
+  one failed on Windows ("All 1 samples in dataset invalid"), so `page_xml` writes it whole.
+  **Train for this book…** picks sample pages (`sample_pages`: at random, skipping the first
+  and last tenth, or chosen) shown in Review's "Sample pages" view.
+- *Tested here* on a Masoretic codex page Beaux sent (Kraken 7.1.1, CPU): lines found in about
+  30-50 s a page; reading, correcting, the PDF, segtrain (one round, one page, about 60 s) and
+  hand training all run. No Hebrew manuscript model could be tried (Zenodo is blocked from the
+  cloud session); the release's Kraken check (`kraken_smoke.py`) now also finds, reads and
+  trains lines. Intel graphics: Kraken's trainer can't use them (`ketos.util.to_ptl_device`).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
@@ -313,6 +363,8 @@ not been tagged), so the release "0.5.0" holds everything below too.
 
 ## Planned
 
+- Manuscripts, later: straightening curved pages (Beaux: not now); training on Intel graphics
+  (needs changes to Kraken); a Hebrew manuscript model tried on Beaux's PC (BiblIA, Zenodo).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on

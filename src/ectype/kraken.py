@@ -298,27 +298,43 @@ def install_model(record: dict, progress: Callable[[int, int], None] | None = No
 class Session:
     """One worker process for a whole OCR run, shared by the threads reading pages."""
 
-    def __init__(self):
+    def __init__(self, threads: int | None = None):
         cmd = worker_command()
         if cmd is None:
             raise KrakenError("The Kraken engine isn't installed.")
+        env = _env()
+        if threads:  # several sessions side by side share the cores (manuscripts)
+            env.update(ECTYPE_THREADS=str(threads), OMP_NUM_THREADS=str(threads))
         self.proc = subprocess.Popen(cmd + ["serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=_env(),
+                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env,
                                      **subprocess_flags())
         self.lock = threading.Lock()
 
     def read(self, model_file: str, image: Path, boxes: list[list[int]], pack: str | None = None) -> list[dict]:
-        request = json.dumps({"model": model_file, "pack": pack, "image": str(image), "lines": boxes},
-                             ensure_ascii=False)
+        return self._ask({"model": model_file, "pack": pack, "image": str(image), "lines": boxes})["lines"]
+
+    def segment(self, image: Path, direction: str = "horizontal-lr", model: str | None = None) -> dict:
+        """Kraken's line-finding on a page: {"lines": [{"baseline", "boundary", "region"}], "regions"}."""
+        return self._ask({"op": "segment", "image": str(image), "direction": direction, "model": model}, "lines")
+
+    def read_baselines(self, model_file: str, image: Path, direction: str, lines: list[dict]) -> list[dict]:
+        """Lines found by `segment` read with a model: [{"text", "chars", "conf"}], in reading order."""
+        if not lines:
+            return []
+        return self._ask({"model": model_file, "image": str(image), "direction": direction,
+                          "baselines": [{"baseline": l["baseline"], "boundary": l["boundary"]} for l in lines]})["lines"]
+
+    def _ask(self, request: dict, expect: str = "lines") -> dict:
+        request = json.dumps(request, ensure_ascii=False)
         with self.lock:
             if self.proc.poll() is not None:
                 raise KrakenError("The Kraken engine stopped.")
             self.proc.stdin.write(request + "\n")
             self.proc.stdin.flush()
             answer = json.loads(self.proc.stdout.readline() or "{}")
-        if "error" in answer or "lines" not in answer:
+        if "error" in answer or expect not in answer:
             raise KrakenError(f"Kraken couldn't read the page: {answer.get('error', 'no answer')}")
-        return answer["lines"]
+        return answer
 
     def close(self) -> None:
         try:
