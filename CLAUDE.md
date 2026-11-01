@@ -339,6 +339,15 @@ read once, with no message):
   Beaux decided: a page can hold several hands (e.g. the Masorah by another scribe), and the
   app should find them all, line by line; **no matching to a known text** in Manuscript Mode
   (it would bias the reading), not even as an option.
+  Kraken's weaknesses and what Beaux chose (0.7.0): (1) **augmentation** on: Kraken 7's own
+  `--augment` in `train.fit_kraken` (done on the branch; checked training with Kraken 7.1.1);
+  (2) a Review **viewing mode** with the least sure lines first, and **"Train for this book"**:
+  pages chosen by the user or at random, away from the front and back matter, corrected, then
+  the rest read with the tuned model; (3) a **Kraken view** showing the lines Kraken found
+  (bands as in the test pictures), to fix splits and clipped strokes, the fixes training its
+  line-finding; (4) **several hands at once** in Manuscript Mode, lines where they disagree
+  flagged; (5) **reading on all cores as a setting** (on/off); (6) straightening curved
+  pages: not now; (7) graphics cards: Beaux has Intel graphics (not NVIDIA; to look into).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on

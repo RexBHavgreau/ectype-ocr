@@ -463,6 +463,7 @@ def fit_kraken(start: str, pairs: list[tuple[Path, str]], work: Path, held: list
     with KRAKEN_ONE:
         kraken._run(["train", "-f", "path", "-i", start, "--resize", "union", "-o", str(out),
                      "-t", str(lists["train"]), "-e", str(lists["eval"]), "-N", str(epochs), "-q", "early",
+                     "--augment",  # each line also seen warped, blurred, faded: more from the same corrections
                      "--lag", "4", "--min-epochs", str(min(3, epochs))], timeout=12 * 3600)
     best = sorted(out.glob("best_*.safetensors")) or sorted(out.glob("*.safetensors"))
     if not best:
