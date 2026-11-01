@@ -293,7 +293,7 @@ def test_training_shows_how_far_along_and_for_how_long(project):
             break
     log = w.log.toPlainText()
     assert done == [1] and "fraction" not in log and "train: heb: training on 360 images" in log
-    assert "Took 0:0" in log
+    assert "Took 0:0" in log and w.took.startswith("0:0"), "the report says how long it took"
     w.close()
 
 

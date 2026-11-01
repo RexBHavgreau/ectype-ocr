@@ -129,6 +129,13 @@ not been tagged), so the release "0.5.0" holds everything below too.
   3 families: 159 s -> 100 s. Shared files: registry blocks under `training._REGISTRY`,
   lstmf cache written through a per-thread .part file.
 
+**0.6.3** (on the branch; small fixes from Beaux's first 0.6.2 training, Train from fonts with
+Hebrew's 112,433 lines: over an hour, sat at 30% for minutes while the old pool's line texts were
+read once, with no message):
+- `trainall.train_scripts` says "<code>: counting its pool's images" before counting.
+- The report at the end says how long it took ("Training finished in 1:07:31.";
+  `MainWindow.took`, from `ProgressWindow.seconds`, kept in `_close_progress`).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

@@ -124,8 +124,11 @@ class ProgressWindow(QDialog):
         layout.addWidget(self.text, 1)
         layout.addWidget(self.buttons)
 
+    def seconds(self) -> int:
+        return self._started.elapsed() // 1000
+
     def _tick(self) -> None:
-        self.clock.setText(f"Running for {elapsed_text(self._started.elapsed() // 1000)}")
+        self.clock.setText(f"Running for {elapsed_text(self.seconds())}")
 
     def busy(self) -> None:
         """No measure of how far along it is: the bar just shows activity."""
@@ -2111,6 +2114,7 @@ class MainWindow(QMainWindow):
     def _close_progress(self) -> None:
         if self.progress_window is not None:
             self.progress_window.stop_clock()
+            self.took = elapsed_text(self.progress_window.seconds())  # for the report at the end
             self.log.appendPlainText(self.progress_window.clock.text())
             self.progress_window.close()
             self.progress_window = None
@@ -2344,7 +2348,7 @@ class MainWindow(QMainWindow):
             self.log.appendPlainText(line)
         box = QMessageBox(self)
         box.setWindowTitle("Train from fonts")
-        box.setText("Training finished.")
+        box.setText(f"Training finished in {getattr(self, 'took', '') or 'a moment'}.")
         box.setInformativeText("\n".join(report) + "\n\nA model replaces the one in use only if it makes fewer "
                                "errors. Training → Trained models shows what there is.")
         box.exec()
@@ -2362,7 +2366,8 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
         idle = all(r.get("mode") == "none" for r in reports)
-        box.setText("Nothing new to train on since the last training." if idle else "Training finished." + (
+        box.setText("Nothing new to train on since the last training." if idle else
+                    f"Training finished in {getattr(self, 'took', '') or 'a moment'}." + (
             "" if changed else " The models in use were kept: the new ones weren't better."))
         box.setInformativeText("\n".join(lines) + ("\n\nRead the pages again now? Your corrections are kept." if changed else ""))
         again = box.addButton("Read again", QMessageBox.AcceptRole) if changed else None
