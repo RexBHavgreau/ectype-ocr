@@ -346,8 +346,13 @@ read once, with no message):
   the rest read with the tuned model; (3) a **Kraken view** showing the lines Kraken found
   (bands as in the test pictures), to fix splits and clipped strokes, the fixes training its
   line-finding; (4) **several hands at once** in Manuscript Mode, lines where they disagree
-  flagged; (5) **reading on all cores as a setting** (on/off); (6) straightening curved
-  pages: not now; (7) graphics cards: Beaux has Intel graphics (not NVIDIA; to look into).
+  flagged; a pop-up when a manuscript is started with two or more hands asks how: every line
+  with every hand, or the other hands only on lines the first is unsure of (whole lines:
+  Beaux's middle way; Kraken reads by lines anyway, a word alone loses its context);
+  (5) **reading on all cores as a setting** (on/off); (6) straightening curved pages: not
+  now; (7) graphics: Beaux's Task Manager shows "Intel(R) Graphics" (built-in; possibly a
+  Core Ultra's, which PyTorch's Intel GPU support covers; Kraken's trainer with it untested).
+  Beaux agreed to 2, 3 and 5 as described.
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
