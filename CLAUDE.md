@@ -327,7 +327,7 @@ read once, with no message):
   Kraken; tested on a Masoretic codex page with three columns and Masorah: all main lines,
   Masorah magna and parva found, a few long lines split, about 30 s a page on a CPU), a
   searchable PDF and transcription rather than traced type, no Train from fonts, no matching
-  to the WLC/SBLGNT by default (it would "correct" real variants), Review by whole lines with
+  to the WLC/SBLGNT at all (it would "correct" real variants), Review by whole lines with
   marks for abbreviations and uncertain letters. Starting models: Kraken's medieval Hebrew
   (BiblIA, Zenodo) and whatever Greek manuscript models exist (to check). Zenodo and
   download.pytorch.org are blocked from the cloud session; PyPI's torch installs (slowly).
@@ -336,6 +336,9 @@ read once, with no message):
   Manuscript Mode" / "Switch to Print Mode"; the two modes' language lists don't overlap, so
   names stay short ("Hebrew", not "Hebrew (manuscript)"). In Manuscript Mode each language
   has a submenu of hands to read with, named by the user (mostly their own trained models).
+  Beaux decided: a page can hold several hands (e.g. the Masorah by another scribe), and the
+  app should find them all, line by line; **no matching to a known text** in Manuscript Mode
+  (it would bias the reading), not even as an option.
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
 - **Better reading of Driver's Treatise** (accents, the stress mark and superscripts are in
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
