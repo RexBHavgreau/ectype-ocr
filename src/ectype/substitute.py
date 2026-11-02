@@ -98,8 +98,104 @@ def _line_fits(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid: 
     return em, base, page_em
 
 
+# Fonts for the scripts the chosen font may lack, best first (any installed font with the
+# letters is taken after these). The chosen font itself is used when it has them.
+SCRIPT_FONTS = {
+    "Hebrew": ["SBL Hebrew", "Ezra SIL", "Taamey Frank CLM", "Frank Ruehl CLM", "Times New Roman", "David",
+               "Noto Serif Hebrew", "FreeSerif", "Liberation Serif"],
+    "Syriac": ["Estrangelo Edessa", "Serto Jerusalem", "East Syriac Adiabene", "Noto Sans Syriac",
+               "Noto Sans Syriac Estrangela", "FreeSans"],
+    "Greek": ["Gentium Plus", "GFS Didot", "SBL Greek", "Times New Roman", "Noto Serif", "FreeSerif",
+              "Liberation Serif"],
+    "Arabic": ["Scheherazade New", "Amiri", "Noto Naskh Arabic", "Times New Roman", "FreeSerif"],
+}
+# Letters standing on the line without ascender or descender, to size a script's font by the
+# scan (as x-height letters size the Latin).
+FLAT = {"Hebrew": set("בגדהחטכמסעפצרשת"), "Syriac": set("ܒܓܕܗܘܙܚܛܝܟܡܢܣܥܦܨܩܪܫܬ"),
+        "Arabic": set("بتثسشصضطظفقكم")}
+
+
+@dataclass
+class Face:
+    """A font of the set, subset and ready: its resource key, metrics and character map."""
+    key: str
+    path: Path
+    embedded: object
+    metrics: FontMetrics
+    cid: dict[str, int]
+
+
+def _script(text: str) -> str:
+    """The script of most of a word's letters ("Latin" for none)."""
+    import unicodedata
+
+    counts: dict[str, int] = {}
+    for c in text:
+        if c.isalpha():
+            name = unicodedata.name(c, "")
+            script = next((s for s in ("HEBREW", "SYRIAC", "GREEK", "ARABIC") if name.startswith(s)), "LATIN")
+            counts[script] = counts.get(script, 0) + 1
+    return max(counts, key=counts.get).title() if counts else "Latin"
+
+
+def _visual(text: str) -> str:
+    """A right-to-left word's characters in the order they stand on the page, left to right:
+    its letters reversed, each with its points and accents after it (a font's marks are drawn
+    over the letter just set)."""
+    import unicodedata
+
+    clusters: list[str] = []
+    for c in text:
+        if clusters and unicodedata.combining(c):
+            clusters[-1] += c
+        else:
+            clusters.append(c)
+    return "".join(reversed(clusters))
+
+
+def choose_faces(font: Path, texts: dict[str, str], pool=None) -> dict[str, Path]:
+    """The fonts a substitute PDF needs: "roman" (the chosen font), its "italic", "bold" and
+    "bold italic" faces when installed, and for each script the roman lacks (texts: script ->
+    its words' text), an installed font with its letters: SCRIPT_FONTS first, else the one
+    with the most of them."""
+    from .synthtrain import FontInfo, covers, fonts_in, system_font_folders
+
+    pool = pool if pool is not None else fonts_in(Path(font).parent, *system_font_folders())
+    pool = [f for f in pool if Path(f.path).suffix.lower() != ".ttc"]  # subset_font takes single fonts
+    roman = next((f for f in pool if Path(f.path).resolve() == Path(font).resolve()), None) or FontInfo(Path(font), Path(font).stem)
+    out = {"roman": Path(font)}
+    style = (roman.style or "").lower()
+    weight = "bold" if "bold" in style else ""
+    for key, want in (("italic", {"italic", "oblique", f"{weight} italic".strip()}),
+                      ("bold", {"bold"}), ("bold italic", {"bold italic", "bold oblique"})):
+        if key == "italic" and weight:
+            want = {"bold italic", "bold oblique"}
+        face = next((f for f in pool if roman.family and f.family.lower() == roman.family.lower()
+                     and f.style.lower() in want), None)
+        if face is not None:
+            out[key] = Path(face.path)
+    import unicodedata
+
+    for script, text in texts.items():
+        letters = {c for c in text if (c.isalpha() and _script(c) == script) or unicodedata.combining(c)}
+        if not letters or covers(roman, letters) >= letters:
+            continue
+        def score(f):
+            return len(covers(f, letters))
+        listed = [f for name in SCRIPT_FONTS.get(script, []) for f in pool
+                  if f.family.lower() == name.lower() and f.style.lower() in ("regular", "book", "roman", "")]
+        best = next((f for f in listed if score(f) >= 0.95 * len(letters)), None)
+        if best is None:
+            ranked = sorted(pool, key=score, reverse=True)
+            best = ranked[0] if ranked and score(ranked[0]) >= 0.8 * len(letters) else None
+        if best is not None:
+            out[script] = Path(best.path)
+    return out
+
+
 def place_words(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid: dict[str, int],
-                font_key: str = "F1", space: bool = True, growth: float = 0.0) -> list[PlacedWord]:
+                font_key: str = "F1", space: bool = True, growth: float = 0.0,
+                faces: dict[str, Face] | None = None, choose=None) -> list[PlacedWord]:
     """Place each OCR word over its scanned ink.
 
     `growth` shrinks scanned ink boxes by that many px per edge. On synthetic pages
@@ -108,10 +204,11 @@ def place_words(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid:
     page from letter heights proved unstable, so it stays a knob.
     """
     em, base, page_em = _line_fits(seg, ocr, metrics, char_cid, growth)
+    faces = faces or {"roman": Face(font_key, Path(), None, metrics, char_cid)}
     units_by_word: dict[tuple[int, int], list] = {}
     for u in seg.units:
         units_by_word.setdefault((u.line, u.word), []).append(u)
-    space_cid = char_cid.get(" ")
+    scale = _script_scales(seg, ocr, faces, page_em, metrics)
     measured = []
     for li, line in enumerate(ocr.lines):
         for wi, word in enumerate(line.words):
@@ -120,29 +217,31 @@ def place_words(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid:
                     max(u.box[2] for u in units), max(u.box[3] for u in units)] if units else list(word.box))
             chars = [c.text for c in word.chars] or list(word.text)
             text = "".join(chars)
-            gids = [char_cid[c] for c in text if c in char_cid]
-            if is_rtl(text):
-                gids = gids[::-1]
-            missing = "".join(c for c in text if c not in char_cid)
+            which = choose(li, wi, text) if choose else "roman"
+            face = faces.get(which) or faces["roman"]
+            fm, cid = face.metrics, face.cid
+            visual = _visual(text) if is_rtl(text) else text
+            gids = [cid[c] for c in visual if c in cid]
+            missing = "".join(c for c in text if c not in cid)
             if not gids:
                 continue
-            size = em.get(li, page_em)
-            s = size / metrics.units_per_em
-            first = metrics.ink[gids[0]]
-            last = metrics.ink[gids[-1]]
+            size = em.get(li, page_em) * scale.get(which, 1.0)
+            s = size / fm.units_per_em
+            first = fm.ink[gids[0]]
+            last = fm.ink[gids[-1]]
             first_left = (first[0] if first else 0.0) * s
-            natural_right = sum(metrics.advance[g] for g in gids[:-1]) * s + (last[2] if last else metrics.advance[gids[-1]]) * s
+            natural_right = sum(fm.advance[g] for g in gids[:-1]) * s + (last[2] if last else fm.advance[gids[-1]]) * s
             span = natural_right - first_left
             left, right = ink[0] + growth, ink[2] - growth
-            measured.append((li, wi, line, text, ink, gids, missing, size, first_left, span, left, right))
+            measured.append((li, wi, line, text, ink, gids, missing, size, first_left, span, left, right, face))
 
     # One horizontal scale for the page brings the font's letter widths to the scan's,
     # so the per-word spacing (Tc) only absorbs what's left instead of letterspacing.
-    ratios = [(m[11] - m[10]) / m[9] for m in measured if len(m[5]) >= 4 and m[9] > 0]
+    ratios = [(m[11] - m[10]) / m[9] for m in measured if len(m[5]) >= 4 and m[9] > 0 and m[12].key == font_key]
     scale_x = float(np.clip(np.median(ratios), 0.8, 1.25)) if len(ratios) >= 10 else 1.0
 
     placed = []
-    for li, wi, line, text, ink, gids, missing, size, first_left, span, left, right in measured:
+    for li, wi, line, text, ink, gids, missing, size, first_left, span, left, right, face in measured:
         n = len(gids)
         # A word may widen or narrow its letters a little (±7% of the page scale) before
         # spacing them: substitute letters differ in width letter by letter, and slightly
@@ -165,9 +264,34 @@ def place_words(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid:
         # A right-to-left word's glyphs are in visual order (reversed when measured); its
         # text goes with them in reading order.
         actual = (text + ("" if last else " ")) if is_rtl(text) else None
+        space_cid = face.cid.get(" ")
         cids = gids + ([space_cid] if space and space_cid is not None and not last else [])
-        placed.append(PlacedWord(li, wi, text, ink, GlyphRun(font_key, size, x, y, cids, tc, word_x, actual_text=actual), missing))
+        placed.append(PlacedWord(li, wi, text, ink, GlyphRun(face.key, size, x, y, cids, tc, word_x, actual_text=actual),
+                                 missing))
     return placed
+
+
+def _script_scales(seg: Segmentation, ocr: OcrPage, faces: dict[str, Face], page_em: float,
+                   roman: FontMetrics) -> dict[str, float]:
+    """For each script's font, how much larger or smaller than the line's size to set it so
+    its letters stand as tall as the scan's: the scanned height of flat letters (no ascender
+    or descender) against the same letters in the font, the lower readings (points below a
+    letter make its ink taller). 1 without enough letters."""
+    out = {}
+    for script, letters in FLAT.items():
+        face = faces.get(script)
+        if face is None:
+            continue
+        ratios = []
+        for u in seg.units:
+            if not u.box or not u.text or u.text[0] not in letters or u.text[0] not in face.cid:
+                continue
+            ink = face.metrics.ink.get(face.cid[u.text[0]])
+            if ink and ink[3] > ink[1]:
+                ratios.append((u.box[3] - u.box[1]) * face.metrics.units_per_em / (ink[3] - ink[1]))
+        if len(ratios) >= 3:
+            out[script] = float(np.percentile(ratios, 30)) / page_em
+    return out
 
 
 def _hidden_runs(ocr: OcrPage, words: set[tuple[int, int]], cid: dict[str, int], key: str) -> list[GlyphRun]:
@@ -258,10 +382,66 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
             ocr = seg = labels = None
         loaded.append((name, gray, dpi, ocr, seg, labels))
 
+    # Which words are italic (their slant, as Traced mode measures it, over the book; or as set
+    # in Review, with bold), and the fonts: the chosen font's own faces, and fonts for the
+    # scripts it lacks (Hebrew in EB Garamond).
+    from .cluster import italic_limit, word_italics, word_slants
+    from .review import word_styles
+
+    slants = {name: word_slants(seg, labels) for name, gray, dpi, ocr, seg, labels in loaded if seg is not None}
+    high = italic_limit([a for sl in slants.values() for a in sl.values()])
+    styles: dict[str, dict] = {}
+    review: dict[str, set] = {}
+    for name, gray, dpi, ocr, seg, labels in loaded:
+        if seg is None:
+            continue
+        found = {k: {"italic": v} for k, v in word_italics(None, None, high=high, slants=slants[name]).items()}
+        mine = word_styles(workspace, name)
+        for k, st in mine.items():
+            found.setdefault(k, {}).update(st)
+        styles[name] = found
+        review[name] = set(mine)
+    by_script: dict[str, str] = {}
+    styled: dict[str, str] = {"italic": "", "bold": "", "bold italic": ""}
+    for name, gray, dpi, ocr, seg, labels in loaded:
+        if ocr is None:
+            continue
+        for li, line in enumerate(ocr.lines):
+            for wi, w in enumerate(line.words):
+                script = _script(w.text)
+                if script != "Latin":
+                    by_script[script] = by_script.get(script, "") + w.text + " "
+                st = styles.get(name, {}).get((li, wi), {})
+                kind = " ".join(k for k in ("bold", "italic") if st.get(k)) if st.get("bold") or st.get("italic") else ""
+                if kind:
+                    styled[kind] += w.text + " "
+    paths = choose_faces(Path(font), by_script)
     embedded, char_cid, metrics = subset_font(Path(font), text + " ")
+    faces = {"roman": Face("F1", Path(font), embedded, metrics, char_cid)}
+    for n, (which, path) in enumerate((k, v) for k, v in paths.items() if k != "roman"):
+        wanted = styled.get(which) or by_script.get(which) or ""
+        if wanted.strip():
+            emb, cid, met = subset_font(path, wanted + " .,;:()[]-'’0123456789", key=f"F{n + 3}")
+            faces[which] = Face(f"F{n + 3}", path, emb, met, cid)
     from .textlayer import glyphless_font
 
     hidden, hidden_cid = glyphless_font(sorted(set(text) | {" "}), key="F2")
+
+    def chooser(name: str):
+        def choose(li: int, wi: int, word: str) -> str:
+            has = (lambda which: which in faces and all(c in faces[which].cid for c in word))
+            st = styles.get(name, {}).get((li, wi), {})
+            kind = " ".join(k for k in ("bold", "italic") if st.get(k))
+            if has("roman"):
+                # Italic as measured only for the Latin alphabet: Greek letters lean by their
+                # shape (the Treatise's upright γέγονα measured italic); set in Review, always.
+                set_in_review = (li, wi) in review.get(name, set())
+                if kind and _script(word) != "Latin" and not set_in_review:
+                    kind = ""
+                return kind if kind and has(kind) else "roman"
+            script = _script(word)
+            return script if has(script) else "roman"
+        return choose
     pages_out, text_only, rows, all_placed = [], [], [], []
     for name, gray, dpi, ocr, seg, labels in loaded:
         h, w = gray.shape
@@ -275,11 +455,10 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
         x_size = float(np.median(sizes)) if sizes else 30.0
         # A word with a character the font lacks (Hebrew in EB Garamond) stays as the scan,
         # with its text laid invisibly over it: only the words set in the font are erased.
-        everything = place_words(seg, ocr, metrics, char_cid, embedded.key)
+        everything = place_words(seg, ocr, metrics, char_cid, embedded.key, faces=faces, choose=chooser(name))
         placed = [p for p in everything if not p.missing]
-        kept = {(p.line, p.word) for p in everything if p.missing} | {
-            (li, wi) for li, line in enumerate(ocr.lines) for wi, wd in enumerate(line.words)
-            if not any(c in char_cid for c in wd.text)}
+        done = {(p.line, p.word) for p in placed}
+        kept = {(li, wi) for li, line in enumerate(ocr.lines) for wi in range(len(line.words)) if (li, wi) not in done}
         set_units = [u for u in seg.units if (u.line, u.word) not in kept]
         background, mask = erase_text(gray, Segmentation(seg.size_px, seg.components, set_units, seg.unassigned), labels, x_size)
         background = smooth_paper(background)
@@ -296,8 +475,9 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
                      "kept_as_scan": len(kept)})
 
     pdf_name = (out_name or workspace.name) + ".pdf"
-    write_pdf(out / pdf_name, pages_out, [embedded, hidden])
-    write_pdf(out / "text-only.pdf", text_only, [embedded, hidden])
+    fonts = [f.embedded for f in faces.values()] + [hidden]
+    write_pdf(out / pdf_name, pages_out, fonts)
+    write_pdf(out / "text-only.pdf", text_only, fonts)
 
     doc = pdfium.PdfDocument(str(out / pdf_name))
     extracted = [doc[i].get_textpage().get_text_bounded() for i in range(len(doc))]
@@ -318,6 +498,7 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
     measured = [r["overlay"] for r in rows if r.get("overlay") and r["overlay"]["left"]]
     summary = {
         "font": str(font),
+        "faces": {k: str(f.path) for k, f in faces.items()},
         "pdf": pdf_name,
         "bytes": (out / pdf_name).stat().st_size,
         "pages": rows,

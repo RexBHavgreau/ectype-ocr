@@ -239,6 +239,19 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   size takes theirs, and the page's text size is the 70th percentile of its lines' (it was
   averaged with the notes'), `_line_fits`. Page 14's lower lines set wider than its upper
   ones is the scan's own (a page photographed at a slant), not a fault.
+- *Substitute PDF had no italics, and Hebrew/Syriac stayed as the scan* (Beaux): it set every
+  word in the one chosen font, and kept words with letters the font lacked (Hebrew in EB
+  Garamond) as the scanned image under hidden text. Now a set of faces (`choose_faces`,
+  `Face`): the font's own italic, bold and bold italic when installed (same family), and for
+  each script it lacks an installed font with the letters (`SCRIPT_FONTS` order first: SBL
+  Hebrew, Ezra SIL, …; Estrangelo Edessa, …; else the best coverage; .ttc skipped, subset_font
+  takes single fonts). Italic as Traced measures it (`cluster.word_slants`, `italic_limit` over
+  the book, `word_italics`), Latin words only (Greek leans by its shape: γέγονα came out
+  italic), plus styles set in Review (any script). A script font is sized by its flat letters
+  against the scan's (`_script_scales`, `FLAT`, 30th percentile: points below make ink
+  taller). Right-to-left words go in visual order by letter, each letter's points after it
+  (`_visual`; no shaping engine: marks drawn by their zero-advance outlines). Words no face
+  can set still stay as the scan.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
