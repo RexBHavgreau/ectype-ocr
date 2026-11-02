@@ -31,10 +31,10 @@ from pathlib import Path
 from typing import Callable
 
 from . import __version__
+from .kraken_worker import PROTOCOL  # the protocol this app speaks: always the worker's own
 from .resources import subprocess_flags, user_data_dir
 
 PREFIX = "kraken_"
-PROTOCOL = 1  # kraken_worker.PROTOCOL this app speaks
 ENGINE_ASSET = "Ectype-OCR-Kraken-{version}-win64.zip"
 ENGINE_EXE = "ectype-kraken.exe" if sys.platform == "win32" else "ectype-kraken"
 # ISO 15924 codes (the repository's) to the script names used elsewhere (scripts.py).

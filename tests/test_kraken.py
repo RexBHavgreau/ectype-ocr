@@ -290,3 +290,14 @@ def test_frozen_children_start_clean(monkeypatch):
     assert not any(k.startswith(("_PYI_", "_MEIPASS")) for k in env)
     assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1" and env["PYTHONUTF8"] == "1"
     assert "PATH" in frozen_child_env({"PATH": "x", "_PYI_ARCHIVE_FILE": "y"})
+
+
+def test_the_app_expects_the_engines_protocol(monkeypatch):
+    """0.7.0 raised the worker's protocol to 2 and left the app at 1, so every engine
+    downloaded was "for another version of Ectype OCR" (Beaux, 0.7.2)."""
+    from ectype import kraken, kraken_worker
+    assert kraken.PROTOCOL == kraken_worker.PROTOCOL
+    monkeypatch.setattr(kraken, "worker_command", lambda: ["engine"])
+    monkeypatch.setattr(kraken, "_run", lambda args, timeout=None: {"protocol": kraken_worker.PROTOCOL,
+                                                                   "kraken": "7.1.1", "torch": "2.14.0"})
+    assert kraken.engine_status()["installed"] is True
