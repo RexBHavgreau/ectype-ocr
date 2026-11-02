@@ -40,6 +40,9 @@ class PlacedWord:
     missing: str  # characters the font lacks
 
 
+TC_MAX, TC_MIN = 0.06, -0.04  # spacing between a word's letters, in ems, at most
+
+
 def _trimmed_mean(values: list[float]) -> float:
     """Mean of the middle half: heights are whole pixels, so a median snaps to a few values."""
     v = np.sort(np.asarray(values, float))
@@ -72,13 +75,26 @@ def _line_fits(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid: 
             em[li] = _trimmed_mean(ratios)
             all_em += ratios
     base = fit_baselines(seg, ocr)
-    page_em = _trimmed_mean(all_em) if all_em else 40.0
+    # The page's text size from its lines' sizes, the larger ones: averaged with the notes'
+    # it fell between the two, and lines of the text were set in two sizes (the Treatise p. 14).
+    line_ems = [em[li] for li in em if counts[li] >= 5]
+    page_em = (float(np.percentile(line_ems, 70)) if len(line_ems) >= 3
+               else _trimmed_mean(all_em) if all_em else 40.0)
     for li in by_line:
         # Lines take the page's size unless clearly set in another (footnotes, headings):
         # a per-line estimate carries a few percent of noise, which Tc would turn into
         # visible letterspacing.
         if li not in em or counts[li] < 5 or abs(em[li] / page_em - 1) < 0.12:
             em[li] = page_em
+    # A full line alone in another size between two lines of one size takes theirs: its
+    # measurement was off (the Treatise: one text line, or a footnote's last line, set
+    # larger than the lines around it). A heading is short and keeps its size.
+    order = sorted(em)
+    for k in range(1, len(order) - 1):
+        before, li, after = em[order[k - 1]], em[order[k]], em[order[k + 1]]
+        chars = sum(len(w.text) for w in ocr.lines[order[k]].words) if order[k] < len(ocr.lines) else 0
+        if abs(before / after - 1) < 0.05 and abs(li / before - 1) >= 0.05 and chars >= 25:
+            em[order[k]] = before
     return em, base, page_em
 
 
@@ -134,6 +150,14 @@ def place_words(seg: Segmentation, ocr: OcrPage, metrics: FontMetrics, char_cid:
         own = (right - left) / span if span > 0 and n >= 2 else scale_x
         word_x = float(np.clip(own, scale_x * 0.93, scale_x * 1.07))
         tc = ((right - left) / word_x - span) / (n - 1) if n > 1 else 0.0
+        # Letters spread or squeezed only a little ("a s regards", "i t", the title's "ON"
+        # set over itself, where the word's box was wider or narrower than the word): past
+        # that, the word is set at the most spacing allowed, centred in its box.
+        limit = (TC_MAX * size if tc > 0 else TC_MIN * size)
+        if n > 1 and abs(tc) > abs(limit):
+            tc = limit
+            width = (span + (n - 1) * tc) * word_x
+            left = left + ((right - left) - width) / 2
         x = left - first_left * word_x
         a, b = base.get(li, (ink[3], 0.0))
         y = a + b * (ink[0] + ink[2]) / 2 - growth

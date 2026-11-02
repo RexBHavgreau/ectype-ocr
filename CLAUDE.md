@@ -231,6 +231,14 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   `Project._stale`), `CACHE_VERSION` 3. On the Treatise (stock models): headings 41 -> the
   title alone; notes found as notes on most pages; footnotes still few where the OCR garbled
   the reference (e.g. "-â¹" read as letters).
+- *Substitute PDF* (Beaux's Treatise export, 0.7.0): words letter-spaced ("a s regards", "i t",
+  "know n") where a word's box was wider than the word in the font, and the title's "ON" set
+  over itself where it was narrower: the per-word spacing (Tc) now stays within
+  `TC_MAX`/`TC_MIN` (0.06 / -0.04 em) and the word is centred in its box past that
+  (`substitute.place_words`). A full line alone in another size between two lines of one
+  size takes theirs, and the page's text size is the 70th percentile of its lines' (it was
+  averaged with the notes'), `_line_fits`. Page 14's lower lines set wider than its upper
+  ones is the scan's own (a page photographed at a slant), not a fault.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
