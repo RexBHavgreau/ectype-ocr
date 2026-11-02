@@ -254,12 +254,15 @@ def list_models(refresh: bool = False, progress: Callable[[int, int], None] | No
     cache = models_dir() / "listing.json"
     if not refresh and cache.is_file() and time.time() - cache.stat().st_mtime < LISTING_MAX_AGE:
         try:
-            return json.loads(cache.read_text(encoding="utf-8"))
+            kept = json.loads(cache.read_text(encoding="utf-8"))
+            if kept:  # an empty list (Zenodo didn't answer) is asked for again, not kept for a week
+                return kept
         except ValueError:
             pass
     records = _run(["list"], timeout=900, progress=progress)
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+    if records:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
     return records
 
 

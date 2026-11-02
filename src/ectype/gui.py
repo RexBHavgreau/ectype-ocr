@@ -1488,6 +1488,8 @@ class KrakenModelsPanel(QWidget):
             self.engine_button.hide()
         self.list_button.setEnabled(self.engine_ok)
         self.download_button.setEnabled(self.engine_ok)
+        if self.engine_ok and not self.records:
+            QTimer.singleShot(200, self._load_when_free)  # the list straight away: no button to find first
 
     def install_engine(self) -> None:
         self.status.setText("Looking for the Kraken engine in this version's release…")
@@ -1504,6 +1506,12 @@ class KrakenModelsPanel(QWidget):
         self._run(work, lambda status: (self.status.setText("Kraken engine installed."), self._engine_checked(status)))
 
     # -- the models
+
+    def _load_when_free(self) -> None:
+        if self.task is not None and self.task.isRunning():
+            QTimer.singleShot(200, self._load_when_free)
+        elif not self.records:
+            self.load()
 
     def load(self, refresh: bool = False) -> None:
         self.status.setText("Reading the list of models from Zenodo (the first time takes a minute or two)…")
@@ -1523,7 +1531,13 @@ class KrakenModelsPanel(QWidget):
         default = next((i for i in range(self.script.count()) if self.script.itemData(i) in ("Hebrew", "Greek")), 0)
         self.script.setCurrentIndex(default)
         self.script.blockSignals(False)
-        self.status.setText(f"{len(self.records)} recognition models in the repository.")
+        if not self.records:
+            self.status.setText("No models came back from Kraken's repository on Zenodo (is the computer online? "
+                                "Zenodo is sometimes slow or down). Press “Show the models” to try again.")
+        else:
+            self.status.setText(f"{len(self.records)} recognition models in the repository. Choose a script, "
+                                "untick “Printed text only” for handwriting, select a model and download it: it then "
+                                "appears in the Languages menu, to tick like any language.")
         self._filter()
 
     def _filter(self) -> None:

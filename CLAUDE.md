@@ -254,6 +254,15 @@ and Substitute PDF of the Treatise, ship with it):
   (`_visual`; no shaping engine: marks drawn by their zero-advance outlines). Words no face
   can set still stay as the scan.
 
+**0.7.2** (on the branch; a fix):
+- *Kraken showed no models after the engine was installed* (Beaux, 0.7.1): the list loads only
+  on "Show the models", easy to miss, and an empty answer from Zenodo was cached for a week
+  (`kraken.list_models` now keeps only a non-empty list). `KrakenModelsPanel` loads the list
+  as soon as the engine is there (`_load_when_free`: after the engine check's task ends), and
+  says why when no models came back. Beaux had taken Kraken for part of every reading: it is
+  a language once a model is installed (ticked in Languages like any other; Tesseract reads
+  the page, Kraken rereads words in its script).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

@@ -213,3 +213,15 @@ def test_a_family_pack_over_the_general_model(tmp_path):
         plain = session.read(MODEL, tmp_path / "line.png", [[0, 0, 600, 80]])
         packed = session.read(MODEL, tmp_path / "line.png", [[0, 0, 600, 80]], str(tmp_path / "f1.pack.safetensors"))
     assert plain == packed
+
+
+def test_an_empty_model_list_is_asked_for_again(tmp_path, monkeypatch):
+    """Zenodo not answering once mustn't leave the Kraken models list empty for a week."""
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path))
+    answers = [[], [{"doi": "10.5281/zenodo.1", "summary": "Hebrew"}]]
+    monkeypatch.setattr(kraken, "_run", lambda args, **kw: answers.pop(0))
+    assert kraken.list_models() == []
+    assert not (kraken.models_dir() / "listing.json").exists(), "nothing kept"
+    assert kraken.list_models()[0]["summary"] == "Hebrew"
+    monkeypatch.setattr(kraken, "_run", lambda args, **kw: [])
+    assert kraken.list_models()[0]["summary"] == "Hebrew", "a good list is kept"
