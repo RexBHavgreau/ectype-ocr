@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 
 import numpy as np
@@ -9,7 +8,7 @@ import pypdfium2 as pdfium
 import pytest
 from PIL import Image
 
-from ectype.ocr import get_engine, ocr_pages
+from ectype.ocr import ocr_pages
 from ectype.pdfwrite import GlyphRun, PageSpec, subset_font, write_pdf
 from ectype.segment import segment_workspace
 from ectype.substitute import substitute_workspace
