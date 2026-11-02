@@ -1619,12 +1619,17 @@ class IdmlDialog(QDialog):
         self.reflow_box = QGroupBox()
         form = QFormLayout(self.reflow_box)
         program = converter.find_program()
-        status = QLabel(f"docx-to-idml {program.version} is installed." if program else
-                        "docx-to-idml isn't installed (or hasn't been opened since it was installed). "
-                        f'<a href="{converter.DOWNLOAD}">Download it</a>, open it once, then export again.')
-        status.setOpenExternalLinks(True)
-        status.setWordWrap(True)
-        form.addRow(status)
+        self.status = QLabel()
+        self.status.setOpenExternalLinks(True)
+        self.status.setWordWrap(True)
+        self.find = QPushButton("Find docx-to-idml…")
+        self.find.setToolTip("Point to the docx-to-idml program (docx-to-idml-0.8.0.exe or later) if Ectype didn't find it")
+        self.find.clicked.connect(self._find_converter)
+        row = QHBoxLayout()
+        row.addWidget(self.status, 1)
+        row.addWidget(self.find)
+        form.addRow(row)
+        self._show_converter(program)
         self.profile = QComboBox()
         self.profile.addItem("docx-to-idml's defaults", None)
         for path in sorted((converter.settings_dir() / "profiles").glob("*.json")):
@@ -1669,6 +1674,38 @@ class IdmlDialog(QDialog):
     def _mode_changed(self) -> None:
         self.reflow_box.setEnabled(self.reflow.isChecked())
         self.fac_box.setEnabled(self.facsimile.isChecked())
+
+    def _show_converter(self, program) -> None:
+        from . import converter
+
+        if program is not None:
+            self.status.setText(f"docx-to-idml {program.version} is installed.")
+            self.find.setVisible(False)
+            return
+        old = converter.too_old()
+        self.status.setText(f"The docx-to-idml found ({old.name}) is older than 0.8.0, which other programs need: "
+                            f'open it and update it, or <a href="{converter.DOWNLOAD}">download the latest</a>.' if old
+                            else "Ectype couldn't find docx-to-idml. Open it once (it then tells Ectype where it is), "
+                            f'point to it with Find docx-to-idml…, or <a href="{converter.DOWNLOAD}">download it</a>.')
+        self.find.setVisible(True)
+
+    def _find_converter(self) -> None:
+        from . import converter
+
+        path, _ = QFileDialog.getOpenFileName(self, "Find docx-to-idml", str(Path.home() / "Downloads"),
+                                              "docx-to-idml (docx-to-idml-*.exe);;Programs (*.exe)")
+        if not path:
+            return
+        v = converter.version_of(Path(path))
+        if v is not None and v < converter.MIN_VERSION:
+            QMessageBox.warning(self, "Find docx-to-idml", f"{Path(path).name} is older than 0.8.0, which other programs "
+                                "need. Open it and update it, then point to the new copy.")
+            return
+        converter.remember(Path(path))
+        program = converter.find_program()
+        self._show_converter(program)
+        if program is not None:
+            self.reflow.setChecked(True)
 
     def options(self):
         from .idml import IdmlOptions

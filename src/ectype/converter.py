@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -47,8 +48,75 @@ def settings_dir() -> Path:
     return Path(base) / "docx-to-idml"
 
 
+MIN_VERSION = (0, 8, 0)  # the first docx-to-idml with `convert` and program.json
+EXE_NAME = re.compile(r"^docx-to-idml-(\d+)\.(\d+)\.(\d+)\.exe$", re.IGNORECASE)
+
+
+def version_of(exe: Path) -> tuple[int, int, int] | None:
+    """The version in the .exe's name ("docx-to-idml-0.8.0.exe"), or None."""
+    m = EXE_NAME.match(Path(exe).name)
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def search_places() -> list[Path]:
+    """Where a downloaded docx-to-idml .exe usually is: it is one file, kept wherever the user
+    saved it, and saves its updates beside itself (Downloads, the desktop, Documents...)."""
+    home = Path.home()
+    places = [home / "Downloads", home / "Desktop", home / "Documents", home, home / "OneDrive" / "Desktop",
+              home / "OneDrive" / "Documents"]
+    for var in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "USERPROFILE"):
+        if os.environ.get(var):
+            places.append(Path(os.environ[var]))
+    if os.environ.get("LOCALAPPDATA"):
+        places.append(Path(os.environ["LOCALAPPDATA"]) / "Programs")
+    return places
+
+
+def search() -> list[Path]:
+    """docx-to-idml .exes in the usual places (and folders in them named for it), newest first."""
+    found: dict[str, Path] = {}
+    for place in search_places():
+        try:
+            folders = [place] + [d for d in place.iterdir() if d.is_dir() and "docx" in d.name.lower()]
+        except OSError:
+            continue
+        for folder in folders:
+            try:
+                for f in folder.glob("docx-to-idml-*.exe"):
+                    if version_of(f) and f.is_file():
+                        found[str(f.resolve()).lower()] = f
+            except OSError:
+                continue
+    return sorted(found.values(), key=lambda f: version_of(f), reverse=True)
+
+
+def _remembered() -> Path | None:
+    from .updates import load_settings
+
+    exe = load_settings().get("docx2idml_exe")
+    return Path(exe) if exe and Path(exe).is_file() else None
+
+
+def remember(exe: Path) -> None:
+    """The .exe the user pointed to (Export IDML → Find docx-to-idml…), used when program.json
+    doesn't lead to one."""
+    from .updates import load_settings, save_settings
+
+    settings = load_settings()
+    settings["docx2idml_exe"] = str(Path(exe).resolve())
+    save_settings(settings)
+
+
+def _program(exe: Path, version: str = "", api: int = API) -> Program:
+    v = version_of(exe)
+    return Program([str(exe)], version or (".".join(map(str, v)) if v else ""), api)
+
+
 def find_program() -> Program | None:
-    """The installed converter, or None. ECTYPE_DOCX2IDML (a command line) comes first."""
+    """The installed converter, or None. ECTYPE_DOCX2IDML (a command line) comes first, then
+    the converter's own program.json, then a copy the user pointed to, then the newest copy
+    (0.8.0 or later) in the usual places: program.json is written only when docx-to-idml
+    starts, so a copy saved but not opened since (or moved) is still found."""
     override = os.environ.get("ECTYPE_DOCX2IDML")
     if override:
         return Program(shlex.split(override, posix=sys.platform != "win32"), "from ECTYPE_DOCX2IDML", API)
@@ -56,16 +124,35 @@ def find_program() -> Program | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
+        data = {}
     exe = data.get("exe")
-    if not exe or not Path(exe).is_file():
-        return None
-    return Program([exe], str(data.get("version", "")), int(data.get("api", API)))
+    if exe and Path(exe).is_file():
+        return Program([exe], str(data.get("version", "")), int(data.get("api", API)))
+    mine = _remembered()
+    if mine is not None and (version_of(mine) or MIN_VERSION) >= MIN_VERSION:
+        return _program(mine)
+    new = [f for f in search() if version_of(f) >= MIN_VERSION]
+    return _program(new[0]) if new else None
+
+
+def too_old() -> Path | None:
+    """A copy found that is too old to be run by other programs (before 0.8.0), if any."""
+    old = [f for f in search() if version_of(f) < MIN_VERSION]
+    mine = _remembered()
+    if mine is not None and version_of(mine) and version_of(mine) < MIN_VERSION:
+        old.insert(0, mine)
+    return old[0] if old else None
 
 
 def missing_message() -> str:
-    return ("Reflow is laid out by docx-to-idml, which isn't installed (or hasn't been opened since it was "
-            f"installed or moved). Download it from {DOWNLOAD}, open it once, then export again.")
+    old = too_old()
+    if old is not None:
+        return (f"Reflow is laid out by docx-to-idml 0.8.0 or later; the copy found ({old.name}) is older and "
+                "can't be run by other programs. Open it and update it (or download the latest from "
+                f"{DOWNLOAD}), then export again.")
+    return ("Reflow is laid out by docx-to-idml, which Ectype couldn't find (it looks where docx-to-idml says it is "
+            "when it starts, and in Downloads, the desktop and Documents). Open docx-to-idml once, or point Ectype "
+            f"to it in Export IDML (Find docx-to-idml…). Download: {DOWNLOAD}")
 
 
 def convert(docx: Path, out_dir: Path, name: str, profile: str | None = None, timeout: float = 1800) -> dict:
