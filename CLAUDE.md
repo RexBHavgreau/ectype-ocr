@@ -179,7 +179,7 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   cloud session); the release's Kraken check (`kraken_smoke.py`) now also finds, reads and
   trains lines. Intel graphics: Kraken's trainer can't use them (`ketos.util.to_ptl_device`).
 
-**0.7.1** (on the branch; a fix):
+**0.7.1** (fixes; with the next block, all one release):
 - *Reflow said docx-to-idml wasn't installed* (Beaux, 0.7.0: it is on the computer). Ectype
   found it only through `program.json`, which docx-to-idml (0.8.0 and later) writes when it
   starts, so a copy saved but not opened since, moved, or older than 0.8.0 wasn't found.
@@ -208,7 +208,8 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   bar said. `MainWindow._idml_done` now says where it is (and logs it), has **Open folder**,
   and puts docx-to-idml's notes under Show Details, labelled as its notes.
 
-**0.7.2** (on the branch; a fix, from Beaux's first Reflow IDML of the Treatise):
+*Also in 0.7.1* (Beaux hadn't tagged 0.7.1 yet, so these fixes, from their first Reflow IDML
+and Substitute PDF of the Treatise, ship with it):
 - *41 "chapter titles" and few footnotes*: Ectype's Word manuscript had 41 Heading 1s (whole
   paragraphs and footnotes), so docx-to-idml made 41 chapters; 5 footnotes. **Cause**: the
   Treatise PDF mixes scan resolutions (pages 1, 15, 17, 24, 25 at about 690 dpi, the rest 300),
