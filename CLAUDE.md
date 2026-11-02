@@ -201,6 +201,12 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   swallowed the word. It now keeps 7 screen pixels (`rescale`, called on zoom by `ImageView`
   and on hover/press), draws square handles (11 px on screen) at corners and edge middles,
   and says when a drag ended that Save keeps the new box (`on_change`).
+- *An IDML export seemed to go nowhere* (Beaux: a pop-up "with the text from the book" and no
+  IDML where they told it): the pop-up was docx-to-idml's alert (`Alert`: running heads with
+  Hebrew/Greek got masters of their own, listing the heads), and the IDML was saved, as
+  always, in a folder of its own: `<chosen folder>/<name>/<name>.idml`, which only the status
+  bar said. `MainWindow._idml_done` now says where it is (and logs it), has **Open folder**,
+  and puts docx-to-idml's notes under Show Details, labelled as its notes.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

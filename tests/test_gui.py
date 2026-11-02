@@ -478,3 +478,30 @@ def test_delete_a_word_box_and_stretch_with_handles(project):
     assert log[-1]["deleted"]
     w.close()
     app.processEvents()
+
+
+def test_export_idml_says_where_it_went(project, tmp_path, monkeypatch):
+    """The end of an IDML export: where the IDML is (its own folder), docx-to-idml's notes
+    under Show Details, and Open folder."""
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    shown = []
+
+    def fake_exec(box):
+        shown.append((box.text(), box.informativeText(), box.detailedText(), [b.text() for b in box.buttons()]))
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    w = MainWindow(project)
+    idml = tmp_path / "Book" / "Book.idml"
+    w._idml_done({"idml": str(idml), "folder": str(idml.parent), "docx": "x.docx",
+                  "alerts": ["Running heads with Hebrew: ..."]})
+    text, info, details, buttons = shown[0]
+    assert str(idml) in text and "folder of its own" in info and "Show Details" in info
+    assert details.startswith("Notes from docx-to-idml") and "Open folder" in buttons
+    assert f"IDML saved: {idml}" in w.log.toPlainText()
+    w.close()
+    app.processEvents()

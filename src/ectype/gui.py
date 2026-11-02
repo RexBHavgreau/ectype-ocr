@@ -2395,9 +2395,28 @@ class MainWindow(QMainWindow):
                     self._idml_done, "Exporting IDML")
 
     def _idml_done(self, out: dict) -> None:
-        self.statusBar().showMessage(f"Saved {out['idml']}")
+        """Where the IDML went (its own folder inside the one chosen), a way to open that folder,
+        and docx-to-idml's notes (things its layout did on its own), marked as such."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        idml = Path(out["idml"])
+        folder = Path(out.get("folder") or idml.parent)
+        self.statusBar().showMessage(f"Saved {idml}")
+        self.log.appendPlainText(f"IDML saved: {idml}")
+        box = QMessageBox(self)
+        box.setWindowTitle("Export IDML")
+        box.setText(f"The IDML is saved:\n{idml}")
+        box.setInformativeText("It is in a folder of its own, with its Links" +
+                               (" and the Word manuscript" if out.get("docx") else "") + ". " +
+                               ("docx-to-idml's notes on its layout are under Show Details." if out.get("alerts") else ""))
         if out.get("alerts"):
-            QMessageBox.information(self, "Export IDML", "\n\n".join(out["alerts"]))
+            box.setDetailedText("Notes from docx-to-idml:\n\n" + "\n\n".join(out["alerts"]))
+        opener = box.addButton("Open folder", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if box.clickedButton() is opener:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def _split_changed(self, on: bool) -> None:
         self.project.settings.split_spreads = on
