@@ -504,6 +504,10 @@ and Substitute PDF of the Treatise, ship with it):
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
   the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.
+  **Party** (Kiessling's page model, Beaux chose it for its low listed error rate): needs the
+  separate `party` package, not Kraken's line reader; check its speed on CPU, its size, and
+  whether it gives each letter's place (traced PDFs need it) before offering it. Listed error
+  rates come from each model's own test pages, so they don't compare across models.
 - Manuscripts, later: straightening curved pages (Beaux: not now); training on Intel graphics
   (needs changes to Kraken); a Hebrew manuscript model tried on Beaux's PC (BiblIA, Zenodo).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
