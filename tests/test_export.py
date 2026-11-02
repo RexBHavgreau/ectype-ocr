@@ -187,6 +187,8 @@ def test_converter_missing(tmp_path, monkeypatch):
     monkeypatch.delenv("ECTYPE_DOCX2IDML", raising=False)
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "ectype"))
+    monkeypatch.setattr(converter, "search_places", lambda: [])
     assert converter.find_program() is None
     with pytest.raises(converter.ConverterMissing, match="docx-to-idml"):
         converter.convert(tmp_path / "x.docx", tmp_path, "x")
@@ -196,6 +198,34 @@ def test_converter_missing(tmp_path, monkeypatch):
     (tmp_path / "docx-to-idml" / "program.json").write_text(json.dumps({"exe": str(exe), "version": "0.8.0", "api": 1}))
     program = converter.find_program()
     assert program.command == [str(exe)] and program.version == "0.8.0"
+
+
+def test_converter_found_without_program_json(tmp_path, monkeypatch):
+    """docx-to-idml writes program.json only when it starts: a copy saved and not opened since
+    is found in the usual places (the newest of 0.8.0 or later), or where the user points."""
+    from ectype import converter
+
+    monkeypatch.delenv("ECTYPE_DOCX2IDML", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "appdata"))
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "ectype"))
+    downloads, apps = tmp_path / "Downloads", tmp_path / "Apps" / "docx-to-idml"
+    downloads.mkdir()
+    apps.mkdir(parents=True)
+    monkeypatch.setattr(converter, "search_places", lambda: [downloads, tmp_path / "Apps"])
+    (downloads / "docx-to-idml-0.7.0.exe").write_text("")
+    assert converter.find_program() is None
+    assert converter.too_old().name == "docx-to-idml-0.7.0.exe"
+    assert "older" in converter.missing_message()
+    (downloads / "docx-to-idml-0.8.0.exe").write_text("")
+    (apps / "docx-to-idml-0.10.1.exe").write_text("")
+    program = converter.find_program()
+    assert program.command == [str(apps / "docx-to-idml-0.10.1.exe")] and program.version == "0.10.1", "the newest"
+    elsewhere = tmp_path / "Tools" / "docx-to-idml-0.9.0.exe"
+    elsewhere.parent.mkdir()
+    elsewhere.write_text("")
+    converter.remember(elsewhere)
+    assert converter.find_program().command == [str(elsewhere.resolve())], "the copy the user pointed to"
 
 
 def test_project_prepares_idml_once(analysed):

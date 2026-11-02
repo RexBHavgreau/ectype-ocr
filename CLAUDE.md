@@ -179,6 +179,35 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   cloud session); the release's Kraken check (`kraken_smoke.py`) now also finds, reads and
   trains lines. Intel graphics: Kraken's trainer can't use them (`ketos.util.to_ptl_device`).
 
+**0.7.1** (on the branch; a fix):
+- *Reflow said docx-to-idml wasn't installed* (Beaux, 0.7.0: it is on the computer). Ectype
+  found it only through `program.json`, which docx-to-idml (0.8.0 and later) writes when it
+  starts, so a copy saved but not opened since, moved, or older than 0.8.0 wasn't found.
+  `converter.find_program` now also uses a copy the user pointed to (Export IDML → **Find
+  docx-to-idml…**, kept as `docx2idml_exe` in Ectype's settings) and searches the usual places
+  (`search_places`: Downloads, Desktop, Documents, home, LOCALAPPDATA\Programs, Program Files,
+  and folders in them named for it) for `docx-to-idml-X.Y.Z.exe`, the newest of 0.8.0 or
+  later (`MIN_VERSION`: the first with `convert`). An older copy found is named in the
+  message, with how to update it (`too_old`).
+- *A wrong word box couldn't be removed* (Beaux: two words in one box, or one word in two,
+  had no fix): Review's **Delete word** (`review.delete_word`, `remove_word`): the box leaves
+  the OCR file, its log entries and word image go, the line's later entries and images move
+  back one (`_close_gap`); logged as `"deleted"` with its box, so `carry_corrections` removes
+  the new reading's word in that place (IoU >= 0.5) **before** carrying the rest (else the
+  words drawn there were laid over the old wrong box). Deleted entries don't count as
+  corrected (`Project.corrected`, docx, the browser Review). Then Add a word draws the right ones.
+- *Stretching a box was hard* (Beaux: "doesn't really work very well"): `BoxEditor`'s grab
+  band was fixed in page pixels when the word was selected, so zooming made it tiny or
+  swallowed the word. It now keeps 7 screen pixels (`rescale`, called on zoom by `ImageView`
+  and on hover/press), draws square handles (11 px on screen) at corners and edge middles,
+  and says when a drag ended that Save keeps the new box (`on_change`).
+- *An IDML export seemed to go nowhere* (Beaux: a pop-up "with the text from the book" and no
+  IDML where they told it): the pop-up was docx-to-idml's alert (`Alert`: running heads with
+  Hebrew/Greek got masters of their own, listing the heads), and the IDML was saved, as
+  always, in a folder of its own: `<chosen folder>/<name>/<name>.idml`, which only the status
+  bar said. `MainWindow._idml_done` now says where it is (and logs it), has **Open folder**,
+  and puts docx-to-idml's notes under Show Details, labelled as its notes.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

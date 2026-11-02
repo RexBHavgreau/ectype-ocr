@@ -143,3 +143,45 @@ def test_stretched_and_added_words_kept_when_read_again(tmp_path):
     assert carry_corrections(tmp_path, "p", again) == 3
     words = again.lines[0].words
     assert [w.text for w in words] == ["in", "a", "ZDMG.", "vol."] and words[2].box[0] == 176
+
+
+def test_a_wrong_box_deleted_and_drawn_again(tmp_path):
+    """Two words read as one ("inthe") and a speck read as a word: their boxes deleted and the
+    right ones drawn with Add a word; kept when the page is read again."""
+    import copy
+
+    from PIL import Image
+
+    from ectype import report
+    from ectype.ocr import Char, Line, Word
+    from ectype.review import add_word, carry_corrections, correct, delete_word
+
+    (tmp_path / "pages").mkdir()
+    (tmp_path / "ocr").mkdir()
+    Image.new("L", (700, 120), 255).save(tmp_path / "pages" / "p.png")
+
+    def word(text, x):
+        return Word(text, [x, 20, x + 20 * len(text), 50], 80.0,
+                    [Char(t, [x + 20 * k, 20, x + 20 * (k + 1), 50], 80.0) for k, t in enumerate(text)])
+
+    reading = OcrPage("tesseract", "eng", [700, 120], 300,
+                      [Line([100, 20, 600, 50], [0, 0], None, None, None,
+                            [word("~", 60), word("inthe", 100), word("Iand", 240), word("of", 400)])])
+    report.write_json(tmp_path / "ocr" / "p.ocr.json", reading.to_json())
+    correct(tmp_path, "p", 0, 3, "off")
+    gone = delete_word(tmp_path, "p", 0, 0)
+    assert gone["old"] == "~" and gone["deleted"]
+    delete_word(tmp_path, "p", 0, 0)  # "inthe", now first
+    add_word(tmp_path, "p", [100, 20, 140, 50], "in")
+    add_word(tmp_path, "p", [150, 20, 200, 50], "the")
+    ocr = OcrPage.from_json(json.loads((tmp_path / "ocr" / "p.ocr.json").read_text()))
+    assert [w.text for w in ocr.lines[0].words] == ["in", "the", "Iand", "off"]
+    log = json.loads((tmp_path / "corrections" / "p.json").read_text())
+    fixed = [(e["line"], e["word"], e["new"]) for e in log if not e.get("deleted")]
+    assert sorted(fixed) == [(0, 0, "in"), (0, 1, "the"), (0, 3, "off")], "the later words' entries moved back, then on"
+    lines = (tmp_path / "training" / "p-l000.gt.txt").read_text().split()
+    assert lines == ["in", "the", "Iand", "off"]
+
+    again = copy.deepcopy(reading)  # read again: the same mistakes
+    carry_corrections(tmp_path, "p", again)
+    assert [w.text for w in again.lines[0].words] == ["in", "the", "Iand", "off"]

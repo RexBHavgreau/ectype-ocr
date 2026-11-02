@@ -136,7 +136,7 @@ class Project:
         path = self.workspace / "corrections" / f"{page}.json"
         if not path.is_file():
             return set()
-        return {(e["line"], e["word"]) for e in json.loads(path.read_text(encoding="utf-8"))}
+        return {(e["line"], e["word"]) for e in json.loads(path.read_text(encoding="utf-8")) if not e.get("deleted")}
 
     def suspects(self) -> list[dict]:
         path = self.workspace / "cluster" / "clusters.json"
@@ -176,6 +176,11 @@ class Project:
         for k, st in word_styles(self.workspace, page).items():
             out.setdefault(k, {}).update(st)
         return out
+
+    def delete_word(self, page: str, line: int, word: int) -> dict:
+        from .review import delete_word
+
+        return delete_word(self.workspace, page, line, word)
 
     def add_word(self, page: str, box: list[int], text: str) -> dict:
         from .review import add_word

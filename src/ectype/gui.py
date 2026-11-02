@@ -215,6 +215,9 @@ class ImageView(QGraphicsView):
             factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
             self.scale(factor, factor)
             self.zoomed.emit(factor)
+            for item in self.scene().items():
+                if isinstance(item, BoxEditor):
+                    item.rescale()
         else:
             super().wheelEvent(event)
 
@@ -468,23 +471,40 @@ class WordItem(QGraphicsRectItem):
 
 
 class BoxEditor(QGraphicsRectItem):
-    """The selected word's whole box, dashed: drag an edge or a corner to stretch it over ink
-    the OCR left out (a first letter missed), or to shrink it. Only its edges take the mouse,
-    so the word's pieces inside can still be clicked."""
+    """The selected word's (or line's) whole box, dashed, with square handles at its corners
+    and edges: drag a handle or an edge to stretch it over ink the OCR left out (a first
+    letter missed), or to shrink it. Handles and the band that takes the mouse keep their size
+    on screen at any zoom. Only the edges take the mouse, so what is inside can still be
+    clicked. `on_change` is told when a drag ends."""
 
     CURSORS = {"l": Qt.CursorShape.SizeHorCursor, "r": Qt.CursorShape.SizeHorCursor,
                "t": Qt.CursorShape.SizeVerCursor, "b": Qt.CursorShape.SizeVerCursor,
                "lt": Qt.CursorShape.SizeFDiagCursor, "rb": Qt.CursorShape.SizeFDiagCursor,
                "rt": Qt.CursorShape.SizeBDiagCursor, "lb": Qt.CursorShape.SizeBDiagCursor}
+    GRAB = 7.0  # screen pixels either side of an edge that take the mouse
+    HANDLE = 11.0  # handle squares' size on screen
 
-    def __init__(self, rect: QRectF, tolerance: float):
+    def __init__(self, rect: QRectF, tolerance: float | None = None, on_change=None):
         super().__init__(rect)
-        self.tol, self.start, self.edges = tolerance, QRectF(rect), ""
+        self.start, self.edges, self.on_change = QRectF(rect), "", on_change
+        self.tol = tolerance if tolerance is not None else self.GRAB
         pen = QPen(COLOURS["selected"], 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setAcceptHoverEvents(True)
         self.setZValue(10)
+
+    def _scale(self) -> float:
+        views = self.scene().views() if self.scene() is not None else []
+        return max(1e-6, views[0].transform().m11()) if views else 1.0
+
+    def rescale(self) -> None:
+        """The view was zoomed: the grab band and handles keep their size on screen."""
+        tol = self.GRAB / self._scale()
+        if abs(tol - self.tol) > 1e-9:
+            self.prepareGeometryChange()
+            self.tol = tol
+        self.update()
 
     def box(self) -> list[int]:
         r = self.rect()
@@ -494,8 +514,15 @@ class BoxEditor(QGraphicsRectItem):
         r = self.start
         return self.box() != [round(r.left()), round(r.top()), round(r.right()), round(r.bottom())]
 
+    def _handles(self) -> list[QPointF]:
+        r = self.rect()
+        cx, cy = r.center().x(), r.center().y()
+        return [QPointF(x, y) for x in (r.left(), cx, r.right()) for y in (r.top(), cy, r.bottom())
+                if not (x == cx and y == cy)]
+
     def boundingRect(self) -> QRectF:
-        return self.rect().adjusted(-self.tol, -self.tol, self.tol, self.tol)
+        m = max(self.tol, self.HANDLE / self._scale())
+        return self.rect().adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
         path = QPainterPath()
@@ -503,6 +530,14 @@ class BoxEditor(QGraphicsRectItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(2 * self.tol)
         return stroker.createStroke(path)
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        size = self.HANDLE / self._scale()
+        painter.setPen(QPen(COLOURS["selected"], 0))
+        painter.setBrush(QBrush(QColor(255, 255, 255)))
+        for p in self._handles():
+            painter.drawRect(QRectF(p.x() - size / 2, p.y() - size / 2, size, size))
 
     def _edges_at(self, p: QPointF) -> str:
         r, t = self.rect(), self.tol
@@ -520,6 +555,7 @@ class BoxEditor(QGraphicsRectItem):
         return out
 
     def hoverMoveEvent(self, event):
+        self.rescale()
         edges = self._edges_at(event.pos())
         if edges in self.CURSORS:
             self.setCursor(self.CURSORS[edges])
@@ -527,9 +563,12 @@ class BoxEditor(QGraphicsRectItem):
             self.unsetCursor()
 
     def mousePressEvent(self, event):
+        self.rescale()
         self.edges = self._edges_at(event.pos())
         if not self.edges:
             event.ignore()
+            return
+        event.accept()
 
     def mouseMoveEvent(self, event):
         if not self.edges:
@@ -543,10 +582,14 @@ class BoxEditor(QGraphicsRectItem):
             r.setTop(min(p.y(), r.bottom() - 2))
         if "b" in self.edges:
             r.setBottom(max(p.y(), r.top() + 2))
+        self.prepareGeometryChange()
         self.setRect(r)
 
     def mouseReleaseEvent(self, event):
+        moved = bool(self.edges)
         self.edges = ""
+        if moved and self.on_change is not None:
+            self.on_change()
 
 
 class CharacterGrid(QListWidget):
@@ -675,6 +718,10 @@ class ReviewTab(QWidget):
         add = QPushButton("Add a word")
         add.setToolTip("Draw a box around a word the OCR missed, then type it and Save")
         add.clicked.connect(self.start_adding)
+        delete = QPushButton("Delete word")
+        delete.setToolTip("Remove the selected word's box (words run together, a word split in two, a speck), "
+                          "then draw the right ones with Add a word")
+        delete.clicked.connect(self.delete_word)
         self.info = QLabel()
         legend = QLabel('<span style="color:#dc2828">■ low OCR confidence</span> &nbsp; '
                         '<span style="color:#e8890c">■ glyph looks like another character</span> &nbsp; '
@@ -686,6 +733,7 @@ class ReviewTab(QWidget):
         bar.addWidget(self.special)
         bar.addWidget(save)
         bar.addWidget(add)
+        bar.addWidget(delete)
         bar.addWidget(self.info, 1)
         self.scan, self.output = ImageView(), ImageView()
         self.scan.drawn.connect(self._drawn)
@@ -822,8 +870,31 @@ class ReviewTab(QWidget):
     def _show_editor(self, box) -> None:
         self._drop_editor()
         x0, y0, x1, y1 = box
-        self.editor = BoxEditor(QRectF(x0, y0, x1 - x0, y1 - y0), 6 / max(1e-6, self.scan.transform().m11()))
+        self.editor = BoxEditor(QRectF(x0, y0, x1 - x0, y1 - y0), on_change=self._box_changed)
         self.scan.scene().addItem(self.editor)
+        self.editor.rescale()
+
+    def _box_changed(self) -> None:
+        self.info.setText("The box changed: press Save (or Enter) to keep it, with the word's text.")
+
+    def delete_word(self) -> None:
+        """The selected word's box removed, to draw the right ones with Add a word (words run
+        together in one box, a word split in two, a speck read as a word)."""
+        if self.page is None or self.selected is None:
+            self.info.setText("Click the word whose box is wrong first.")
+            return
+        item = self.selected
+        result = self.project.delete_word(self.page, item.line, item.word)
+        flags = self.flags.get(self.page, set())  # the line's later words moved back one
+        self.flags[self.page] = {(l, w - 1) if l == item.line and w > item.word else (l, w)
+                                 for l, w in flags if (l, w) != (item.line, item.word)}
+        styles = self.page_styles
+        self.page_styles = {(l, w - 1) if l == item.line and w > item.word else (l, w): st
+                            for (l, w), st in styles.items() if (l, w) != (item.line, item.word)}
+        self._draw_words()
+        self.edit.clear()
+        self.info.setText(f"Deleted: {result['old']}. Draw the right box with Add a word.")
+        self.message.emit("Word box deleted. Press “Update after corrections” to rebuild the PDF.")
 
     def start_adding(self) -> None:
         if self.page is None:
@@ -1619,12 +1690,17 @@ class IdmlDialog(QDialog):
         self.reflow_box = QGroupBox()
         form = QFormLayout(self.reflow_box)
         program = converter.find_program()
-        status = QLabel(f"docx-to-idml {program.version} is installed." if program else
-                        "docx-to-idml isn't installed (or hasn't been opened since it was installed). "
-                        f'<a href="{converter.DOWNLOAD}">Download it</a>, open it once, then export again.')
-        status.setOpenExternalLinks(True)
-        status.setWordWrap(True)
-        form.addRow(status)
+        self.status = QLabel()
+        self.status.setOpenExternalLinks(True)
+        self.status.setWordWrap(True)
+        self.find = QPushButton("Find docx-to-idml…")
+        self.find.setToolTip("Point to the docx-to-idml program (docx-to-idml-0.8.0.exe or later) if Ectype didn't find it")
+        self.find.clicked.connect(self._find_converter)
+        row = QHBoxLayout()
+        row.addWidget(self.status, 1)
+        row.addWidget(self.find)
+        form.addRow(row)
+        self._show_converter(program)
         self.profile = QComboBox()
         self.profile.addItem("docx-to-idml's defaults", None)
         for path in sorted((converter.settings_dir() / "profiles").glob("*.json")):
@@ -1669,6 +1745,38 @@ class IdmlDialog(QDialog):
     def _mode_changed(self) -> None:
         self.reflow_box.setEnabled(self.reflow.isChecked())
         self.fac_box.setEnabled(self.facsimile.isChecked())
+
+    def _show_converter(self, program) -> None:
+        from . import converter
+
+        if program is not None:
+            self.status.setText(f"docx-to-idml {program.version} is installed.")
+            self.find.setVisible(False)
+            return
+        old = converter.too_old()
+        self.status.setText(f"The docx-to-idml found ({old.name}) is older than 0.8.0, which other programs need: "
+                            f'open it and update it, or <a href="{converter.DOWNLOAD}">download the latest</a>.' if old
+                            else "Ectype couldn't find docx-to-idml. Open it once (it then tells Ectype where it is), "
+                            f'point to it with Find docx-to-idml…, or <a href="{converter.DOWNLOAD}">download it</a>.')
+        self.find.setVisible(True)
+
+    def _find_converter(self) -> None:
+        from . import converter
+
+        path, _ = QFileDialog.getOpenFileName(self, "Find docx-to-idml", str(Path.home() / "Downloads"),
+                                              "docx-to-idml (docx-to-idml-*.exe);;Programs (*.exe)")
+        if not path:
+            return
+        v = converter.version_of(Path(path))
+        if v is not None and v < converter.MIN_VERSION:
+            QMessageBox.warning(self, "Find docx-to-idml", f"{Path(path).name} is older than 0.8.0, which other programs "
+                                "need. Open it and update it, then point to the new copy.")
+            return
+        converter.remember(Path(path))
+        program = converter.find_program()
+        self._show_converter(program)
+        if program is not None:
+            self.reflow.setChecked(True)
 
     def options(self):
         from .idml import IdmlOptions
@@ -2287,9 +2395,28 @@ class MainWindow(QMainWindow):
                     self._idml_done, "Exporting IDML")
 
     def _idml_done(self, out: dict) -> None:
-        self.statusBar().showMessage(f"Saved {out['idml']}")
+        """Where the IDML went (its own folder inside the one chosen), a way to open that folder,
+        and docx-to-idml's notes (things its layout did on its own), marked as such."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        idml = Path(out["idml"])
+        folder = Path(out.get("folder") or idml.parent)
+        self.statusBar().showMessage(f"Saved {idml}")
+        self.log.appendPlainText(f"IDML saved: {idml}")
+        box = QMessageBox(self)
+        box.setWindowTitle("Export IDML")
+        box.setText(f"The IDML is saved:\n{idml}")
+        box.setInformativeText("It is in a folder of its own, with its Links" +
+                               (" and the Word manuscript" if out.get("docx") else "") + ". " +
+                               ("docx-to-idml's notes on its layout are under Show Details." if out.get("alerts") else ""))
         if out.get("alerts"):
-            QMessageBox.information(self, "Export IDML", "\n\n".join(out["alerts"]))
+            box.setDetailedText("Notes from docx-to-idml:\n\n" + "\n\n".join(out["alerts"]))
+        opener = box.addButton("Open folder", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if box.clickedButton() is opener:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def _split_changed(self, on: bool) -> None:
         self.project.settings.split_spreads = on

@@ -151,7 +151,7 @@ def _low_confidence(workspace: Path, layout: Layout, below: float) -> dict[str, 
         fixed = set()
         log = workspace / "corrections" / f"{page.name}.json"
         if log.is_file():
-            fixed = {(e["line"], e["word"]) for e in json.loads(log.read_text(encoding="utf-8"))}
+            fixed = {(e["line"], e["word"]) for e in json.loads(log.read_text(encoding="utf-8")) if not e.get("deleted")}
         out[page.name] = {(w["box"][0], w["box"][1]) for li, line in enumerate(data["lines"])
                           for wi, w in enumerate(line["words"]) if w["conf"] < below and (li, wi) not in fixed}
     return out
