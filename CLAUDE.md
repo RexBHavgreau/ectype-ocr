@@ -288,6 +288,14 @@ and Substitute PDF of the Treatise, ship with it):
   a language once a model is installed (ticked in Languages like any other; Tesseract reads
   the page, Kraken rereads words in its script).
 
+**0.7.3** (a fix):
+- *"The Kraken engine downloaded is for another version of Ectype OCR"* (Beaux, 0.7.2, after
+  downloading it again): 0.7.0 raised the worker's protocol to 2 (manuscripts) and left the
+  app's `kraken.PROTOCOL` at 1, so no engine since 0.7.0 was accepted; the earlier "greyed
+  out" reports hid this message (0.7.2 first showed it, once the engine actually started).
+  `kraken.PROTOCOL` is now imported from `kraken_worker`, so the two can't differ again. The
+  engine already downloaded works: no new download needed, just Check again.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
