@@ -331,6 +331,72 @@ def add_word(workspace: Path, page: str, box: list[int], text: str) -> dict:
     return {**entry, "training": str(pair.relative_to(workspace))}
 
 
+def remove_word(ocr: OcrPage, line: int, word: int) -> Word:
+    """Take a word out of the reading (a box round several words run together, part of a word
+    split in two, a speck read as a word); the line's box shrinks to its other words."""
+    ln = ocr.lines[line]
+    w = ln.words.pop(word)
+    if ln.words:
+        ln.box = [min(x.box[0] for x in ln.words), min(x.box[1] for x in ln.words),
+                  max(x.box[2] for x in ln.words), max(x.box[3] for x in ln.words)]
+    return w
+
+
+def _close_gap(workspace: Path, page: str, log: list[dict], line: int, at: int, original: OcrPage) -> None:
+    """A word removed at (line, at): the log's entries for it are dropped (it is gone), its
+    training image too, and the line's later words' entries and images move back one."""
+    for e in log:
+        if "box" not in e:
+            try:
+                e["box"] = original.lines[e["line"]].words[e["word"]].box
+            except IndexError:
+                pass
+    log[:] = [e for e in log if e.get("deleted") or not (e["line"] == line and e["word"] == at)]
+    for e in log:
+        if not e.get("deleted") and e["line"] == line and e["word"] > at:
+            e["word"] -= 1
+    folder = workspace / "training" / "words"
+    for suffix in (".png", ".gt.txt"):
+        (folder / f"{page}-l{line:03d}-w{at:03d}{suffix}").unlink(missing_ok=True)
+    later = []
+    for png in folder.glob(f"{page}-l{line:03d}-w*.png"):
+        try:
+            k = int(png.stem.rsplit("-w", 1)[1])
+        except ValueError:
+            continue
+        if k > at:
+            later.append(k)
+    for k in sorted(later):
+        for suffix in (".png", ".gt.txt"):
+            src = folder / f"{page}-l{line:03d}-w{k:03d}{suffix}"
+            if src.is_file():
+                src.replace(folder / f"{page}-l{line:03d}-w{k - 1:03d}{suffix}")
+
+
+def delete_word(workspace: Path, page: str, line: int, word: int) -> dict:
+    """A word's box deleted in Review (to draw the right ones with Add a word): OCR file,
+    correction log (marked as deleted, by its box, so a new reading loses it again), and the
+    line's training pair."""
+    workspace = Path(workspace)
+    path = workspace / "ocr" / f"{page}.ocr.json"
+    ocr = _open(workspace, page)
+    w = remove_word(ocr, line, word)
+    original = OcrPage.from_json(json.loads((workspace / "ocr" / f"{page}.ocr.original.json").read_text(encoding="utf-8")))
+    log_path, log = _log(workspace, page)
+    _close_gap(workspace, page, log, line, word, original)
+    report.write_json(path, ocr.to_json())
+    entry = {"line": line, "word": word, "old": w.text, "new": "", "box": w.box, "deleted": True,
+             "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    log.append(entry)
+    report.write_json(log_path, log)
+    if ocr.lines[line].words:
+        save_training_line(workspace, page, ocr, line)
+    else:
+        for suffix in (".png", ".gt.txt"):
+            (workspace / "training" / f"{page}-l{line:03d}{suffix}").unlink(missing_ok=True)
+    return entry
+
+
 def carry_corrections(workspace: Path, page_name: str, page: OcrPage) -> int:
     """Carry the page's corrections over to a new reading of it (other languages, a trained
     model): each corrected word's text goes to the new word that covers the same place on the
@@ -347,7 +413,6 @@ def carry_corrections(workspace: Path, page_name: str, page: OcrPage) -> int:
     old = OcrPage.from_json(json.loads(original.read_text(encoding="utf-8")))
     raw = copy.deepcopy(page)
     log = json.loads(log_path.read_text(encoding="utf-8"))
-    words = [(li, wi, w.box) for li, line in enumerate(page.lines) for wi, w in enumerate(line.words)]
 
     def overlap(a, b):
         ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
@@ -357,8 +422,23 @@ def carry_corrections(workspace: Path, page_name: str, page: OcrPage) -> int:
         return inter / union if union > 0 else 0.0
 
     carried = 0
+    # Boxes deleted in Review first: the new reading's word in the same place goes (words
+    # drawn there instead are then added again, not laid over it).
+    for e in log:
+        if not e.get("deleted"):
+            continue
+        now = [(li, wi, w.box) for li, line in enumerate(page.lines) for wi, w in enumerate(line.words)]
+        best = max(now, key=lambda t: overlap(e["box"], t[2]), default=None)
+        if best is None or overlap(e["box"], best[2]) < 0.5:
+            continue  # nothing in its place now
+        remove_word(page, best[0], best[1])
+        e["line"], e["word"] = best[0], best[1]
+        carried += 1
+    words = [(li, wi, w.box) for li, line in enumerate(page.lines) for wi, w in enumerate(line.words)]
     missing = []
     for e in log:
+        if e.get("deleted"):
+            continue
         try:
             box = e.get("box") or old.lines[e["line"]].words[e["word"]].box
         except IndexError:
@@ -424,7 +504,7 @@ def _page_html(workspace: Path, page: str, flags: set[tuple[int, int]], low_conf
     fixed = set()
     log = workspace / "corrections" / f"{page}.json"
     if log.is_file():
-        fixed = {(e["line"], e["word"]) for e in json.loads(log.read_text(encoding="utf-8"))}
+        fixed = {(e["line"], e["word"]) for e in json.loads(log.read_text(encoding="utf-8")) if not e.get("deleted")}
     boxes = []
     for li, line in enumerate(ocr.lines):
         for wi, w in enumerate(line.words):

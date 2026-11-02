@@ -446,3 +446,35 @@ def test_manuscript_mode_menu_and_the_kraken_view(tmp_path, monkeypatch):
     assert [x.text() for x in w.langs.menu_.actions()][0] == "Switch to Manuscript Mode"
     w.close()
     app.processEvents()
+
+
+def test_delete_a_word_box_and_stretch_with_handles(project):
+    """Review: Delete word removes the selected box (to draw the right ones); the dashed box's
+    grab band keeps its size on screen when zooming."""
+    import shutil
+
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+    from ectype.project import Project
+
+    app = QApplication.instance() or QApplication([])
+    copy = Project(shutil.copytree(project.workspace, project.workspace.parent / "delete-copy"))
+    w = MainWindow(copy)
+    r = w.review
+    page = r.page
+    before = sum(len(l.words) for l in copy.ocr(page).lines)
+    item = r.items[0]
+    r.select(item)
+    assert r.editor is not None
+    tol = r.editor.tol
+    r.scan.scale(4, 4)
+    r.editor.rescale()
+    assert abs(r.editor.tol - tol / 4) < 1e-6, "the grab band stays the same on screen"
+    r.delete_word()
+    assert sum(len(l.words) for l in copy.ocr(page).lines) == before - 1
+    assert "Deleted" in r.info.text() and r.selected is None
+    log = json.loads((copy.workspace / "corrections" / f"{page}.json").read_text(encoding="utf-8"))
+    assert log[-1]["deleted"]
+    w.close()
+    app.processEvents()

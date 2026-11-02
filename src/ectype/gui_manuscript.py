@@ -226,8 +226,10 @@ class ManuscriptReviewTab(QWidget):
         item.set_selected(True)
         self._drop_editor()
         x0, y0, x1, y1 = item.line["box"]
-        self.editor = BoxEditor(QRectF(x0, y0, x1 - x0, y1 - y0), 6 / max(1e-6, self.scan.transform().m11()))
+        self.editor = BoxEditor(QRectF(x0, y0, x1 - x0, y1 - y0),
+                                on_change=lambda: self.info.setText("The line's box changed: press Save to keep it."))
         self.scan.scene().addItem(self.editor)
+        self.editor.rescale()
         line = item.line
         rtl = manuscript.direction(self.project.settings) == "horizontal-rl"
         self.edit.setLayoutDirection(Qt.LayoutDirection.RightToLeft if rtl else Qt.LayoutDirection.LeftToRight)

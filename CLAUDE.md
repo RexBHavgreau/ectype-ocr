@@ -189,6 +189,18 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   and folders in them named for it) for `docx-to-idml-X.Y.Z.exe`, the newest of 0.8.0 or
   later (`MIN_VERSION`: the first with `convert`). An older copy found is named in the
   message, with how to update it (`too_old`).
+- *A wrong word box couldn't be removed* (Beaux: two words in one box, or one word in two,
+  had no fix): Review's **Delete word** (`review.delete_word`, `remove_word`): the box leaves
+  the OCR file, its log entries and word image go, the line's later entries and images move
+  back one (`_close_gap`); logged as `"deleted"` with its box, so `carry_corrections` removes
+  the new reading's word in that place (IoU >= 0.5) **before** carrying the rest (else the
+  words drawn there were laid over the old wrong box). Deleted entries don't count as
+  corrected (`Project.corrected`, docx, the browser Review). Then Add a word draws the right ones.
+- *Stretching a box was hard* (Beaux: "doesn't really work very well"): `BoxEditor`'s grab
+  band was fixed in page pixels when the word was selected, so zooming made it tiny or
+  swallowed the word. It now keeps 7 screen pixels (`rescale`, called on zoom by `ImageView`
+  and on hover/press), draws square handles (11 px on screen) at corners and edge middles,
+  and says when a drag ended that Save keeps the new box (`on_change`).
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
