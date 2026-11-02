@@ -324,7 +324,10 @@ and Substitute PDF of the Treatise, ship with it):
   wrong").
 - Not for now: showing words dropped as noise as faint boxes in Review to restore them.
 - Not build work, in Beaux's view: lone punctuation left as image, the odd "2" of the
-  Treatise's "12.", the browser Review lacking the app's new tools.
+  Treatise's "12.".
+- **Ectype will be shared with others** (Beaux, after 0.7.3): so it must be safe for people
+  who didn't build it (checked downloads, nothing a web page or a shared project folder can
+  exploit); Windows remains the only platform.
 - An English known text for Train from fonts: only a maybe (corrections already teach plain
   English; special characters are Transliteration's).
 
@@ -480,6 +483,19 @@ and Substitute PDF of the Treatise, ship with it):
 
 ## Planned
 
+- **0.8.0** (Beaux agreed, after Qwen Code's review of 0.7.2; new features, so a minor version):
+  a **Stop** button for any run (the progress window; stages stop between pages); **retire the
+  browser Review** (`ectype review`, `review.serve`/`make_handler`: an older Review in a web
+  browser, with no protection against other web pages posting to it; Beaux didn't remember it);
+  **check every download** against a known fingerprint (Tesseract language files, the known
+  texts, Kraken models by Zenodo's checksums; the updater and engine already use SHA-256);
+  **lossless page background** as a choice (now JPEG quality 75), and the PDF's language, title
+  and metadata (libraries may take these files); replace the pickle caches (`cluster.Cache`)
+  with a safe format; cached results checked by content and the code's own version, not by
+  file times and hand-bumped `CACHE_VERSION`s (a forgotten bump has bitten twice).
+- **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
+  Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
+  the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.
 - Manuscripts, later: straightening curved pages (Beaux: not now); training on Intel graphics
   (needs changes to Kraken); a Hebrew manuscript model tried on Beaux's PC (BiblIA, Zenodo).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
