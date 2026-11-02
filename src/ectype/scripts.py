@@ -66,6 +66,15 @@ LATIN_WORD = re.compile(r"^[(\[“‘\"']?(?=[A-Za-z'’]*[aeiouyAEIOUY])[A-Z]?[
 BIDI_MARKS = dict.fromkeys(map(ord, "‎‏‪‫‬‭‮⁦⁧⁨⁩"))
 
 
+def scripts_read(lang: str) -> list[str]:
+    """The scripts a language reads: one, or each of a many-script Kraken model's."""
+    if lang.startswith("kraken_"):
+        from .kraken import reads
+
+        return reads(lang) or [script_of(lang)]
+    return [script_of(lang)]
+
+
 def script_of(lang: str) -> str:
     if lang.startswith("kraken_"):
         from .kraken import main_script
@@ -138,7 +147,8 @@ def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None
         detect_fn = lambda crop: detect(cmd, env, crop, flags)  # noqa: E731
     covered: dict[str, str] = {}
     for lang in langs:
-        covered.setdefault(script_of(lang), lang)
+        for script in scripts_read(lang):
+            covered.setdefault(script, lang)
     h, w = gray.shape
     # With a Kraken model chosen for a script, Tesseract (without that script's language) can
     # read its words as confident figures ("13723" for וּבָרְכוּ): check what isn't a plain word too.
@@ -200,7 +210,7 @@ def suggest(unread: dict[str, int], chosen: list[str], pages: list[dict[str, int
     scattered over it, three on one page.)"""
     import math
 
-    covered = {script_of(lang) for lang in chosen}
+    covered = {script for lang in chosen for script in scripts_read(lang)}
     need = 1 if not pages or len(pages) < 2 else min(3, max(2, math.ceil(len(pages) / 20)))
     out = []
     for script, n in sorted(unread.items(), key=lambda kv: -kv[1]):

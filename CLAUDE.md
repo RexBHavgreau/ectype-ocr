@@ -296,6 +296,20 @@ and Substitute PDF of the Treatise, ship with it):
   `kraken.PROTOCOL` is now imported from `kraken_worker`, so the two can't differ again. The
   engine already downloaded works: no new download needed, just Check again.
 
+**0.7.4** (a fix):
+- *Downloading "Pretrained multilingual Party base model" failed* (Beaux, 0.7.3, the first time
+  the engine ran: "No loader found for …model.safetensors"): Party models read whole pages and
+  Kraken 7's line reader can't load them, but Zenodo lists them as recognition models. The
+  worker's `get` already refused them; now `kraken.page_model` (Party in the name or keywords,
+  "page-wise" in the description) leaves them out of the list, the kept list included, and the
+  refusal says in plain words to choose another.
+- *A multilingual Kraken model showed up as Arabic only* (Beaux, 0.7.3): a model was named and
+  used for one script, its first other than Latin (`main_script`; the repository lists scripts
+  alphabetically, so Arabic). `kraken.reads` gives all its scripts other than Latin; the name
+  lists them, reading (`ocr.py`) gives each script to a model that reads it (a model of fewer
+  scripts first), and `scripts.scripts_read` counts them all as covered. Training such a model
+  (`pool`, `trainall`) still uses its main script only.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
@@ -324,7 +338,10 @@ and Substitute PDF of the Treatise, ship with it):
   wrong").
 - Not for now: showing words dropped as noise as faint boxes in Review to restore them.
 - Not build work, in Beaux's view: lone punctuation left as image, the odd "2" of the
-  Treatise's "12.", the browser Review lacking the app's new tools.
+  Treatise's "12.".
+- **Ectype will be shared with others** (Beaux, after 0.7.3): so it must be safe for people
+  who didn't build it (checked downloads, nothing a web page or a shared project folder can
+  exploit); Windows remains the only platform.
 - An English known text for Train from fonts: only a maybe (corrections already teach plain
   English; special characters are Transliteration's).
 
@@ -480,6 +497,23 @@ and Substitute PDF of the Treatise, ship with it):
 
 ## Planned
 
+- **0.8.0** (Beaux agreed, after Qwen Code's review of 0.7.2; new features, so a minor version):
+  a **Stop** button for any run (the progress window; stages stop between pages); **retire the
+  browser Review** (`ectype review`, `review.serve`/`make_handler`: an older Review in a web
+  browser, with no protection against other web pages posting to it; Beaux didn't remember it);
+  **check every download** against a known fingerprint (Tesseract language files, the known
+  texts, Kraken models by Zenodo's checksums; the updater and engine already use SHA-256);
+  **lossless page background** as a choice (now JPEG quality 75), and the PDF's language, title
+  and metadata (libraries may take these files); replace the pickle caches (`cluster.Cache`)
+  with a safe format; cached results checked by content and the code's own version, not by
+  file times and hand-bumped `CACHE_VERSION`s (a forgotten bump has bitten twice).
+- **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
+  Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
+  the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.
+  **Party** (Kiessling's page model, Beaux chose it for its low listed error rate): needs the
+  separate `party` package, not Kraken's line reader; check its speed on CPU, its size, and
+  whether it gives each letter's place (traced PDFs need it) before offering it. Listed error
+  rates come from each model's own test pages, so they don't compare across models.
 - Manuscripts, later: straightening curved pages (Beaux: not now); training on Intel graphics
   (needs changes to Kraken); a Hebrew manuscript model tried on Beaux's PC (BiblIA, Zenodo).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).

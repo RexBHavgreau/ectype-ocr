@@ -242,11 +242,23 @@ def main_script(code: str) -> str | None:
     return next((s for s in scripts if s != "Latin"), scripts[0] if scripts else None)
 
 
+def reads(code: str) -> list[str]:
+    """Every script a model is used for: all of its scripts other than Latin, else Latin. A
+    model of many scripts reads each of them (Beaux, 0.7.3: a multilingual model was shown,
+    and used, for Arabic alone, the first in its list)."""
+    model = installed_models().get(code)
+    if model is None:
+        return []
+    scripts = scripts_of(model)
+    return [s for s in scripts if s != "Latin"] or scripts[:1]
+
+
 def name(code: str) -> str:
     model = installed_models().get(code)
     if model is None:
         return code
-    script = main_script(code) or "Kraken"
+    many = reads(code)
+    script = ", ".join(many) if len(many) > 1 else main_script(code) or "Kraken"
     title = model.get("title") or code
     if model.get("book"):
         return f"{script} (Kraken), trained on {model['book']}"
@@ -264,14 +276,21 @@ def list_models(refresh: bool = False, progress: Callable[[int, int], None] | No
         try:
             kept = json.loads(cache.read_text(encoding="utf-8"))
             if kept:  # an empty list (Zenodo didn't answer) is asked for again, not kept for a week
-                return kept
+                return [r for r in kept if not page_model(r)]
         except ValueError:
             pass
     records = _run(["list"], timeout=900, progress=progress)
     if records:
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
-    return records
+    return [r for r in records if not page_model(r)]
+
+
+def page_model(record: dict) -> bool:
+    """A model that reads whole pages (Party), which Kraken's line reader can't load: the
+    repository lists it among the recognition models (Beaux, 0.7.3: "No loader found")."""
+    words = " ".join([record.get("summary", ""), *record.get("keywords", [])]).lower()
+    return bool(re.search(r"\bparty\b", words)) or "page-wise" in record.get("description", "").lower()
 
 
 def printed(record: dict) -> bool | None:
