@@ -276,7 +276,15 @@ and Substitute PDF of the Treatise, ship with it):
   is offered once in a pop-up when the Kraken tab is opened without the engine
   (`_offer_engine`, from `showEvent`), the button only while it's missing; "Show the models" is
   now "Reload the list", shown only with a working engine; the script filter has a "Script:"
-  label and waits for the list. Beaux had taken Kraken for part of every reading: it is
+  label and waits for the list. **Then** (Beaux has the VC++ runtime, 14.51): the likelier
+  cause is PyInstaller starting PyInstaller: the app's bootloader leaves `_PYI_*` variables
+  (and `_MEIPASS2`) and its DLL directory (SetDllDirectory) to its children, so the frozen
+  engine, started from the frozen app, looked for its code and libraries in the app's
+  `_internal`; the release check started the engine alone, so passed. `resources.frozen_child_env`
+  drops them and sets `PYINSTALLER_RESET_ENVIRONMENT=1`, `clean_dll_search` resets the DLL
+  directory around the start (kraken `_run`, `Session`, `converter.convert` for docx-to-idml,
+  also PyInstaller); `kraken_smoke.py` starts the engine with the app's variables left in (a
+  diagnostic, printed) and cleaned (must start). Beaux had taken Kraken for part of every reading: it is
   a language once a model is installed (ticked in Languages like any other; Tesseract reads
   the page, Kraken rereads words in its script).
 

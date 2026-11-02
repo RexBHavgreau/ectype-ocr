@@ -70,7 +70,9 @@ def worker_command() -> list[str] | None:
 def _env() -> dict:
     """The worker's environment: Python in UTF-8 mode (Kraken's repository client reads its data
     files in the default encoding, which on Windows isn't UTF-8), and UTF-8 on its pipes."""
-    return {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    from .resources import frozen_child_env
+
+    return {**frozen_child_env(), "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 
 
 def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], None] | None = None) -> object:
@@ -78,8 +80,11 @@ def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], N
     cmd = worker_command()
     if cmd is None:
         raise KrakenError("The Kraken engine isn't installed.")
-    proc = subprocess.Popen(cmd + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            encoding="utf-8", errors="replace", env=_env(), **subprocess_flags())
+    from .resources import clean_dll_search
+
+    with clean_dll_search():
+        proc = subprocess.Popen(cmd + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                encoding="utf-8", errors="replace", env=_env(), **subprocess_flags())
     errors: list[str] = []
 
     def watch():
@@ -311,10 +316,16 @@ class Session:
         env = _env()
         if threads:  # several sessions side by side share the cores (manuscripts)
             env.update(ECTYPE_THREADS=str(threads), OMP_NUM_THREADS=str(threads))
-        self.proc = subprocess.Popen(cmd + ["serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env,
-                                     **subprocess_flags())
+        from .resources import clean_dll_search
+
+        with clean_dll_search():
+            self.proc = self._start(cmd, env)
         self.lock = threading.Lock()
+
+    @staticmethod
+    def _start(cmd, env):
+        return subprocess.Popen(cmd + ["serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env, **subprocess_flags())
 
     def read(self, model_file: str, image: Path, boxes: list[list[int]], pack: str | None = None) -> list[dict]:
         return self._ask({"model": model_file, "pack": pack, "image": str(image), "lines": boxes})["lines"]

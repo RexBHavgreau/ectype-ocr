@@ -276,3 +276,17 @@ def test_engine_offered_once_when_the_kraken_tab_is_opened(data, monkeypatch):
     dialog.close()
     dialog.deleteLater()
     app.processEvents()
+
+
+def test_frozen_children_start_clean(monkeypatch):
+    """Started from the packaged app, the Kraken engine (packaged the same way) inherited the
+    app's PyInstaller settings and looked for its code in the app's folder. They're dropped."""
+    from ectype.resources import frozen_child_env
+
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", r"D:\Program Files\Ectype OCR\_internal")
+    monkeypatch.setenv("_PYI_PARENT_PROCESS_LEVEL", "1")
+    monkeypatch.setenv("_MEIPASS2", "x")
+    env = kraken._env()
+    assert not any(k.startswith(("_PYI_", "_MEIPASS")) for k in env)
+    assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1" and env["PYTHONUTF8"] == "1"
+    assert "PATH" in frozen_child_env({"PATH": "x", "_PYI_ARCHIVE_FILE": "y"})

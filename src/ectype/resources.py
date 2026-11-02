@@ -124,6 +124,39 @@ def quiet_windows_errors() -> None:
             pass
 
 
+def frozen_child_env(env: dict | None = None) -> dict:
+    """The environment for starting another program packaged with PyInstaller (the Kraken
+    engine, docx-to-idml) from this one. A frozen program leaves settings in its environment
+    (_PYI_*, _MEIPASS2) that a frozen child takes as its own: it then looks for its code and
+    libraries in this program's folder and fails to start. PyInstaller's remedy: drop them and
+    set PYINSTALLER_RESET_ENVIRONMENT."""
+    out = {k: v for k, v in (env if env is not None else os.environ).items()
+           if not k.upper().startswith(("_PYI_", "_MEIPASS"))}
+    out["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return out
+
+
+class clean_dll_search:
+    """While starting another program: Windows' DLL search not pointed at this program's own
+    folder. The PyInstaller bootloader points it there (SetDllDirectory), and a child inherits
+    that, loading this program's copies of shared libraries instead of its own."""
+
+    def __enter__(self):
+        self.reset = sys.platform == "win32" and bundle_dir() is not None
+        if self.reset:
+            import ctypes
+
+            ctypes.windll.kernel32.SetDllDirectoryW(None)
+        return self
+
+    def __exit__(self, *exc):
+        if self.reset:
+            import ctypes
+
+            ctypes.windll.kernel32.SetDllDirectoryW(str(bundle_dir()))
+        return False
+
+
 def subprocess_flags() -> dict:
     """Keep child processes from flashing a console window from the desktop app on Windows."""
     if sys.platform == "win32":
