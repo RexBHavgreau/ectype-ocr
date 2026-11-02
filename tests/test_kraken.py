@@ -238,3 +238,41 @@ def test_an_empty_model_list_is_asked_for_again(tmp_path, monkeypatch):
     assert kraken.list_models()[0]["summary"] == "Hebrew"
     monkeypatch.setattr(kraken, "_run", lambda args, **kw: [])
     assert kraken.list_models()[0]["summary"] == "Hebrew", "a good list is kept"
+
+
+def test_engine_offered_once_when_the_kraken_tab_is_opened(data, monkeypatch):
+    """No engine yet: opening the Kraken tab offers its download once; the script filter waits
+    for the list; with the engine working, there is no download button."""
+    import sys
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from ectype.gui import AddLanguagesDialog
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(kraken, "engine_status", lambda: {"installed": False, "downloaded": False,
+                                                          "problem": "The Kraken engine isn't installed."})
+    asked = []
+    monkeypatch.setattr(qt.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or qt.QMessageBox.StandardButton.No)
+    app = qt.QApplication.instance() or qt.QApplication([])
+    dialog = AddLanguagesDialog()
+    panel = dialog.kraken
+    dialog.show()
+    while panel.task is not None and panel.task.isRunning():
+        app.processEvents()
+    for _ in range(5):
+        app.processEvents()
+    assert asked == [], "not while the Tesseract tab is in view"
+    dialog.tabs.setCurrentWidget(panel)
+    for _ in range(5):
+        app.processEvents()
+    dialog.tabs.setCurrentIndex(0)
+    dialog.tabs.setCurrentWidget(panel)
+    for _ in range(5):
+        app.processEvents()
+    assert len(asked) == 1 and "Download it now" in asked[0], "offered once"
+    assert panel.engine_button.isVisible() and not panel.script.isEnabled() and not panel.list_button.isVisible()
+    dialog.close()
+    dialog.deleteLater()
+    app.processEvents()

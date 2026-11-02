@@ -35,6 +35,12 @@ def run(engine: str, *args: str, stdin: str | None = None) -> object:
 def main() -> int:
     engine, work = sys.argv[1], Path(sys.argv[2]).resolve()  # whole paths: Kraken reads a PageXML's image beside it
     work.mkdir(parents=True, exist_ok=True)
+    # The C++ runtime PyTorch needs must travel with the engine: this machine has it installed,
+    # many users' computers don't (the engine then can't start there).
+    folder = Path(engine).resolve().parent
+    missing = [d for d in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") if not any(folder.rglob(d))]
+    if missing:
+        sys.exit(f"the engine lacks the C++ runtime: {', '.join(missing)}")
     records = run(engine, "list")
     print(f"{len(records)} recognition models")
     # The same model every time (the listing's order varies), so the check is repeatable:
