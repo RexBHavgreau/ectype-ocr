@@ -296,6 +296,14 @@ and Substitute PDF of the Treatise, ship with it):
   `kraken.PROTOCOL` is now imported from `kraken_worker`, so the two can't differ again. The
   engine already downloaded works: no new download needed, just Check again.
 
+**0.7.4** (a fix):
+- *Downloading "Pretrained multilingual Party base model" failed* (Beaux, 0.7.3, the first time
+  the engine ran: "No loader found for …model.safetensors"): Party models read whole pages and
+  Kraken 7's line reader can't load them, but Zenodo lists them as recognition models. The
+  worker's `get` already refused them; now `kraken.page_model` (Party in the name or keywords,
+  "page-wise" in the description) leaves them out of the list, the kept list included, and the
+  refusal says in plain words to choose another.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

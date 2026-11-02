@@ -264,14 +264,21 @@ def list_models(refresh: bool = False, progress: Callable[[int, int], None] | No
         try:
             kept = json.loads(cache.read_text(encoding="utf-8"))
             if kept:  # an empty list (Zenodo didn't answer) is asked for again, not kept for a week
-                return kept
+                return [r for r in kept if not page_model(r)]
         except ValueError:
             pass
     records = _run(["list"], timeout=900, progress=progress)
     if records:
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
-    return records
+    return [r for r in records if not page_model(r)]
+
+
+def page_model(record: dict) -> bool:
+    """A model that reads whole pages (Party), which Kraken's line reader can't load: the
+    repository lists it among the recognition models (Beaux, 0.7.3: "No loader found")."""
+    words = " ".join([record.get("summary", ""), *record.get("keywords", [])]).lower()
+    return bool(re.search(r"\bparty\b", words)) or "page-wise" in record.get("description", "").lower()
 
 
 def printed(record: dict) -> bool | None:

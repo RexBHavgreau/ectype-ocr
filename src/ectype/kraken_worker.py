@@ -132,7 +132,8 @@ def get(doi: str, folder: str) -> dict:
         try:
             RecognitionTaskModel.load_model(weights[0])
         except Exception as exc:
-            raise ValueError(f"Kraken can't use this model to read lines ({str(exc).splitlines()[0][:200]})") from exc
+            raise ValueError("This model reads whole pages or needs other software, so Kraken can't use it "
+                             f"to read lines: choose another ({str(exc).splitlines()[0][:200]})") from exc
     return {"folder": str(path), "files": files, "model": weights[0] if weights else None}
 
 

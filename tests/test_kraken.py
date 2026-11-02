@@ -301,3 +301,15 @@ def test_the_app_expects_the_engines_protocol(monkeypatch):
     monkeypatch.setattr(kraken, "_run", lambda args, timeout=None: {"protocol": kraken_worker.PROTOCOL,
                                                                    "kraken": "7.1.1", "torch": "2.14.0"})
     assert kraken.engine_status()["installed"] is True
+
+
+def test_whole_page_models_are_left_out_of_the_list(tmp_path, monkeypatch):
+    """Party, a model that reads whole pages, was listed and failed to download (Beaux, 0.7.3)."""
+    from ectype import kraken
+    party = {"doi": "10.5281/zenodo.20642057", "summary": "Pretrained multilingual Party base model",
+             "keywords": [], "description": "# Llama Party\n\nParty is page-wise recognition of text."}
+    lines = {"doi": "10.5281/zenodo.1", "summary": "Printed Hebrew", "keywords": ["print"], "description": ""}
+    monkeypatch.setattr(kraken, "models_dir", lambda: tmp_path)
+    monkeypatch.setattr(kraken, "_run", lambda args, timeout=None, progress=None: [party, lines])
+    assert [r["doi"] for r in kraken.list_models()] == ["10.5281/zenodo.1"]
+    assert [r["doi"] for r in kraken.list_models()] == ["10.5281/zenodo.1"], "also from the kept list"
