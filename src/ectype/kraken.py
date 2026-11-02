@@ -70,7 +70,9 @@ def worker_command() -> list[str] | None:
 def _env() -> dict:
     """The worker's environment: Python in UTF-8 mode (Kraken's repository client reads its data
     files in the default encoding, which on Windows isn't UTF-8), and UTF-8 on its pipes."""
-    return {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    from .resources import frozen_child_env
+
+    return {**frozen_child_env(), "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 
 
 def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], None] | None = None) -> object:
@@ -78,8 +80,11 @@ def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], N
     cmd = worker_command()
     if cmd is None:
         raise KrakenError("The Kraken engine isn't installed.")
-    proc = subprocess.Popen(cmd + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            encoding="utf-8", errors="replace", env=_env(), **subprocess_flags())
+    from .resources import clean_dll_search
+
+    with clean_dll_search():
+        proc = subprocess.Popen(cmd + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                encoding="utf-8", errors="replace", env=_env(), **subprocess_flags())
     errors: list[str] = []
 
     def watch():
@@ -113,13 +118,16 @@ def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], N
 def engine_status() -> dict:
     """{"installed": bool, "kraken": version, "torch": version, "problem": message}"""
     if worker_command() is None:
-        return {"installed": False, "problem": "The Kraken engine isn't installed."}
+        return {"installed": False, "problem": "The Kraken engine isn't installed.", "downloaded": False}
     try:
-        info = _run(["version"], timeout=180)
-    except (KrakenError, OSError, ValueError) as exc:
-        return {"installed": False, "problem": str(exc)}
+        # The first start can take minutes: thousands of files, each checked by the virus
+        # scanner the first time (Windows Defender).
+        info = _run(["version"], timeout=900)
+    except (KrakenError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        return {"installed": False, "problem": str(exc) or type(exc).__name__, "downloaded": True}
     if info.get("protocol") != PROTOCOL:
-        return {"installed": False, "problem": "The Kraken engine installed is for another version of Ectype OCR."}
+        return {"installed": False, "downloaded": True,
+                "problem": "The Kraken engine downloaded is for another version of Ectype OCR: download it again."}
     return {"installed": True, **info}
 
 
@@ -254,12 +262,15 @@ def list_models(refresh: bool = False, progress: Callable[[int, int], None] | No
     cache = models_dir() / "listing.json"
     if not refresh and cache.is_file() and time.time() - cache.stat().st_mtime < LISTING_MAX_AGE:
         try:
-            return json.loads(cache.read_text(encoding="utf-8"))
+            kept = json.loads(cache.read_text(encoding="utf-8"))
+            if kept:  # an empty list (Zenodo didn't answer) is asked for again, not kept for a week
+                return kept
         except ValueError:
             pass
     records = _run(["list"], timeout=900, progress=progress)
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+    if records:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
     return records
 
 
@@ -305,10 +316,16 @@ class Session:
         env = _env()
         if threads:  # several sessions side by side share the cores (manuscripts)
             env.update(ECTYPE_THREADS=str(threads), OMP_NUM_THREADS=str(threads))
-        self.proc = subprocess.Popen(cmd + ["serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env,
-                                     **subprocess_flags())
+        from .resources import clean_dll_search
+
+        with clean_dll_search():
+            self.proc = self._start(cmd, env)
         self.lock = threading.Lock()
+
+    @staticmethod
+    def _start(cmd, env):
+        return subprocess.Popen(cmd + ["serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env, **subprocess_flags())
 
     def read(self, model_file: str, image: Path, boxes: list[list[int]], pack: str | None = None) -> list[dict]:
         return self._ask({"model": model_file, "pack": pack, "image": str(image), "lines": boxes})["lines"]

@@ -254,6 +254,40 @@ and Substitute PDF of the Treatise, ship with it):
   (`_visual`; no shaping engine: marks drawn by their zero-advance outlines). Words no face
   can set still stay as the scan.
 
+**0.7.2** (on the branch; a fix):
+- *Kraken showed no models after the engine was installed* (Beaux, 0.7.1): the list loads only
+  on "Show the models", easy to miss, and an empty answer from Zenodo was cached for a week
+  (`kraken.list_models` now keeps only a non-empty list). `KrakenModelsPanel` loads the list
+  as soon as the engine is there (`_load_when_free`: after the engine check's task ends), and
+  says why when no models came back. **Then** (Beaux): "Show the models" stayed grey while the
+  panel said "Kraken engine installed.": that line was shown after any download, whether or not
+  the engine then started (`engine_status` ran `version` with a 180 s limit; a first start of
+  the PyTorch engine, its thousands of files scanned by Defender, can take longer), and the
+  reason was never shown. Now `engine_status` waits up to 900 s and reports `downloaded`, the
+  panel shows why the engine didn't start, with **Check again** and "Download it again" and the
+  Defender exclusion for `%LOCALAPPDATA%\Ectype OCR\kraken-engine`; the line says
+  "downloaded and working" only when it is. **Then** (Beaux, the folder already excluded from
+  Defender, the engine downloaded again): still grey. The 0.7.1 release's engine passed its
+  start-up check on GitHub's Windows machine, which has Microsoft's Visual C++ runtime
+  installed; many PCs don't, and PyTorch's DLLs need it. `ectype-kraken.spec` now bundles
+  msvcp140*/vcruntime140*/concrt140/vcomp140 from System32 (app-local, beside the engine and in
+  torch/lib), and `kraken_smoke.py` fails if they're missing (unconfirmed as Beaux's cause: the
+  panel now shows the engine's own error if it still won't start). Panel (Beaux): the download
+  is offered once in a pop-up when the Kraken tab is opened without the engine
+  (`_offer_engine`, from `showEvent`), the button only while it's missing; "Show the models" is
+  now "Reload the list", shown only with a working engine; the script filter has a "Script:"
+  label and waits for the list. **Then** (Beaux has the VC++ runtime, 14.51): the likelier
+  cause is PyInstaller starting PyInstaller: the app's bootloader leaves `_PYI_*` variables
+  (and `_MEIPASS2`) and its DLL directory (SetDllDirectory) to its children, so the frozen
+  engine, started from the frozen app, looked for its code and libraries in the app's
+  `_internal`; the release check started the engine alone, so passed. `resources.frozen_child_env`
+  drops them and sets `PYINSTALLER_RESET_ENVIRONMENT=1`, `clean_dll_search` resets the DLL
+  directory around the start (kraken `_run`, `Session`, `converter.convert` for docx-to-idml,
+  also PyInstaller); `kraken_smoke.py` starts the engine with the app's variables left in (a
+  diagnostic, printed) and cleaned (must start). Beaux had taken Kraken for part of every reading: it is
+  a language once a model is installed (ticked in Languages like any other; Tesseract reads
+  the page, Kraken rereads words in its script).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

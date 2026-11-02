@@ -122,7 +122,20 @@ def test_engine_download_is_found_in_the_release(monkeypatch):
 
 def test_engine_status_without_kraken(monkeypatch):
     monkeypatch.setattr(kraken, "worker_command", lambda: None)
-    assert kraken.engine_status() == {"installed": False, "problem": "The Kraken engine isn't installed."}
+    assert kraken.engine_status() == {"installed": False, "problem": "The Kraken engine isn't installed.",
+                                      "downloaded": False}
+
+
+def test_engine_downloaded_but_not_starting(monkeypatch):
+    """Beaux, 0.7.1: the engine downloaded, "Kraken engine installed." said, and the models
+    button stayed grey with no reason given. The reason is now given."""
+    monkeypatch.setattr(kraken, "worker_command", lambda: ["ectype-kraken.exe"])
+
+    def slow(args, timeout=600, progress=None):
+        raise kraken.KrakenError(f"Kraken took longer than {timeout:.0f} seconds (version).")
+    monkeypatch.setattr(kraken, "_run", slow)
+    status = kraken.engine_status()
+    assert status["downloaded"] and not status["installed"] and "900 seconds" in status["problem"]
 
 
 def test_models_panel(data, monkeypatch):
@@ -213,3 +226,67 @@ def test_a_family_pack_over_the_general_model(tmp_path):
         plain = session.read(MODEL, tmp_path / "line.png", [[0, 0, 600, 80]])
         packed = session.read(MODEL, tmp_path / "line.png", [[0, 0, 600, 80]], str(tmp_path / "f1.pack.safetensors"))
     assert plain == packed
+
+
+def test_an_empty_model_list_is_asked_for_again(tmp_path, monkeypatch):
+    """Zenodo not answering once mustn't leave the Kraken models list empty for a week."""
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path))
+    answers = [[], [{"doi": "10.5281/zenodo.1", "summary": "Hebrew"}]]
+    monkeypatch.setattr(kraken, "_run", lambda args, **kw: answers.pop(0))
+    assert kraken.list_models() == []
+    assert not (kraken.models_dir() / "listing.json").exists(), "nothing kept"
+    assert kraken.list_models()[0]["summary"] == "Hebrew"
+    monkeypatch.setattr(kraken, "_run", lambda args, **kw: [])
+    assert kraken.list_models()[0]["summary"] == "Hebrew", "a good list is kept"
+
+
+def test_engine_offered_once_when_the_kraken_tab_is_opened(data, monkeypatch):
+    """No engine yet: opening the Kraken tab offers its download once; the script filter waits
+    for the list; with the engine working, there is no download button."""
+    import sys
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from ectype.gui import AddLanguagesDialog
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(kraken, "engine_status", lambda: {"installed": False, "downloaded": False,
+                                                          "problem": "The Kraken engine isn't installed."})
+    asked = []
+    monkeypatch.setattr(qt.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or qt.QMessageBox.StandardButton.No)
+    app = qt.QApplication.instance() or qt.QApplication([])
+    dialog = AddLanguagesDialog()
+    panel = dialog.kraken
+    dialog.show()
+    while panel.task is not None and panel.task.isRunning():
+        app.processEvents()
+    for _ in range(5):
+        app.processEvents()
+    assert asked == [], "not while the Tesseract tab is in view"
+    dialog.tabs.setCurrentWidget(panel)
+    for _ in range(5):
+        app.processEvents()
+    dialog.tabs.setCurrentIndex(0)
+    dialog.tabs.setCurrentWidget(panel)
+    for _ in range(5):
+        app.processEvents()
+    assert len(asked) == 1 and "Download it now" in asked[0], "offered once"
+    assert panel.engine_button.isVisible() and not panel.script.isEnabled() and not panel.list_button.isVisible()
+    dialog.close()
+    dialog.deleteLater()
+    app.processEvents()
+
+
+def test_frozen_children_start_clean(monkeypatch):
+    """Started from the packaged app, the Kraken engine (packaged the same way) inherited the
+    app's PyInstaller settings and looked for its code in the app's folder. They're dropped."""
+    from ectype.resources import frozen_child_env
+
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", r"D:\Program Files\Ectype OCR\_internal")
+    monkeypatch.setenv("_PYI_PARENT_PROCESS_LEVEL", "1")
+    monkeypatch.setenv("_MEIPASS2", "x")
+    env = kraken._env()
+    assert not any(k.startswith(("_PYI_", "_MEIPASS")) for k in env)
+    assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1" and env["PYTHONUTF8"] == "1"
+    assert "PATH" in frozen_child_env({"PATH": "x", "_PYI_ARCHIVE_FILE": "y"})

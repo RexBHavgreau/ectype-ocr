@@ -35,6 +35,27 @@ def run(engine: str, *args: str, stdin: str | None = None) -> object:
 def main() -> int:
     engine, work = sys.argv[1], Path(sys.argv[2]).resolve()  # whole paths: Kraken reads a PageXML's image beside it
     work.mkdir(parents=True, exist_ok=True)
+    # The C++ runtime PyTorch needs must travel with the engine: this machine has it installed,
+    # many users' computers don't (the engine then can't start there).
+    folder = Path(engine).resolve().parent
+    missing = [d for d in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") if not any(folder.rglob(d))]
+    if missing:
+        sys.exit(f"the engine lacks the C++ runtime: {', '.join(missing)}")
+    # Started from the packaged app, the engine inherits the app's PyInstaller settings: with
+    # them cleaned (as the app now does) it must start; without, say what happens (a diagnostic:
+    # the engine wouldn't start from Ectype on a user's PC although it starts here alone).
+    import os
+
+    parent = {**os.environ, "_PYI_APPLICATION_HOME_DIR": str(work / "not-the-engine"),
+              "_PYI_ARCHIVE_FILE": str(work / "not-the-engine" / "app.pkg"), "_PYI_PARENT_PROCESS_LEVEL": "1"}
+    dirty = subprocess.run([engine, "version"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           env=parent, timeout=600)
+    print(f"diagnostic: started with the app's settings left in, the engine ended with code {dirty.returncode}:",
+          (dirty.stdout or dirty.stderr).strip()[-500:])
+    clean = {k: v for k, v in parent.items() if not k.startswith("_PYI_")} | {"PYINSTALLER_RESET_ENVIRONMENT": "1"}
+    out = subprocess.run([engine, "version"], capture_output=True, text=True, encoding="utf-8", env=clean, timeout=600)
+    if out.returncode != 0:
+        sys.exit(f"the engine didn't start with a cleaned environment:\n{out.stderr[-2000:]}")
     records = run(engine, "list")
     print(f"{len(records)} recognition models")
     # The same model every time (the listing's order varies), so the check is repeatable:

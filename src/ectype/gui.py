@@ -1409,6 +1409,8 @@ class KrakenModelsPanel(QWidget):
         self.records: list[dict] = []
         self.task: Task | None = None
         self.engine_ok = False
+        self.checked: dict | None = None  # the engine check's answer
+        self.offered = False  # the engine's download offered once
         layout = QVBoxLayout(self)
         intro = QLabel("Kraken reads Greek, Hebrew and other scripts with models trained by scholars and "
                        "libraries and shared in its repository on Zenodo. Tesseract still reads the main text; "
@@ -1425,10 +1427,22 @@ class KrakenModelsPanel(QWidget):
         self.engine_button = QPushButton("Download the Kraken engine")
         self.engine_button.clicked.connect(self.install_engine)
         row.addWidget(self.engine_button)
-        self.list_button = QPushButton("Show the models")
-        self.list_button.clicked.connect(lambda: self.load(refresh=False))
+        self.retry_button = QPushButton("Check again")
+        self.retry_button.setToolTip("Start the downloaded Kraken engine again")
+        self.retry_button.clicked.connect(self.check_engine)
+        self.retry_button.hide()
+        row.addWidget(self.retry_button)
+        self.list_button = QPushButton("Reload the list")
+        self.list_button.setToolTip("Read the list of models from Kraken's repository again")
+        self.list_button.clicked.connect(lambda: self.load(refresh=True))
+        self.list_button.hide()  # the list loads by itself once the engine works
         row.addWidget(self.list_button)
+        self.script_label = QLabel("Script:")
+        row.addWidget(self.script_label)
         self.script = QComboBox()
+        self.script.setToolTip("Show only the models for one script (Hebrew, Greek, Syriac…)")
+        self.script.addItem("(the list hasn't loaded yet)")
+        self.script.setEnabled(False)
         self.script.currentIndexChanged.connect(self._filter)
         row.addWidget(self.script)
         self.printed = QCheckBox("Printed text only")
@@ -1467,16 +1481,31 @@ class KrakenModelsPanel(QWidget):
     # -- the engine
 
     def check_engine(self) -> None:
-        self.engine_label.setText("Checking for the Kraken engine…")
+        self.engine_label.setText("Starting the Kraken engine… (the first time can take several minutes, while "
+                                  "Windows checks its files)")
         self._busy(True)
         self._run(lambda progress: self.kraken.engine_status(), self._engine_checked)
 
     def _engine_checked(self, status: dict) -> None:
         self._busy(False)
         self.engine_ok = status.get("installed", False)
+        self.retry_button.setVisible(not self.engine_ok and bool(status.get("downloaded")))
+        self.list_button.setVisible(self.engine_ok)
+        self.checked = status
+        if not self.engine_ok and not status.get("downloaded") and getattr(sys, "frozen", False):
+            QTimer.singleShot(0, self._offer_engine)
         if self.engine_ok:
             self.engine_label.setText(f"Kraken engine {status.get('kraken')} (PyTorch {status.get('torch')}).")
             self.engine_button.hide()
+        elif status.get("downloaded"):
+            # Downloaded, but it didn't answer: say why, and how to go on.
+            self.engine_label.setText(
+                "The Kraken engine is downloaded but didn't start: " + str(status.get("problem", "")).strip()[:300]
+                + "<br>Press <b>Check again</b> (a first start can be slow while Windows Defender checks its files; "
+                "excluding the folder <code>%LOCALAPPDATA%\\Ectype OCR\\kraken-engine</code> in Windows Security "
+                "helps), or download it again.")
+            self.engine_button.setText("Download it again")
+            self.engine_button.show()
         elif getattr(sys, "frozen", False):
             self.engine_label.setText("The Kraken engine is a separate download (it includes PyTorch, a few hundred "
                                       "megabytes). It is saved in your user folder and used by every project.")
@@ -1488,6 +1517,26 @@ class KrakenModelsPanel(QWidget):
             self.engine_button.hide()
         self.list_button.setEnabled(self.engine_ok)
         self.download_button.setEnabled(self.engine_ok)
+        if self.engine_ok and not self.records:
+            QTimer.singleShot(200, self._load_when_free)  # the list straight away: no button to find first
+
+    def _offer_engine(self) -> None:
+        """Once, when the Kraken tab is in view without the engine: offer to download it."""
+        if self.offered or not self.isVisible() or self.engine_ok or (self.task is not None and self.task.isRunning()):
+            return
+        self.offered = True
+        answer = QMessageBox.question(
+            self, "Kraken engine", "Kraken's models need the Kraken engine, a separate download of about "
+            "300 MB (it includes PyTorch). It is saved in your user folder and used by every project.\n\n"
+            "Download it now?")
+        if answer == QMessageBox.StandardButton.Yes:
+            self.install_engine()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.checked is not None and not self.engine_ok and not self.checked.get("downloaded") \
+                and getattr(sys, "frozen", False):
+            QTimer.singleShot(0, self._offer_engine)
 
     def install_engine(self) -> None:
         self.status.setText("Looking for the Kraken engine in this version's release…")
@@ -1501,9 +1550,17 @@ class KrakenModelsPanel(QWidget):
             self.kraken.install_engine(asset, progress=lambda f: progress("download", str(f)))
             return self.kraken.engine_status()
 
-        self._run(work, lambda status: (self.status.setText("Kraken engine installed."), self._engine_checked(status)))
+        self._run(work, lambda status: (self.status.setText(
+            "Kraken engine downloaded and working." if status.get("installed") else
+            "Kraken engine downloaded, but it didn't start: see above."), self._engine_checked(status)))
 
     # -- the models
+
+    def _load_when_free(self) -> None:
+        if self.task is not None and self.task.isRunning():
+            QTimer.singleShot(200, self._load_when_free)
+        elif not self.records:
+            self.load()
 
     def load(self, refresh: bool = False) -> None:
         self.status.setText("Reading the list of models from Zenodo (the first time takes a minute or two)…")
@@ -1517,13 +1574,20 @@ class KrakenModelsPanel(QWidget):
         scripts = sorted({s for r in self.records for s in self.kraken.scripts_of(r)})
         self.script.blockSignals(True)
         self.script.clear()
+        self.script.setEnabled(bool(self.records))
         self.script.addItem("All scripts", "")
         for s in scripts:
             self.script.addItem(s, s)
         default = next((i for i in range(self.script.count()) if self.script.itemData(i) in ("Hebrew", "Greek")), 0)
         self.script.setCurrentIndex(default)
         self.script.blockSignals(False)
-        self.status.setText(f"{len(self.records)} recognition models in the repository.")
+        if not self.records:
+            self.status.setText("No models came back from Kraken's repository on Zenodo (is the computer online? "
+                                "Zenodo is sometimes slow or down). Press “Reload the list” to try again.")
+        else:
+            self.status.setText(f"{len(self.records)} recognition models in the repository. Choose a script, "
+                                "untick “Printed text only” for handwriting, select a model and download it: it then "
+                                "appears in the Languages menu, to tick like any language.")
         self._filter()
 
     def _filter(self) -> None:
@@ -1583,6 +1647,7 @@ class KrakenModelsPanel(QWidget):
         self.bar.setVisible(on)
         self.bar.setRange(0, 0)
         self.engine_button.setEnabled(not on)
+        self.retry_button.setEnabled(not on)
         for b in (self.list_button, self.download_button):
             b.setEnabled(not on and self.engine_ok)
 

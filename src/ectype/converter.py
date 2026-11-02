@@ -168,7 +168,17 @@ def convert(docx: Path, out_dir: Path, name: str, profile: str | None = None, ti
         if profile:
             cmd += ["--profile", profile]
         cmd.append(str(docx))
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **subprocess_flags())
+        from .resources import clean_dll_search, frozen_child_env
+
+        with clean_dll_search():  # docx-to-idml is a PyInstaller program too: a clean start
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    env=frozen_child_env(), **subprocess_flags())
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+        proc = subprocess.CompletedProcess(cmd, proc.returncode, out, err)
         if not result_path.is_file():
             detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no result written"]
             raise RuntimeError(f"docx-to-idml didn't finish: {detail[0]}")

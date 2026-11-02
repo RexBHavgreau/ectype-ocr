@@ -33,6 +33,19 @@ for dist in ("kraken", "torch", "torchvision", "lightning", "lightning-utilities
     except Exception:
         pass
 
+# Microsoft's C++ runtime, which PyTorch's libraries need, beside the engine (app-local, as
+# Microsoft allows): a computer without the Visual C++ Redistributable installed couldn't start
+# it (the build machine has it, so the release check didn't notice).
+import os
+import sys
+
+if sys.platform == "win32":
+    system = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32"
+    for dll in ("msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "vcruntime140.dll", "vcruntime140_1.dll",
+                "concrt140.dll", "vcomp140.dll"):
+        if (system / dll).is_file():
+            binaries += [(str(system / dll), "."), (str(system / dll), "torch/lib")]
+
 a = Analysis([str(here / "ectype_kraken.py")], pathex=[str(root / "src")], datas=datas, binaries=binaries,
              hiddenimports=hidden, excludes=["tkinter", "matplotlib", "IPython", "pytest", "PySide6", "ectype.gui"],
              noarchive=False)
