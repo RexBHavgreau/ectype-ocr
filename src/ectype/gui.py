@@ -1425,6 +1425,11 @@ class KrakenModelsPanel(QWidget):
         self.engine_button = QPushButton("Download the Kraken engine")
         self.engine_button.clicked.connect(self.install_engine)
         row.addWidget(self.engine_button)
+        self.retry_button = QPushButton("Check again")
+        self.retry_button.setToolTip("Start the downloaded Kraken engine again")
+        self.retry_button.clicked.connect(self.check_engine)
+        self.retry_button.hide()
+        row.addWidget(self.retry_button)
         self.list_button = QPushButton("Show the models")
         self.list_button.clicked.connect(lambda: self.load(refresh=False))
         row.addWidget(self.list_button)
@@ -1467,16 +1472,27 @@ class KrakenModelsPanel(QWidget):
     # -- the engine
 
     def check_engine(self) -> None:
-        self.engine_label.setText("Checking for the Kraken engine…")
+        self.engine_label.setText("Starting the Kraken engine… (the first time can take several minutes, while "
+                                  "Windows checks its files)")
         self._busy(True)
         self._run(lambda progress: self.kraken.engine_status(), self._engine_checked)
 
     def _engine_checked(self, status: dict) -> None:
         self._busy(False)
         self.engine_ok = status.get("installed", False)
+        self.retry_button.setVisible(not self.engine_ok and bool(status.get("downloaded")))
         if self.engine_ok:
             self.engine_label.setText(f"Kraken engine {status.get('kraken')} (PyTorch {status.get('torch')}).")
             self.engine_button.hide()
+        elif status.get("downloaded"):
+            # Downloaded, but it didn't answer: say why, and how to go on.
+            self.engine_label.setText(
+                "The Kraken engine is downloaded but didn't start: " + str(status.get("problem", "")).strip()[:300]
+                + "<br>Press <b>Check again</b> (a first start can be slow while Windows Defender checks its files; "
+                "excluding the folder <code>%LOCALAPPDATA%\\Ectype OCR\\kraken-engine</code> in Windows Security "
+                "helps), or download it again.")
+            self.engine_button.setText("Download it again")
+            self.engine_button.show()
         elif getattr(sys, "frozen", False):
             self.engine_label.setText("The Kraken engine is a separate download (it includes PyTorch, a few hundred "
                                       "megabytes). It is saved in your user folder and used by every project.")
@@ -1503,7 +1519,9 @@ class KrakenModelsPanel(QWidget):
             self.kraken.install_engine(asset, progress=lambda f: progress("download", str(f)))
             return self.kraken.engine_status()
 
-        self._run(work, lambda status: (self.status.setText("Kraken engine installed."), self._engine_checked(status)))
+        self._run(work, lambda status: (self.status.setText(
+            "Kraken engine downloaded and working." if status.get("installed") else
+            "Kraken engine downloaded, but it didn't start: see above."), self._engine_checked(status)))
 
     # -- the models
 
@@ -1597,6 +1615,7 @@ class KrakenModelsPanel(QWidget):
         self.bar.setVisible(on)
         self.bar.setRange(0, 0)
         self.engine_button.setEnabled(not on)
+        self.retry_button.setEnabled(not on)
         for b in (self.list_button, self.download_button):
             b.setEnabled(not on and self.engine_ok)
 

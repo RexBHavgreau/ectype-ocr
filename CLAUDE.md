@@ -259,7 +259,14 @@ and Substitute PDF of the Treatise, ship with it):
   on "Show the models", easy to miss, and an empty answer from Zenodo was cached for a week
   (`kraken.list_models` now keeps only a non-empty list). `KrakenModelsPanel` loads the list
   as soon as the engine is there (`_load_when_free`: after the engine check's task ends), and
-  says why when no models came back. Beaux had taken Kraken for part of every reading: it is
+  says why when no models came back. **Then** (Beaux): "Show the models" stayed grey while the
+  panel said "Kraken engine installed.": that line was shown after any download, whether or not
+  the engine then started (`engine_status` ran `version` with a 180 s limit; a first start of
+  the PyTorch engine, its thousands of files scanned by Defender, can take longer), and the
+  reason was never shown. Now `engine_status` waits up to 900 s and reports `downloaded`, the
+  panel shows why the engine didn't start, with **Check again** and "Download it again" and the
+  Defender exclusion for `%LOCALAPPDATA%\Ectype OCR\kraken-engine`; the line says
+  "downloaded and working" only when it is. Beaux had taken Kraken for part of every reading: it is
   a language once a model is installed (ticked in Languages like any other; Tesseract reads
   the page, Kraken rereads words in its script).
 

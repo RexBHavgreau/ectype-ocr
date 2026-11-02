@@ -122,7 +122,20 @@ def test_engine_download_is_found_in_the_release(monkeypatch):
 
 def test_engine_status_without_kraken(monkeypatch):
     monkeypatch.setattr(kraken, "worker_command", lambda: None)
-    assert kraken.engine_status() == {"installed": False, "problem": "The Kraken engine isn't installed."}
+    assert kraken.engine_status() == {"installed": False, "problem": "The Kraken engine isn't installed.",
+                                      "downloaded": False}
+
+
+def test_engine_downloaded_but_not_starting(monkeypatch):
+    """Beaux, 0.7.1: the engine downloaded, "Kraken engine installed." said, and the models
+    button stayed grey with no reason given. The reason is now given."""
+    monkeypatch.setattr(kraken, "worker_command", lambda: ["ectype-kraken.exe"])
+
+    def slow(args, timeout=600, progress=None):
+        raise kraken.KrakenError(f"Kraken took longer than {timeout:.0f} seconds (version).")
+    monkeypatch.setattr(kraken, "_run", slow)
+    status = kraken.engine_status()
+    assert status["downloaded"] and not status["installed"] and "900 seconds" in status["problem"]
 
 
 def test_models_panel(data, monkeypatch):

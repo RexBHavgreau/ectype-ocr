@@ -113,13 +113,16 @@ def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], N
 def engine_status() -> dict:
     """{"installed": bool, "kraken": version, "torch": version, "problem": message}"""
     if worker_command() is None:
-        return {"installed": False, "problem": "The Kraken engine isn't installed."}
+        return {"installed": False, "problem": "The Kraken engine isn't installed.", "downloaded": False}
     try:
-        info = _run(["version"], timeout=180)
-    except (KrakenError, OSError, ValueError) as exc:
-        return {"installed": False, "problem": str(exc)}
+        # The first start can take minutes: thousands of files, each checked by the virus
+        # scanner the first time (Windows Defender).
+        info = _run(["version"], timeout=900)
+    except (KrakenError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        return {"installed": False, "problem": str(exc) or type(exc).__name__, "downloaded": True}
     if info.get("protocol") != PROTOCOL:
-        return {"installed": False, "problem": "The Kraken engine installed is for another version of Ectype OCR."}
+        return {"installed": False, "downloaded": True,
+                "problem": "The Kraken engine downloaded is for another version of Ectype OCR: download it again."}
     return {"installed": True, **info}
 
 
