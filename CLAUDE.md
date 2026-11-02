@@ -208,6 +208,30 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   bar said. `MainWindow._idml_done` now says where it is (and logs it), has **Open folder**,
   and puts docx-to-idml's notes under Show Details, labelled as its notes.
 
+**0.7.2** (on the branch; a fix, from Beaux's first Reflow IDML of the Treatise):
+- *41 "chapter titles" and few footnotes*: Ectype's Word manuscript had 41 Heading 1s (whole
+  paragraphs and footnotes), so docx-to-idml made 41 chapters; 5 footnotes. **Cause**: the
+  Treatise PDF mixes scan resolutions (pages 1, 15, 17, 24, 25 at about 690 dpi, the rest 300),
+  and type sizes were compared in pixels across the book, so those pages' text was "twice as
+  large" (size class 2.0 = heading). Also at 300 dpi the same type measured 16 or 19 pixels on
+  different pages (scanned at different zooms), and the notes are only a pixel smaller than
+  the text there. **Fix**: a line's size is compared with its own page's main text
+  (`cluster.relative_size`; the whole book's, in points, only on a page whose text is all 1.35x
+  larger or smaller, a title page); a page's main text x-height is the 70th percentile of its
+  lines' (`cluster.text_xh`; notes can outnumber text); lines mostly in capitals are sized by
+  their capitals / 1.42, never below the page's text (`segment.line_x_heights`; the title's
+  own letters had set the page's typical capital height); a "heading" with no letters or
+  beginning lowercase stays text (`layout._blocks`); notes found by place too
+  (`layout._mark_notes`: below a gap > 2 x-heights in the lower 55% of the page, first word a
+  bare note number, not "1."); Heading 1 from size 1.4 (was 1.8). Raised `* † ‡ ! ? % >` count
+  as references (`REFERENCE_MARKS`; the OCR reads the Treatise's raised figures as "*"), a
+  raised word of up to three figures or marks standing apart is a reference, and notes left
+  are matched in order when a page has exactly as many raised marks as notes
+  (`docx.write_docx`). `cluster.RESULT_VERSION` 4 (clusters.json made again before an export,
+  `Project._stale`), `CACHE_VERSION` 3. On the Treatise (stock models): headings 41 -> the
+  title alone; notes found as notes on most pages; footnotes still few where the OCR garbled
+  the reference (e.g. "-â¹" read as letters).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

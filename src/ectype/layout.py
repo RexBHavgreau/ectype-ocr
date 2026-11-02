@@ -130,7 +130,7 @@ def build_layout(workspace: Path) -> Layout:
     from PIL import Image
 
     from . import report
-    from .cluster import running_lines
+    from .cluster import relative_size, running_lines, text_xh
 
     workspace = Path(workspace)
     unit_info, styles = _word_styles(workspace)
@@ -151,13 +151,21 @@ def build_layout(workspace: Path) -> Layout:
     page_xhs = []
     for _, _, _, ocr, seg in loaded:
         if seg is not None and seg.units:
-            page_xhs.append(line_x_heights(seg)[1])
+            per_line, median = line_x_heights(seg)
+            page_xhs.append(text_xh(list(per_line.values()), median))
         else:
             page_xhs.append(float(np.median([l.x_size for l in ocr.lines if l.x_size] or [40.0])) * 0.48)
-    doc_xh = float(np.median(page_xhs)) if page_xhs else 20.0
+    # Type sizes are compared with the page's own text (`cluster.relative_size`): pages of a
+    # book scanned at different resolutions (the Treatise: most at 300 dpi, five at about 690)
+    # hold text of the same size, which in pixels looked twice as large and was taken for
+    # headings. doc_xh stays in the text's usual resolution's pixels (`Layout.xh`).
+    pts = [72.0 / dpi for _, _, dpi, _, _ in loaded]
+    doc_xh_pt = float(np.median([x * p for x, p in zip(page_xhs, pts)])) if page_xhs else 20.0 * 72 / 300
+    text_dpi = float(np.median([dpi for _, _, dpi, _, _ in loaded])) if loaded else 300.0
+    doc_xh = doc_xh_pt * text_dpi / 72.0
 
     pages = []
-    for (name, size, dpi, ocr, seg), zone_of, page_xh in zip(loaded, zones, page_xhs):
+    for (name, size, dpi, ocr, seg), zone_of, page_xh, pt in zip(loaded, zones, page_xhs, pts):
         base = fit_baselines(seg, ocr) if seg is not None else {}
         xhs = line_x_heights(seg)[0] if seg is not None and seg.units else {}
         units_by_word: dict[tuple[int, int], list] = defaultdict(list)
@@ -190,11 +198,18 @@ def build_layout(workspace: Path) -> Layout:
                 words.append(LWord(text, list(w.box), italic, style, sup, bold, smallcaps))
             size_class = _majority(classes, None)
             if size_class is None:
-                size_class = round(xh / doc_xh, 1) if abs(xh / doc_xh - 1) >= 0.12 else 1.0
+                ratio = relative_size(xh, page_xh, pt, doc_xh_pt)
+                size_class = round(ratio, 1) if abs(ratio - 1) >= 0.12 else 1.0
             lines.append((LLine(words, list(line.box), a, b, xh), zone_of.get(li, ""), size_class))
-        blocks = _blocks(lines, page_xh)
+        blocks = _mark_notes(_blocks(lines, page_xh), size[1], page_xh)
         pages.append(LPage(name, size[0], size[1], dpi, blocks, page_xh))
     return Layout(pages, doc_xh, styles)
+
+
+# Raised marks taken as note references besides figures and letters: printed marks (* † ‡)
+# and what the OCR reads small raised figures as (the Treatise: "fundamental*" for its ², and
+# "!", "?", "%"). Not quotes or apostrophes, which stand as high.
+REFERENCE_MARKS = set("*†‡!?%>")
 
 
 def _superscripts(word, units, baseline: float, xh: float) -> list[bool]:
@@ -207,7 +222,7 @@ def _superscripts(word, units, baseline: float, xh: float) -> list[bool]:
         k += len(c.text)
     sup = [False] * len(word.text)
     for u in units:
-        if not u.box or not u.text.isalnum():
+        if not u.box or not (u.text.isalnum() or u.text in REFERENCE_MARKS):
             continue
         x0, y0, x1, y1 = u.box
         if baseline - y1 > 0.3 * xh and (y1 - y0) < 1.1 * xh:
@@ -219,7 +234,10 @@ def _superscripts(word, units, baseline: float, xh: float) -> list[bool]:
     end = len(sup)
     while end > 0 and sup[end - 1]:
         end -= 1
-    if end == 0:  # the whole word is raised: not a reference
+    if end == 0:  # the whole word is raised: a reference standing apart ("-â 1 is"), or not one
+        mark = word.text.strip(".,;:")
+        if 0 < len(mark) <= 3 and all(c.isdigit() or c in REFERENCE_MARKS for c in mark):
+            return [c.isdigit() or c in REFERENCE_MARKS for c in word.text]
         return [False] * len(sup)
     return [False] * end + [True] * (len(sup) - end)
 
@@ -241,6 +259,35 @@ def plain_superscripts(text: str, sup: list[bool]) -> tuple[str, list[bool]]:
             out.append(c)
             flags.append(s)
     return "".join(out), flags
+
+
+NOTE_NUMBER = re.compile(r"^(\d{1,3}|[¹²³⁴⁵⁶⁷⁸⁹⁰]{1,3}|[*†‡])$")
+
+
+def _mark_notes(blocks: list[Block], page_height: float, xh: float) -> list[Block]:
+    """The notes at a page's foot, found by place and not only by size: a block in the lower
+    part of the page, set off by a wider gap (where the rule stands), that begins with a note's
+    number ("1 The form in…", "¹ As in…"; not "1. The Hebrew", a numbered paragraph), and every
+    block below it. At 300 dpi the Treatise's notes are a pixel smaller than its text, too
+    little to tell them by size."""
+    order = sorted(range(len(blocks)), key=lambda i: blocks[i].box[1])
+    prev_bottom = None
+    for n, i in enumerate(order):
+        b = blocks[i]
+        if b.kind in ("head", "foot"):
+            continue
+        if b.kind == "note":
+            return blocks
+        first = b.lines[0].words[0].text if b.lines and b.lines[0].words else ""
+        gap = b.box[1] - prev_bottom if prev_bottom is not None else 0
+        if (prev_bottom is not None and b.box[1] > 0.45 * page_height and gap > 2.0 * xh
+                and NOTE_NUMBER.match(first)):
+            for j in order[n:]:
+                if blocks[j].kind in ("text", "heading"):
+                    blocks[j].kind = "note"
+            return blocks
+        prev_bottom = b.box[3]
+    return blocks
 
 
 def _kind(zone: str, size_class: float) -> str:
@@ -277,6 +324,13 @@ def _blocks(lines: list[tuple[LLine, str, float]], page_xh: float) -> list[Block
     for group in groups:
         sc = _majority([g[2] for g in group], 1.0)
         kind = _kind(group[0][1], sc)
+        if kind == "heading":
+            # A heading has letters and doesn't begin mid-sentence: a text line measured a
+            # little large ("invests it with…", "4841." on the Treatise) stays text.
+            text = " ".join(w.text for g in group for w in g[0].words).strip()
+            first = next((c for c in text if c.isalpha()), "")
+            if not first or first.islower():
+                kind, sc = "text", 1.0
         blines = [g[0] for g in group]
         blocks.append(Block(kind, sc, _paragraphs(blines), [min(l.box[0] for l in blines), min(l.box[1] for l in blines),
                                                              max(l.box[2] for l in blines), max(l.box[3] for l in blines)]))

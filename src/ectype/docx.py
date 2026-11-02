@@ -220,19 +220,32 @@ def write_docx(workspace: Path, layout: Layout, dest: Path, options: DocxOptions
                              and block.box[2] - last.box[2] <= page.xh)
         # Notes: a footnote where the text has a superscript figure of the note's number on
         # this page; the rest are gathered at the end.
-        refs = {}
+        refs, marks = {}, []
         for pi in range(page_start, len(paras)):
             for wi, w in enumerate(paras[pi].words):
                 tail = "".join(c for c, s in zip(w.text, w.superscript) if s)
                 if tail.isdigit():
                     refs.setdefault(int(tail), (pi, wi))
+                elif tail:
+                    marks.append((pi, wi))  # a raised mark, or a figure misread ("fundamental*")
+        left = []
         for note in page_notes:
             number, text = _note_number(note)
             if number is not None and number in refs and refs[number][1] not in paras[refs[number][0]].notes:
                 pi, wi = refs.pop(number)
                 paras[pi].notes[wi] = text
+            elif number is None:
+                unmatched.append(note)  # no number (a note carried over from the page before)
             else:
-                unmatched.append(note)
+                left.append(note)
+        # The rest in order, when the page has as many raised marks left as notes: the
+        # Treatise's references are often read as "*" or "!", so their numbers can't match.
+        free = sorted([m for m in marks if m[1] not in paras[m[0]].notes] + list(refs.values()))
+        if left and len(free) == len(left):
+            for note, (pi, wi) in zip(left, free):
+                paras[pi].notes[wi] = _note_number(note)[1]
+        else:
+            unmatched += left
 
     body = []
     for pi, p in enumerate(paras):
@@ -253,7 +266,7 @@ def write_docx(workspace: Path, layout: Layout, dest: Path, options: DocxOptions
 
 def _heading_style(block: Block, sizes: list[float]) -> str:
     rank = sizes.index(block.size_class) if block.size_class in sizes else len(sizes)
-    return "Heading1" if block.size_class >= 1.8 and rank == 0 else "Heading2" if rank <= 1 else "Heading3"
+    return "Heading1" if block.size_class >= 1.4 and rank == 0 else "Heading2" if rank <= 1 else "Heading3"
 
 
 def _is_author(words: list[LWord]) -> bool:

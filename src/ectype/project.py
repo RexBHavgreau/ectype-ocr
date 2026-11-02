@@ -463,10 +463,17 @@ class Project:
             if len(outs) < len(ocr):
                 return True
         else:
+            from .cluster import RESULT_VERSION
+
             outs = [self.workspace / "cluster" / "clusters.json"]
             seg = [p.stat().st_mtime for p in (self.workspace / "segment").glob("*.seg.json")]
             ocr = ocr + seg
             if not outs[0].is_file():
+                return True
+            try:  # made by an older version (sizes in pixels): made again
+                if json.loads(outs[0].read_text(encoding="utf-8")).get("version", 1) < RESULT_VERSION:
+                    return True
+            except ValueError:
                 return True
         return bool(ocr) and min(p.stat().st_mtime for p in outs) < max(ocr)
 
