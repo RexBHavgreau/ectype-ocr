@@ -303,6 +303,12 @@ and Substitute PDF of the Treatise, ship with it):
   worker's `get` already refused them; now `kraken.page_model` (Party in the name or keywords,
   "page-wise" in the description) leaves them out of the list, the kept list included, and the
   refusal says in plain words to choose another.
+- *A multilingual Kraken model showed up as Arabic only* (Beaux, 0.7.3): a model was named and
+  used for one script, its first other than Latin (`main_script`; the repository lists scripts
+  alphabetically, so Arabic). `kraken.reads` gives all its scripts other than Latin; the name
+  lists them, reading (`ocr.py`) gives each script to a model that reads it (a model of fewer
+  scripts first), and `scripts.scripts_read` counts them all as covered. Training such a model
+  (`pool`, `trainall`) still uses its main script only.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

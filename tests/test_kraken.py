@@ -313,3 +313,18 @@ def test_whole_page_models_are_left_out_of_the_list(tmp_path, monkeypatch):
     monkeypatch.setattr(kraken, "_run", lambda args, timeout=None, progress=None: [party, lines])
     assert [r["doi"] for r in kraken.list_models()] == ["10.5281/zenodo.1"]
     assert [r["doi"] for r in kraken.list_models()] == ["10.5281/zenodo.1"], "also from the kept list"
+
+
+def test_a_model_of_many_scripts_reads_each_of_them(data):
+    """A multilingual model was named, and used, for Arabic alone, the first in its list
+    (Beaux, 0.7.3)."""
+    from ectype import languages
+
+    model = data / "multi.safetensors"
+    model.write_bytes(b"x")
+    kraken.register("kraken_9", {"title": "Multilingual print", "doi": "10.5281/zenodo.9", "file": str(model),
+                                 "scripts": ["Arab", "Grek", "Hebr", "Latn", "Syrc"]})
+    assert kraken.reads("kraken_9") == ["Arabic", "Greek", "Hebrew", "Syriac"]
+    assert languages.name("kraken_9") == "Arabic, Greek, Hebrew, Syriac (Kraken): Multilingual print"
+    assert scripts.scripts_read("kraken_9") == ["Arabic", "Greek", "Hebrew", "Syriac"]
+    assert kraken.reads("kraken_123") == ["Hebrew"]

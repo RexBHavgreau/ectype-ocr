@@ -281,10 +281,14 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
         if engine == "tesseract":
             # Unsure words in another script: read again in their own language, or counted
             # when no chosen language covers their script (scripts.py).
-            from .kraken import main_script
+            from .kraken import reads
             from .scripts import check_words
 
-            kraken = {main_script(r.code): (r.model, r.pack) for r in resolved if r.engine == "kraken" and r.model}
+            # Each script to a model that reads it; a model made for fewer scripts comes first.
+            kraken = {}
+            for r in sorted((r for r in resolved if r.engine == "kraken" and r.model), key=lambda r: len(reads(r.code))):
+                for script in reads(r.code):
+                    kraken.setdefault(script, (r.model, r.pack))
             kraken.pop("Latin", None)
             kraken.pop(None, None)
             word_engine = TesseractEngine(psm=8, threads=threads)

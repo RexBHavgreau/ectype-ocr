@@ -242,11 +242,23 @@ def main_script(code: str) -> str | None:
     return next((s for s in scripts if s != "Latin"), scripts[0] if scripts else None)
 
 
+def reads(code: str) -> list[str]:
+    """Every script a model is used for: all of its scripts other than Latin, else Latin. A
+    model of many scripts reads each of them (Beaux, 0.7.3: a multilingual model was shown,
+    and used, for Arabic alone, the first in its list)."""
+    model = installed_models().get(code)
+    if model is None:
+        return []
+    scripts = scripts_of(model)
+    return [s for s in scripts if s != "Latin"] or scripts[:1]
+
+
 def name(code: str) -> str:
     model = installed_models().get(code)
     if model is None:
         return code
-    script = main_script(code) or "Kraken"
+    many = reads(code)
+    script = ", ".join(many) if len(many) > 1 else main_script(code) or "Kraken"
     title = model.get("title") or code
     if model.get("book"):
         return f"{script} (Kraken), trained on {model['book']}"
