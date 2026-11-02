@@ -518,9 +518,22 @@ def line_x_heights(seg: Segmentation) -> tuple[dict[int, float], float]:
         if len(per.get(li, [])) >= 5:
             out[li] = float(np.median(per[li]))
             continue
+        # A line in capitals (a title: "A TREATISE", "CHAPTER I."): its capitals' height, as
+        # book type's capitals stand about CAP_RATIO x-heights tall; never smaller than the
+        # page's text (display matter, not a note: the small "ON" between a title's lines).
+        # Not against the page's usual capitals: a title's own letters can be most of those.
+        letters = [u for u in units if len(u.text) == 1 and u.text.isalpha()]
+        caps = [u.box[3] - u.box[1] for u in letters if u.text.isupper() and u.text in CAPS_FLAT]
+        if len(caps) >= 2 and len(caps) >= 0.6 * len(letters):
+            out[li] = max(page, float(np.median(caps)) / CAP_RATIO)
+            continue
         ratios = [(u.box[3] - u.box[1]) / typical[u.text] for u in units if u.text in typical and typical[u.text] > 0]
         out[li] = page * float(np.median(ratios)) if len(ratios) >= 2 else page
     return out, page
+
+
+CAP_RATIO = 1.42  # capital height / x-height, about, in book types
+CAPS_FLAT = set("ABCDEFGHIKLMNOPRSTUVWXYZΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ")  # no descender (J, Q go below the line)
 
 # ---------------------------------------------------------------------------
 # Review overlay

@@ -179,7 +179,7 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   cloud session); the release's Kraken check (`kraken_smoke.py`) now also finds, reads and
   trains lines. Intel graphics: Kraken's trainer can't use them (`ketos.util.to_ptl_device`).
 
-**0.7.1** (on the branch; a fix):
+**0.7.1** (fixes; with the next block, all one release):
 - *Reflow said docx-to-idml wasn't installed* (Beaux, 0.7.0: it is on the computer). Ectype
   found it only through `program.json`, which docx-to-idml (0.8.0 and later) writes when it
   starts, so a copy saved but not opened since, moved, or older than 0.8.0 wasn't found.
@@ -207,6 +207,52 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   always, in a folder of its own: `<chosen folder>/<name>/<name>.idml`, which only the status
   bar said. `MainWindow._idml_done` now says where it is (and logs it), has **Open folder**,
   and puts docx-to-idml's notes under Show Details, labelled as its notes.
+
+*Also in 0.7.1* (Beaux hadn't tagged 0.7.1 yet, so these fixes, from their first Reflow IDML
+and Substitute PDF of the Treatise, ship with it):
+- *41 "chapter titles" and few footnotes*: Ectype's Word manuscript had 41 Heading 1s (whole
+  paragraphs and footnotes), so docx-to-idml made 41 chapters; 5 footnotes. **Cause**: the
+  Treatise PDF mixes scan resolutions (pages 1, 15, 17, 24, 25 at about 690 dpi, the rest 300),
+  and type sizes were compared in pixels across the book, so those pages' text was "twice as
+  large" (size class 2.0 = heading). Also at 300 dpi the same type measured 16 or 19 pixels on
+  different pages (scanned at different zooms), and the notes are only a pixel smaller than
+  the text there. **Fix**: a line's size is compared with its own page's main text
+  (`cluster.relative_size`; the whole book's, in points, only on a page whose text is all 1.35x
+  larger or smaller, a title page); a page's main text x-height is the 70th percentile of its
+  lines' (`cluster.text_xh`; notes can outnumber text); lines mostly in capitals are sized by
+  their capitals / 1.42, never below the page's text (`segment.line_x_heights`; the title's
+  own letters had set the page's typical capital height); a "heading" with no letters or
+  beginning lowercase stays text (`layout._blocks`); notes found by place too
+  (`layout._mark_notes`: below a gap > 2 x-heights in the lower 55% of the page, first word a
+  bare note number, not "1."); Heading 1 from size 1.4 (was 1.8). Raised `* † ‡ ! ? % >` count
+  as references (`REFERENCE_MARKS`; the OCR reads the Treatise's raised figures as "*"), a
+  raised word of up to three figures or marks standing apart is a reference, and notes left
+  are matched in order when a page has exactly as many raised marks as notes
+  (`docx.write_docx`). `cluster.RESULT_VERSION` 4 (clusters.json made again before an export,
+  `Project._stale`), `CACHE_VERSION` 3. On the Treatise (stock models): headings 41 -> the
+  title alone; notes found as notes on most pages; footnotes still few where the OCR garbled
+  the reference (e.g. "-â¹" read as letters).
+- *Substitute PDF* (Beaux's Treatise export, 0.7.0): words letter-spaced ("a s regards", "i t",
+  "know n") where a word's box was wider than the word in the font, and the title's "ON" set
+  over itself where it was narrower: the per-word spacing (Tc) now stays within
+  `TC_MAX`/`TC_MIN` (0.06 / -0.04 em) and the word is centred in its box past that
+  (`substitute.place_words`). A full line alone in another size between two lines of one
+  size takes theirs, and the page's text size is the 70th percentile of its lines' (it was
+  averaged with the notes'), `_line_fits`. Page 14's lower lines set wider than its upper
+  ones is the scan's own (a page photographed at a slant), not a fault.
+- *Substitute PDF had no italics, and Hebrew/Syriac stayed as the scan* (Beaux): it set every
+  word in the one chosen font, and kept words with letters the font lacked (Hebrew in EB
+  Garamond) as the scanned image under hidden text. Now a set of faces (`choose_faces`,
+  `Face`): the font's own italic, bold and bold italic when installed (same family), and for
+  each script it lacks an installed font with the letters (`SCRIPT_FONTS` order first: SBL
+  Hebrew, Ezra SIL, …; Estrangelo Edessa, …; else the best coverage; .ttc skipped, subset_font
+  takes single fonts). Italic as Traced measures it (`cluster.word_slants`, `italic_limit` over
+  the book, `word_italics`), Latin words only (Greek leans by its shape: γέγονα came out
+  italic), plus styles set in Review (any script). A script font is sized by its flat letters
+  against the scan's (`_script_scales`, `FLAT`, 30th percentile: points below make ink
+  taller). Right-to-left words go in visual order by letter, each letter's points after it
+  (`_visual`; no shaping engine: marks drawn by their zero-advance outlines). Words no face
+  can set still stay as the scan.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

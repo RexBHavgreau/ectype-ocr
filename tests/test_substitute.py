@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 
 import numpy as np
@@ -9,7 +8,7 @@ import pypdfium2 as pdfium
 import pytest
 from PIL import Image
 
-from ectype.ocr import get_engine, ocr_pages
+from ectype.ocr import ocr_pages
 from ectype.pdfwrite import GlyphRun, PageSpec, subset_font, write_pdf
 from ectype.segment import segment_workspace
 from ectype.substitute import substitute_workspace
@@ -57,3 +56,29 @@ def test_substitute_same_font_lands_on_the_ink(workspace):
     assert doc[0].get_textpage().search("ligatures", match_whole_word=True).get_next() is not None
     background = np.asarray(Image.open(root / "substitute" / "s01.background.png"))
     assert (background < 100).mean() < 0.002, "text is erased from the background"
+
+
+def test_fonts_for_italics_and_scripts_the_font_lacks(tmp_path):
+    """Substitute mode's fonts: the chosen font's italic face, and an installed font for
+    Hebrew when the chosen one has none; Hebrew set with each letter's points after it."""
+    from pathlib import Path
+
+    from ectype.substitute import _script, _visual, choose_faces
+    from ectype.synthtrain import FontInfo
+
+    serif = Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf")
+    free = Path("/usr/share/fonts/truetype/freefont/FreeSerif.ttf")
+    free_italic = Path("/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf")
+    if not (serif.is_file() and free.is_file() and free_italic.is_file()):
+        import pytest
+
+        pytest.skip("the test fonts aren't installed")
+    pool = [FontInfo(serif, "DejaVu Serif", 0, "DejaVu Serif", "Book"),
+            FontInfo(free, "FreeSerif", 0, "FreeSerif", "Regular"),
+            FontInfo(free_italic, "FreeSerif Italic", 0, "FreeSerif", "Italic")]
+    faces = choose_faces(serif, {"Hebrew": "בָּרָא אֱלֹהִים "}, pool)
+    assert faces["Hebrew"] == free and "italic" not in faces, "DejaVu Serif has no Hebrew, and no italic here"
+    faces = choose_faces(free, {"Hebrew": "בָּרָא "}, pool)
+    assert faces == {"roman": free, "italic": free_italic}, "FreeSerif has Hebrew itself, and its italic"
+    assert _script("בָּרָא") == "Hebrew" and _script("λόγος,") == "Greek" and _script("12.") == "Latin"
+    assert _visual("בָּר") == "רבָּ", "letters reversed, each keeping its points after it"

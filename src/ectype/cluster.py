@@ -102,11 +102,38 @@ class Glyph:
     smallcaps: bool = False
 
 
+PAGE_APART = 1.35  # a page whose usual text is this much larger (or smaller) than the book's
+
+
+def relative_size(xh: float, page_xh: float, pt: float, doc_xh_pt: float) -> float:
+    """A line's type size against the text's usual size: against its own page's usual text,
+    since pages of one book can be scanned at different resolutions and zooms (the Treatise:
+    300 and 690 dpi, and at 300 dpi x-heights of 16 and 19 pixels for the same type); against
+    the whole book's (in points) only on a page whose text is all much larger or smaller, such
+    as a title page."""
+    page = page_xh * pt / doc_xh_pt if doc_xh_pt else 1.0
+    if 1 / PAGE_APART < page < PAGE_APART:
+        return xh / page_xh if page_xh else 1.0
+    return xh * pt / doc_xh_pt
+
+
+def text_xh(line_xhs: list[float], page_xh: float) -> float:
+    """A page's main text's x-height: the 70th percentile of its lines' (one value a line), so
+    footnotes, however many, don't pass for the text (the Treatise has pages more notes than
+    text), nor do a heading or two."""
+    if len(line_xhs) < 3:
+        return page_xh
+    return float(np.percentile(line_xhs, 70))
+
+
 def _size_class(ratio: float) -> float:
     return 1.0 if abs(ratio - 1) < 0.12 else round(round(ratio / 0.1) * 0.1, 1)
 
 
-CACHE_VERSION = 2  # of what the caches hold: kept results made by an older one are made again
+# clusters.json's version: 2 measures sizes against each page's own text (`relative_size`);
+# a project's older result is made again before an IDML export (`Project._stale`).
+RESULT_VERSION = 4
+CACHE_VERSION = 3  # 3: capitals lines sized by their capitals (segment.line_x_heights). Of what the caches hold: kept results made by an older one are made again
 
 
 class Cache:
@@ -194,7 +221,18 @@ def collect(workspace: Path) -> list[Instance]:
             per_page.append((k, *found))
     if not per_page:
         return instances
-    doc_xh = float(np.median([found[0].page_xh for _, found, _ in per_page]))
+    # Sizes in points, not pixels: a book's pages can be scanned at different resolutions (the
+    # Treatise: most at 300 dpi, five at about 690), and its text is the same size on all.
+    from PIL import Image
+
+    from .report import image_dpi
+
+    def dpi_of(k: int) -> float:
+        with Image.open(page_data[k][0]) as im:
+            return image_dpi(im)
+    pt = {k: 72.0 / dpi_of(k) for k, _, _ in per_page}
+    main = {k: text_xh(list({i.line: i.xh for i in found}.values()), found[0].page_xh) for k, found, _ in per_page}
+    doc_xh = float(np.median([main[k] * pt[k] for k, _, _ in per_page]))
     # Italic: the book's own italic slant sets how steep a word may lean and still be italic.
     high = italic_limit([a for _, _, slants in per_page for a in slants.values()])
     from .review import word_styles
@@ -203,7 +241,7 @@ def collect(workspace: Path) -> list[Instance]:
         italic = word_italics(None, None, high=high, slants=slants)
         styles = word_styles(workspace, page_data[k][0].stem)  # set in Review: over what was detected
         for inst in found:
-            inst.size_class = _size_class(inst.xh / doc_xh)
+            inst.size_class = _size_class(relative_size(inst.xh, main[k], pt[k], doc_xh))
             inst.zone = zones[k].get(inst.line, "")
             inst.italic = italic.get((inst.line, inst.word), False)
             st = styles.get((inst.line, inst.word))
@@ -729,6 +767,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
             ))
 
     summary = {
+        "version": RESULT_VERSION,
         "threshold": threshold,
         "instances": len(instances),
         "glyphs": [vars(g) for g in sorted(glyphs, key=lambda g: (g.style, g.size_class, g.text, -g.count))],
