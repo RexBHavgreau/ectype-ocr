@@ -540,6 +540,13 @@ and Substitute PDF of the Treatise, ship with it):
     traced well; the "words end within 1 px" figure (34%) is misleading there, not a fault.
     Greek ὁ often read "6".
   - *PG 82, Theodoret*: as PG 11. False "add Hindi/Arabic" offers on three of the four.
+  - *GCS Origenes Werke 5, De principiis* (300 dpi black and white, Greek above Rufinus'
+    Latin, with an older OCR text layer, which Ectype ignores, and a vector download stamp,
+    not read): Greek and Latin read well; here the margin line numbers *are* read but joined
+    to their lines' text ("5 πραγμάτων", "15 rerum?"), as Migne's A-D: one fix for both
+    (margin material kept out of the line's text, numbers kept beside their lines). Greek κ
+    read χ here too ("συγχεχροτημένην", "ἀχριβὴς"): the stock grc model's habit, not Migne's;
+    the Latin's t read b ("eb"), I read l ("lam", "lohanni").
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
   the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.
