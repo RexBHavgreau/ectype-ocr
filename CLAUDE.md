@@ -507,6 +507,23 @@ and Substitute PDF of the Treatise, ship with it):
   and metadata (libraries may take these files); replace the pickle caches (`cluster.Cache`)
   with a safe format; cached results checked by content and the code's own version, not by
   file times and hand-bumped `CACHE_VERSION`s (a forgotten bump has bitten twice).
+- **0.8.0, from Migne's Patrologia Graeca 11** (`corpus/Pages from Patrologiæ_cursus_completus.pdf`,
+  20 pages; Google's 600 dpi black-and-white scan, Greek and Latin columns, the full-width
+  "INTERPRETATIO NOVA", two-column notes, margin letters A-D; tried on pages 1-3, grc+lat, 2 min):
+  - *Wrong letters drawn in Traced* (about one word in ten in a text block: "taurus" drawn
+    "taaıeı", "comedisse" "coeedisse", though read right): touching letters (t+a one piece of
+    ink) put a word's letters one place off in segmentation (the "t" unit took t+a, "a" took
+    the u, ... the "s" a 1-pixel speck), and an instance with the wrong ink joins its letter's
+    big cluster and is drawn as that letter's average. Fix: catch a unit whose ink is too wide
+    or too narrow for its letter (or unlike its cluster) and trace that word verbatim.
+  - *Two-column notes read across both columns* as one line (copy, Word and IDML scrambled);
+    the main columns were split right.
+  - *Margin letters A-D and column numbers* joined to the lines' text ("... ἀναγνώσματα A").
+  - *False "add Hindi, Arabic, Russian"*: 2-6 wrong script guesses on every dense page pass
+    `scripts.suggest` (the Treatise rule); it should scale with a page's words.
+  - Not bugs (reading, for training or Kraken): Greek κ read χ, καί read "xal" (Latin letters
+    in Greek words, grc+lat together), Latin æ misread ("Judzi", "qu:e"); reading at the full
+    600 dpi didn't help (the scan is rough). 318 styles for 3 pages, mostly small ones.
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
   the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.
