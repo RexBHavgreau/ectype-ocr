@@ -524,6 +524,22 @@ and Substitute PDF of the Treatise, ship with it):
   - Not bugs (reading, for training or Kraken): Greek κ read χ, καί read "xal" (Latin letters
     in Greek words, grc+lat together), Latin æ misread ("Judzi", "qu:e"); reading at the full
     600 dpi didn't help (the scan is rough). 318 styles for 3 pages, mostly small ones.
+- **0.8.0, from four more samples** (Beaux added them to `corpus/`; 2-3 pages each):
+  - *Sources Chrétiennes 100.2, Irénée* (two-page spreads, about 100 dpi, Latin/French/Greek):
+    read as gibberish because `preprocess.detect_orientation` turned the pages **upside down**
+    on an OSD confidence of 0.38 ("low orientation confidence" flagged, applied anyway). Turned
+    back and enlarged x4 (Lanczos), Tesseract read the French and Greek almost exactly; at its
+    own size much worse. Fix: turn a page only when OSD is sure (or the book's other pages
+    agree), and enlarge scans under ~200 dpi to 300 before reading. The spreads split right.
+  - *GCS Origenes Werke 8* (300 dpi grey, line numbers 5, 10, … in the margin, two
+    apparatus): Latin nearly exact apart from c read e ("seripta", "dieit", training); most
+    margin line numbers missed (only 10 and 30, put first in the page's text, not by their
+    lines; the apparatus cites them); Greek ϑ (the edition's theta) kept as U+03D1, so
+    searching θ misses it: fold ϑ to θ in the text; »…« sometimes read "-".
+  - *Woodhouse, English-Greek Dictionary* (600 dpi black and white, two columns): read and
+    traced well; the "words end within 1 px" figure (34%) is misleading there, not a fault.
+    Greek ὁ often read "6".
+  - *PG 82, Theodoret*: as PG 11. False "add Hindi/Arabic" offers on three of the four.
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
   the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.
