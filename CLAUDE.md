@@ -310,6 +310,20 @@ and Substitute PDF of the Treatise, ship with it):
   scripts first), and `scripts.scripts_read` counts them all as covered. Training such a model
   (`pool`, `trainall`) still uses its main script only.
 
+**0.8.0** (on the branch; menus are a new feature, so a minor version):
+- *Run disappeared* (Beaux, 0.7.4: in a narrow window the toolbar put the buttons behind a »
+  menu; everything should stay visible). The QToolBar is gone: the buttons and choices are in
+  `MainWindow.button_row`, a `FlowLayout` (gui.py) that wraps onto more rows, above the tabs.
+  Each button is an `action_button` over the window's QAction (a QToolButton follows its
+  action's text, font and enabled state, not its visibility, so that is connected by hand);
+  `mode_action`/`page_image_action` are now the combo boxes themselves.
+- *Menus* (Beaux): **File** (Select PDF… Ctrl+O, Open project… Ctrl+Shift+O, Save project
+  Ctrl+S, Show project folder, Exit Ctrl+Q), **Run** (Run F5, Update after corrections
+  Shift+F5), **Export** (PDF… Ctrl+E, IDML…), Train OCR model… at the top of Training. The
+  menus hold the same QActions as the buttons, so both enable and hide together. A project
+  is kept as Ectype works (settings, corrections, readings), so Save project writes the
+  settings and says where the project folder is.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
@@ -483,7 +497,7 @@ and Substitute PDF of the Treatise, ship with it):
   stress accents, transliteration, footnotes). Stock eng+grc+heb, 207 s for a full run: English
   roman nearly exact; Greek good even in footnotes; italic often wrong ("faken", "zs seliing");
   superscript letters wrong (3ᵃ "3%"); transliteration wrong (Noʿŏmi "Nodmi"); pointed Hebrew
-  poor (כָּרָה "173"). `corpus/E J. Young Inspiration-1.pdf`: 17 pages, English; a full traced
+  poor (כָּרָה "173"). `corpus/E J. Young Inspiration-1.pdf`: 13 pages, English; a full traced
   run 106 s.
 - Transliteration training (300 lines in each of 4 fonts, 3,000 iterations): eng's character
   errors on a 5th font 14.8% -> 4.5% (qūdšāʾ ʾabbāʾ read exactly; stock: "qiidSa' 'abba'").

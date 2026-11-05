@@ -19,6 +19,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | Leptonica jbclass and jbig2enc | Symbol classification by correlation; averaging every instance of a class into one composite template | http://www.leptonica.org/ , https://github.com/agl/jbig2enc |
 | OCRmyPDF and Tesseract's PDF renderer ("GlyphLessFont") | An invisible text layer set in a font of empty glyphs, mapped to Unicode | https://github.com/ocrmypdf/OCRmyPDF |
 | tesstrain (Apache-2.0) | Fine-tuning Tesseract on line images with their text: box files for whole lines, .lstmf files, lstmtraining continued from a tessdata_best model. Followed as documented; no code copied | https://github.com/tesseract-ocr/tesstrain |
+| Qt's Flow Layout example (BSD-3-Clause) | `gui.FlowLayout`, the wrapping row of buttons: a QLayout that places items left to right, starts a new row when one doesn't fit, and reports its height for a width. Written for Ectype after the example's approach | https://doc.qt.io/qt-6/qtwidgets-layouts-flowlayout-example.html |
 | Ocular OCR; DeepVecFont, Im2Vec | Learned font models and vector-font reconstruction, for later work on damaged or rare glyphs | — |
 
 ## Dependencies

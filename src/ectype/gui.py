@@ -17,17 +17,17 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QIcon, QImage, QKeySequence, QPainterPath, QPainterPathStroker,
                            QPen, QPixmap, QShortcut,
                            QTransform)
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
-    QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QFormLayout, QFrame, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
+    QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea, QSpinBox,
     QSplitter, QStackedWidget, QTableWidget,
-    QTableWidgetItem, QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import __version__, languages, updates
@@ -2158,6 +2158,101 @@ class FontTrainingDialog(QDialog):
         super().reject()
 
 
+class FlowLayout(QLayout):
+    """Lays its widgets out left to right and starts a new row when the next one doesn't fit, so
+    every button stays in view however narrow the window (a toolbar hides what doesn't fit behind
+    a » menu). Hidden widgets take no room."""
+
+    def __init__(self, parent: QWidget | None = None, spacing: int = 6):
+        super().__init__(parent)
+        self._items = []
+        self.setSpacing(spacing)
+        self.setContentsMargins(6, 4, 6, 4)
+
+    def addItem(self, item) -> None:
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._arrange(QRect(0, 0, width, 0), move=False)
+
+    def setGeometry(self, rect: QRect) -> None:
+        super().setGeometry(rect)
+        self._arrange(rect, move=True)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            if not item.isEmpty():
+                size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _arrange(self, rect: QRect, move: bool) -> int:
+        """Place the items in rows within rect (if move); the height they need."""
+        m = self.contentsMargins()
+        area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        row: list = []  # (item, x, size) on the row being filled
+        x, y, row_h = area.x(), area.y(), 0
+
+        def place_row() -> None:
+            for item, ix, size in row:  # centred in the row's height
+                item.setGeometry(QRect(QPoint(ix, y + (row_h - size.height()) // 2), size))
+
+        for item in self._items:
+            if item.isEmpty():
+                continue
+            size = item.sizeHint().expandedTo(item.minimumSize())
+            if row and x + size.width() > area.right() + 1:
+                if move:
+                    place_row()
+                row, x, y, row_h = [], area.x(), y + row_h + self.spacing(), 0
+            size.setWidth(min(size.width(), max(area.width(), item.minimumSize().width())))
+            row.append((item, x, size))
+            x += size.width() + self.spacing()
+            row_h = max(row_h, size.height())
+        if move:
+            place_row()
+        return y + row_h - rect.y() + m.bottom()
+
+
+def action_button(action: QAction) -> QToolButton:
+    """A button for a window action, showing its text, state and visibility (a QToolButton
+    follows its action's text, font and enabled state itself, not whether it is shown)."""
+    button = QToolButton()
+    button.setDefaultAction(action)
+    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+    button.setAutoRaise(True)
+    button.setVisible(action.isVisible())
+    action.changed.connect(lambda: button.setVisible(action.isVisible()))
+    return button
+
+
+def _separator() -> QFrame:
+    line = QFrame()
+    line.setFrameShape(QFrame.Shape.VLine)
+    line.setFrameShadow(QFrame.Shadow.Sunken)
+    line.setFixedHeight(22)
+    return line
+
+
 class MainWindow(QMainWindow):
     def __init__(self, project: Project | None = None):
         super().__init__()
@@ -2171,25 +2266,41 @@ class MainWindow(QMainWindow):
         self.load(self.project)
 
     def _build(self) -> None:
-        bar = QToolBar("Main")
-        self.addToolBar(bar)
+        # The buttons wrap onto more rows when the window is narrow (FlowLayout), so none is
+        # hidden; the same actions are in the menus (File, Run, Export, Training).
+        self.button_row = QWidget()
+        bar = FlowLayout(self.button_row)
         self.actions: dict[str, QAction] = {}
-        for key, text, slot in (("open_scan", "Select PDF…", self.open_scan), ("open_project", "Open project…", self.open_project)):
-            self.actions[key] = bar.addAction(text, slot)
+
+        def action(key: str, text: str, slot, shortcut: str | None = None, button: bool = True) -> QAction:
+            a = QAction(text, self)
+            a.triggered.connect(slot)
+            if shortcut:
+                a.setShortcut(QKeySequence(shortcut))
+            self.actions[key] = a
+            if button:
+                bar.addWidget(action_button(a))
+            return a
+
+        action("open_scan", "Select PDF…", self.open_scan, "Ctrl+O")
+        action("open_project", "Open project…", self.open_project, "Ctrl+Shift+O")
+        action("save_project", "Save project", self.save_project, "Ctrl+S", button=False)
         self.actions["open_scan"].setToolTip("Choose the scanned book (a PDF, or page images) to read")
         self.source_label = QLabel()
         self.source_label.setContentsMargins(8, 0, 8, 0)
         bar.addWidget(self.source_label)
-        bar.addSeparator()
+        bar.addWidget(_separator())
         self.mode = QComboBox()
         self.mode.addItems([label for _, label in MODES])
         self.mode.currentIndexChanged.connect(self._mode_changed)
-        self.mode_action = bar.addWidget(self.mode)
+        self.mode_action = self.mode  # shown or hidden with the mode (setVisible)
+        bar.addWidget(self.mode)
         self.page_image = QComboBox()
         self.page_image.addItems(["Page image: grayscale", "Page image: black and white (smallest)"])
         self.page_image.setToolTip("Text-layer mode: how the scanned page is kept under the text")
         self.page_image.currentIndexChanged.connect(self._page_image_changed)
-        self.page_image_action = bar.addWidget(self.page_image)
+        self.page_image_action = self.page_image
+        bar.addWidget(self.page_image)
         self.langs = LanguageButton()
         self.langs.changed.connect(self._languages_changed)
         self.langs.add_requested.connect(self.add_languages)
@@ -2202,13 +2313,12 @@ class MainWindow(QMainWindow):
         self.split = QCheckBox("Split two-page spreads")
         self.split.toggled.connect(self._split_changed)
         bar.addWidget(self.split)
-        bar.addSeparator()
-        for key, text, slot in (("run", "Run", lambda: self.run("preprocess")),
-                                ("update", "Update after corrections", lambda: self.run(self.project.update_stage())),
-                                ("train", "Train OCR model…", self.train_model),
-                                ("export", "Export PDF…", self.export),
-                                ("export_idml", "Export IDML…", self.export_idml)):
-            self.actions[key] = bar.addAction(text, slot)
+        bar.addWidget(_separator())
+        action("run", "Run", lambda: self.run("preprocess"), "F5")
+        action("update", "Update after corrections", lambda: self.run(self.project.update_stage()), "Shift+F5")
+        action("train", "Train OCR model…", self.train_model)
+        action("export", "Export PDF…", self.export, "Ctrl+E")
+        action("export_idml", "Export IDML…", self.export_idml)
         from .gui_manuscript import ManuscriptReviewTab
 
         self.tabs = QTabWidget()
@@ -2225,13 +2335,35 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.review_stack, "Review")
         self.tabs.addTab(self.glyphs, "Glyphs")
         self.tabs.addTab(self.log, "Log")
-        self.setCentralWidget(self.tabs)
+        central = QWidget()
+        column = QVBoxLayout(central)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.button_row)
+        column.addWidget(self.tabs, 1)
+        self.setCentralWidget(central)
         self.spreads.changed.connect(self.statusBar().showMessage)
         self.review.message.connect(self.statusBar().showMessage)
         self.ms_review.message.connect(self.statusBar().showMessage)
         self.glyphs.jump.connect(self._jump)
 
+        file_menu = self.menuBar().addMenu("&File")
+        file_menu.addAction(self.actions["open_scan"])
+        file_menu.addAction(self.actions["open_project"])
+        file_menu.addAction(self.actions["save_project"])
+        file_menu.addAction("Show project folder", self.show_project_folder)
+        file_menu.addSeparator()
+        exit_action = file_menu.addAction("Exit", self.close)
+        exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        run_menu = self.menuBar().addMenu("&Run")
+        run_menu.addAction(self.actions["run"])
+        run_menu.addAction(self.actions["update"])
+        export_menu = self.menuBar().addMenu("&Export")
+        export_menu.addAction(self.actions["export"])
+        export_menu.addAction(self.actions["export_idml"])
         training_menu = self.menuBar().addMenu("&Training")
+        training_menu.addAction(self.actions["train"])
+        training_menu.addSeparator()
         self.actions["train_fonts"] = training_menu.addAction("Train from fonts…", self.train_from_fonts)
         self.actions["train_book"] = training_menu.addAction("Train for this book…", self.train_for_book)
         self.actions["train_book"].setToolTip("Manuscript Mode: correct a few pages first, train the hands on them, "
@@ -2519,6 +2651,18 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Open an Ectype project folder")
         if path:
             self.load(Project(Path(path)))
+
+    def save_project(self) -> None:
+        """Ectype keeps its work as it goes (settings, corrections, readings); this writes the
+        settings now and says where the project is."""
+        self.project.save_settings()
+        self.statusBar().showMessage(f"Saved. The project is kept in {self.project.workspace}")
+
+    def show_project_folder(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.project.workspace)))
 
     def run(self, start: str) -> None:
         if self.worker is not None and self.worker.isRunning():

@@ -505,3 +505,43 @@ def test_export_idml_says_where_it_went(project, tmp_path, monkeypatch):
     assert f"IDML saved: {idml}" in w.log.toPlainText()
     w.close()
     app.processEvents()
+
+
+def test_buttons_wrap_and_stay_visible_in_a_narrow_window(tmp_path):
+    """0.7.x: the toolbar hid Run behind a » menu in a narrow window. The buttons now wrap onto
+    more rows; every one stays inside the window, and the menus hold the same actions."""
+    from PySide6.QtWidgets import QApplication, QToolButton
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(Project.for_scan(_spread_pdf(tmp_path)))
+    w.show()
+    heights = {}
+    for width in (1400, 520):
+        w.resize(width, 700)
+        app.processEvents()
+        row = w.button_row
+        buttons = {b.defaultAction().text(): b for b in row.findChildren(QToolButton) if b.defaultAction()}
+        for name in ("Run", "Update after corrections", "Train OCR model…", "Export PDF…", "Select PDF…"):
+            b = buttons[name]
+            assert b.isVisible(), name
+            g = b.geometry()
+            assert g.left() >= 0 and g.right() < row.width() and g.bottom() < row.height(), (width, name, g)
+        heights[width] = row.height()
+    assert heights[520] > heights[1400], "the buttons wrapped onto more rows"
+    menus = {a.text(): a.menu() for a in w.menuBar().actions()}
+    assert list(menus)[:3] == ["&File", "&Run", "&Export"]
+    assert w.actions["run"] in menus["&Run"].actions() and w.actions["save_project"] in menus["&File"].actions()
+    assert w.actions["export_idml"] in menus["&Export"].actions()
+    assert w.actions["train"] in menus["&Training"].actions()
+    w.actions["save_project"].trigger()  # from the menu or Ctrl+S
+    assert w.statusBar().currentMessage().startswith("Saved.")
+    assert w.actions["run"].shortcut().toString() == "F5"
+    w.actions["export_idml"].setVisible(False)  # Manuscript Mode hides it: its button goes too
+    app.processEvents()
+    assert not next(b for b in w.button_row.findChildren(QToolButton)
+                    if b.defaultAction() is w.actions["export_idml"]).isVisible()
+    w.close()
+    w.deleteLater()
+    app.processEvents()
