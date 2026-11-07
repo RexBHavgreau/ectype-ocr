@@ -456,26 +456,22 @@ class Project:
     # -- IDML ---------------------------------------------------------------------
 
     def _stale(self, stage: str) -> bool:
-        """True when a stage's results are missing or older than the OCR they come from."""
-        ocr = [p.stat().st_mtime for p in (self.workspace / "ocr").glob("*.ocr.json")]
+        """True when a stage's results are missing, or were not made from what is there now: each
+        page's segmentation from its image, reading and the program's code (`segment.seg_fresh`);
+        the glyph groups from every page's reading, segmentation and Review styles
+        (`cluster.inputs_stamp`, kept in clusters.json)."""
+        ws = self.workspace
         if stage == "segment":
-            outs = list((self.workspace / "segment").glob("*.seg.json"))
-            if len(outs) < len(ocr):
-                return True
-        else:
-            from .cluster import RESULT_VERSION
+            from .segment import seg_fresh
 
-            outs = [self.workspace / "cluster" / "clusters.json"]
-            seg = [p.stat().st_mtime for p in (self.workspace / "segment").glob("*.seg.json")]
-            ocr = ocr + seg
-            if not outs[0].is_file():
-                return True
-            try:  # made by an older version (sizes in pixels): made again
-                if json.loads(outs[0].read_text(encoding="utf-8")).get("version", 1) < RESULT_VERSION:
-                    return True
-            except ValueError:
-                return True
-        return bool(ocr) and min(p.stat().st_mtime for p in outs) < max(ocr)
+            return any(not seg_fresh(ws, p.name.removesuffix(".ocr.json")) for p in (ws / "ocr").glob("*.ocr.json"))
+        from .cluster import inputs_stamp
+
+        try:
+            kept = json.loads((ws / "cluster" / "clusters.json").read_text(encoding="utf-8")).get("inputs")
+        except (OSError, ValueError, AttributeError):
+            return True
+        return not isinstance(kept, str) or kept != inputs_stamp(ws)
 
     def prepare_idml(self, progress: Progress | None = None, match_fonts: bool = True) -> dict:
         """What an IDML export needs beyond the OCR: segmentation and glyph styles (for

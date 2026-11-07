@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from . import report
+from . import report, stamps
 from .ocr import OcrPage
 from .preprocess import binarize
 from .scripts import is_rtl
@@ -670,22 +670,41 @@ def evaluate(seg: Segmentation, ocr: OcrPage, labels: np.ndarray, gray: np.ndarr
 # Driver
 
 
+def seg_stamp_path(workspace: Path, name: str) -> Path:
+    return Path(workspace) / "segment" / f"{name}.seg.stamp"
+
+
+def seg_stamp(workspace: Path, name: str) -> str:
+    """What a page's segmentation is made from: the program's code, the page image, its reading."""
+    workspace = Path(workspace)
+    return stamps.stamp(stamps.code_version(), stamps.file_digest(workspace / "pages" / f"{name}.png"),
+                        stamps.file_digest(workspace / "ocr" / f"{name}.ocr.json"))
+
+
+def seg_fresh(workspace: Path, name: str) -> bool:
+    """True when the page's segmentation was made from what it would be made from now."""
+    workspace = Path(workspace)
+    seg = workspace / "segment"
+    return (stamps.read_text(seg_stamp_path(workspace, name)) == seg_stamp(workspace, name)
+            and (seg / f"{name}.seg.json").is_file() and (seg / f"{name}.labels.png").is_file())
+
+
 def _segment_one(png: Path, workspace: Path, truth_root: Path | None, force: bool) -> dict | None:
     import json
-
-    from .ocr import _fresh
 
     out = workspace / "segment"
     ocr_path = workspace / "ocr" / f"{png.stem}.ocr.json"
     if not ocr_path.is_file():
         return None
+    made_from = seg_stamp(workspace, png.stem)  # taken before the reading is read: a change meanwhile shows later
     ocr = OcrPage.from_json(json.loads(ocr_path.read_text(encoding="utf-8")))
     seg_path, labels_path = out / f"{png.stem}.seg.json", out / f"{png.stem}.labels.png"
     gray = np.asarray(Image.open(png).convert("L"))
-    if not force and _fresh(seg_path, png, ocr_path) and labels_path.is_file():
+    if not force and seg_fresh(workspace, png.stem):
         seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
         labels = cv2.imread(str(labels_path), cv2.IMREAD_UNCHANGED).astype(np.int32)
     else:
+        seg_stamp_path(workspace, png.stem).unlink(missing_ok=True)  # until the result is whole again
         seg, labels = segment_page(gray, ocr)
         report.write_json(seg_path, seg.to_json())
         cv2.imwrite(str(labels_path), labels.astype(np.uint16 if labels.max() < 65536 else np.uint32))
@@ -693,6 +712,7 @@ def _segment_one(png: Path, workspace: Path, truth_root: Path | None, force: boo
         for b in no_ink_boxes(seg, ocr):
             cv2.rectangle(view, (b[0], b[1]), (b[2] - 1, b[3] - 1), (230, 30, 30), 2)
         Image.fromarray(view).save(out / f"{png.stem}.overlay.png")
+        stamps.write_text(seg_stamp_path(workspace, png.stem), made_from + "\n")  # last: the result is whole
     row = {
         "page": png.stem,
         "units": len(seg.units),
@@ -712,7 +732,7 @@ def _segment_one(png: Path, workspace: Path, truth_root: Path | None, force: boo
 def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int | None = None, force: bool = False,
                       on_page=None) -> dict:
     """Segment every page in <workspace>/pages using <workspace>/ocr; write <workspace>/segment.
-    Pages run in parallel processes; a page whose result is newer than its inputs is reused."""
+    Pages run in parallel processes; a page whose result was made from the same code, image and reading (`seg_fresh`) is reused."""
     import os
     from concurrent.futures import ProcessPoolExecutor
 

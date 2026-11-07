@@ -435,6 +435,16 @@ and Substitute PDF of the Treatise, ship with it):
 - **Qt in tests:** free dialogs on the interface thread (close, deleteLater, processEvents) or a
   worker thread's garbage collection crashes the run.
 
+- **Kept results are judged by content, never by file times or hand-bumped versions**
+  (`stamps.py`): `code_version()` (hash of the package's .py files; in the packaged app the
+  build's `__version__`), `file_digest`, `stamp`. Cluster caches are `.npy`/`.npz` (no pickle
+  anywhere in src/; old `.pkl` are deleted unread), keyed on the code and the instances'
+  fingerprints; a page's instances on code + png + seg + labels + ocr digests. `clusters.json`
+  holds `inputs` (`cluster.inputs_stamp`; `Project._stale`). Segmentation: `<page>.seg.stamp`
+  (code, png, ocr.json digests; `segment.seg_fresh`). OCR: `<page>.ocr.stamp` holds the png's
+  digest only (no code: a reading is not redone after an upgrade; one made before has no
+  sidecar and is trusted once if newer than its png). `CACHE_VERSION`/`RESULT_VERSION` are gone.
+
 ## Decisions
 
 - One OCR model per language (not per book), trained on a shared pool of every project's

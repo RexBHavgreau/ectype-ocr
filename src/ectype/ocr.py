@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from . import report
+from . import report, stamps
 from .resources import subprocess_flags
 from .scripts import clean
 
@@ -251,9 +251,30 @@ def parse_hocr(hocr: str, engine: str = "tesseract", lang: str = "eng", dpi: flo
 # Driver
 
 
-def _fresh(output: Path, *inputs: Path) -> bool:
-    """True when output exists and is newer than every input (a cached result)."""
-    return output.is_file() and all(output.stat().st_mtime >= i.stat().st_mtime for i in inputs if i.is_file())
+def ocr_stamp_path(target: Path) -> Path:
+    """The small file beside `<page>.ocr.json` that says which image it was read from."""
+    return target.with_name(target.name.removesuffix(".ocr.json") + ".ocr.stamp")
+
+
+def write_ocr_stamp(target: Path, png: Path) -> None:
+    """Record, right after a reading is written, the digest of the page image it came from."""
+    stamps.write_text(ocr_stamp_path(target), stamps.file_digest(png) + "\n")
+
+
+def _fresh(target: Path, png: Path) -> bool:
+    """True when the reading `target` was made from this very image: its sidecar holds the
+    image's digest. The program's code is not part of it: a reading is what the person has
+    reviewed, and is not read again after an upgrade. A reading kept by an older version has no
+    sidecar: if it is newer than its image it is trusted this once and gets one."""
+    if not target.is_file():
+        return False
+    side = ocr_stamp_path(target)
+    if side.is_file():
+        return stamps.read_text(side) == stamps.file_digest(png)
+    if png.is_file() and target.stat().st_mtime >= png.stat().st_mtime:
+        write_ocr_stamp(target, png)
+        return True
+    return False
 
 
 def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, threads: int, force: bool,
@@ -313,6 +334,7 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
 
         carry_corrections(out_dir.parent, png.stem, page)
         report.write_json(target, page.to_json())
+        write_ocr_stamp(target, png)
         Image.fromarray(draw_overlay(gray, page, low_conf)).save(out_dir / f"{png.stem}.overlay.png")
     words = list(page.words())
     return {
@@ -330,7 +352,7 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
     """OCR every page PNG from a preprocess run; write .ocr.json, overlays and a report.
 
     Pages run in parallel (`jobs`, default one per CPU, each Tesseract on one thread);
-    a page whose .ocr.json is newer than its image and was read with the same engine
+    a page whose .ocr.json was read from this very image (`_fresh`) with the same engine
     and languages is reused unless `force`. `on_page(done, total)` is called as pages finish.
     """
     import threading
