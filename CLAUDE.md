@@ -31,8 +31,9 @@ of "Planned".
 ## Releasing
 
 Merge to `main`, Beaux tags it, `release.yml` builds and attaches `Ectype-OCR-<v>-Setup.exe` and
-`Ectype-OCR-Kraken-<v>-win64.zip`. The Windows installer workflow also runs on every branch push:
-check it passes (bundling, packaged-app smoke test, installer, Kraken engine) before asking to
+`Ectype-OCR-Kraken-<v>-win64.zip`. The Windows installer workflow also runs on a branch push, but only one
+that changes packaging files (its `paths`); otherwise run it by hand (workflow_dispatch). Check it
+passes (bundling, packaged-app smoke test, installer, Kraken engine) before asking to
 merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 
 ## What each version brought (for release notes and for knowing what is where)
@@ -323,6 +324,25 @@ and Substitute PDF of the Treatise, ship with it):
   menus hold the same QActions as the buttons, so both enable and hide together. A project
   is kept as Ectype works (settings, corrections, readings), so Save project writes the
   settings and says where the project folder is.
+- *Crash recorder* (Beaux's 0.7.4 crashed mid-run, froze then vanished; Windows: BEX64,
+  ucrtbase.dll, c0000409 data 7 = abort() inside the app, cause unknown; the app kept no
+  record, and `quiet_windows_errors` also hides Windows' crash box). `crashlog.py`: each
+  running copy writes `<user folder>/crash/running-<pid>.txt` (start details; faulthandler,
+  all threads' Python stacks on an abort; uncaught Python and thread exceptions; Qt warnings
+  and fatal messages; the windowed app's stdout/stderr, fd 1/2, so Py_FatalError and C++
+  terminate messages land there; each Log line with the memory in use, `note`). A normal exit
+  deletes it (`close_cleanly`); one left at the next start (and not held open by a running
+  copy) becomes `crash-<date>-<time>.txt` (10 kept) and the app says so with Open folder
+  (`gui._offer_report`). `install` never stops the app from starting. The Log is also saved
+  to the project's `log.txt` (`MainWindow._log`; never the Log tab brought forward).
+- *A Task dropped while running* (found looking for the crash; not shown to be Beaux's): a
+  QThread destroyed while it runs makes Qt abort the program, e.g. closing the languages or
+  Kraken dialog while its download or list still loads. `Task._running` keeps each one from
+  `start` until it ends, let go on the interface thread (`finished`, queued, then `wait`).
+- *Tests on GitHub* failed in the IDML schema check: newer Java limits an XML element to 200
+  attributes and InDesign's TextDefault/ParagraphStyle have more. `ci.yml` sets
+  `JAVA_TOOL_OPTIONS=-Djdk.xml.elementAttributeLimit=0` (docx-to-idml's checker skips Java's
+  "Picked up" line). docx-to-idml's own CI may need the same.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
@@ -511,7 +531,8 @@ and Substitute PDF of the Treatise, ship with it):
 
 ## Planned
 
-- **0.8.0** (Beaux agreed, after Qwen Code's review of 0.7.2; new features, so a minor version):
+- **The next minor version** (planned for 0.8.0, which shipped the menus and the crash recorder
+  first; Beaux agreed, after Qwen Code's review of 0.7.2):
   a **Stop** button for any run (the progress window; stages stop between pages); **retire the
   browser Review** (`ectype review`, `review.serve`/`make_handler`: an older Review in a web
   browser, with no protection against other web pages posting to it; Beaux didn't remember it);

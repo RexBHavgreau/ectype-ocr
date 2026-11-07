@@ -545,3 +545,49 @@ def test_buttons_wrap_and_stay_visible_in_a_narrow_window(tmp_path):
     w.close()
     w.deleteLater()
     app.processEvents()
+
+
+def test_log_lines_go_to_the_books_log_file_and_keep_the_tab(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(Project.for_scan(_spread_pdf(tmp_path)))
+    app.processEvents()
+    tab = w.tabs.currentIndex()
+    w._progress_line("read", "page 12 of 26")
+    w._progress_line("fraction", "0.5")
+    lines = (w.project.workspace / "log.txt").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1 and lines[0][19:] == " read: page 12 of 26"
+    assert "read: page 12 of 26" in w.log.toPlainText()
+    assert w.tabs.currentIndex() == tab
+    w.close()
+    w.deleteLater()
+    app.processEvents()
+
+
+def test_a_task_dropped_while_running_is_kept_until_it_ends():
+    """Closing a dialog whose download is still running dropped its QThread while it ran, and Qt
+    then ends the whole program. A running Task is kept until it ends, and let go after."""
+    import gc
+    import threading
+
+    from PySide6.QtCore import QElapsedTimer
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import Task
+
+    app = QApplication.instance() or QApplication([])
+    release = threading.Event()
+    task = Task(lambda progress: release.wait(5))
+    task.start()
+    del task
+    gc.collect()
+    assert len(Task._running) == 1
+    release.set()
+    timer = QElapsedTimer()
+    timer.start()
+    while Task._running and timer.elapsed() < 5000:
+        app.processEvents()
+    assert not Task._running

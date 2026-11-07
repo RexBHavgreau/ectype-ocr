@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 import traceback
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
@@ -30,7 +31,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import __version__, languages, updates
+from . import __version__, crashlog, languages, updates
 from .project import Project
 
 MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
@@ -69,9 +70,23 @@ class Task(QThread):
     done = Signal(object)
     failed = Signal(str)
 
+    # Running tasks are kept here until they finish: a QThread destroyed while it runs makes Qt
+    # end the whole program at once (closing a dialog whose download or list is still loading).
+    _running: set = set()
+
     def __init__(self, fn):
         super().__init__()
         self.fn = fn
+        # Let go on the interface thread (queued), once the thread has really ended.
+        self.finished.connect(self._forget, Qt.ConnectionType.QueuedConnection)
+
+    def start(self, *args) -> None:
+        Task._running.add(self)
+        super().start(*args)
+
+    def _forget(self) -> None:
+        self.wait()
+        Task._running.discard(self)
 
     def run(self) -> None:
         try:
@@ -2529,7 +2544,7 @@ class MainWindow(QMainWindow):
             return
         for a in self.actions.values():
             a.setEnabled(False)
-        self.log.appendPlainText(f"— {title} —")
+        self._log(f"— {title} —")
         self.progress_window = ProgressWindow(title, self)
         if measured:
             self.progress_window.set_fraction(0.0)
@@ -2542,12 +2557,24 @@ class MainWindow(QMainWindow):
         self.task.failed.connect(self._failed)
         self.task.start()
 
+    def _log(self, text: str) -> None:
+        """A line for the Log tab, the crash record and the book's log.txt."""
+        self.log.appendPlainText(text)
+        crashlog.note(text)
+        try:
+            workspace = self.project.workspace
+            with open(workspace / "log.txt", "a", encoding="utf-8", newline="\n") as f:
+                for line in text.splitlines() or [""]:
+                    f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {line}\n")
+        except (OSError, AttributeError):
+            pass
+
     def _progress_line(self, stage: str, msg: str) -> None:
         if stage == "fraction":  # how far along (training): the bar, not a line of the log
             if self.progress_window is not None:
                 self.progress_window.set_fraction(float(msg))
             return
-        self.log.appendPlainText(f"{stage}: {msg}")
+        self._log(f"{stage}: {msg}")
         self.statusBar().showMessage(f"{stage}: {msg}")
         if self.progress_window is not None:
             self.progress_window.add(stage, msg)
@@ -2556,7 +2583,7 @@ class MainWindow(QMainWindow):
         if self.progress_window is not None:
             self.progress_window.stop_clock()
             self.took = elapsed_text(self.progress_window.seconds())  # for the report at the end
-            self.log.appendPlainText(self.progress_window.clock.text())
+            self._log(self.progress_window.clock.text())
             self.progress_window.close()
             self.progress_window = None
 
@@ -2600,7 +2627,7 @@ class MainWindow(QMainWindow):
         idml = Path(out["idml"])
         folder = Path(out.get("folder") or idml.parent)
         self.statusBar().showMessage(f"Saved {idml}")
-        self.log.appendPlainText(f"IDML saved: {idml}")
+        self._log(f"IDML saved: {idml}")
         box = QMessageBox(self)
         box.setWindowTitle("Export IDML")
         box.setText(f"The IDML is saved:\n{idml}")
@@ -2669,7 +2696,7 @@ class MainWindow(QMainWindow):
             return
         for a in self.actions.values():
             a.setEnabled(False)
-        self.log.appendPlainText(f"— Running from {start} —")
+        self._log(f"— Running from {start} —")
         self.progress_window = ProgressWindow(f"Running {self.project.settings.name or self.project.workspace.name}", self)
         self.progress_window.show()
         self.worker = Worker(self.project, start)
@@ -2681,7 +2708,7 @@ class MainWindow(QMainWindow):
 
     def _finished(self, pdf: str) -> None:
         self._close_progress()
-        self.log.appendPlainText(f"Done: {pdf}" if pdf else "Done.")
+        self._log(f"Done: {pdf}" if pdf else "Done.")
         self.statusBar().showMessage("Done.")
         for a in self.actions.values():
             a.setEnabled(True)
@@ -2727,7 +2754,7 @@ class MainWindow(QMainWindow):
             self._start(work, added, "Adding " + names)
 
     def _failed(self, error: str) -> None:
-        self.log.appendPlainText(error)
+        self._log(error)
         if self.progress_window is not None:
             self.progress_window.finish(False, "Stopped: " + error.strip().splitlines()[-1])
             self.progress_window = None
@@ -2819,7 +2846,7 @@ class MainWindow(QMainWindow):
 
     def _trained_manuscript(self, report: list[str]) -> None:
         for line in report:
-            self.log.appendPlainText(line)
+            self._log(line)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
         box.setText(f"Training finished in {getattr(self, 'took', '') or 'a moment'}.")
@@ -2860,7 +2887,7 @@ class MainWindow(QMainWindow):
 
     def _trained_from_fonts(self, report: list[str]) -> None:
         for line in report:
-            self.log.appendPlainText(line)
+            self._log(line)
         box = QMessageBox(self)
         box.setWindowTitle("Train from fonts")
         box.setText(f"Training finished in {getattr(self, 'took', '') or 'a moment'}.")
@@ -2876,7 +2903,7 @@ class MainWindow(QMainWindow):
             if r.get("chosen"):
                 lines.append(f"  For this book: {r['chosen']}.")
         for line in lines:
-            self.log.appendPlainText(line)
+            self._log(line)
         changed = any(r["general"]["installed"] or any(f["kept"] for f in r["families"].values()) for r in reports)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
@@ -3005,10 +3032,26 @@ def app_icon() -> QIcon:
     return icon
 
 
+def _offer_report(window: QWidget, report: Path) -> None:
+    box = QMessageBox(QMessageBox.Icon.Information, "Ectype OCR",
+                      "Ectype OCR didn't close normally last time (it stopped, froze, or the computer shut down). "
+                      f"A report was saved:\n{report}\n\nIf it crashed, please send this file so the cause can be found.",
+                      QMessageBox.StandardButton.NoButton, window)
+    folder = box.addButton("Open folder", QMessageBox.ButtonRole.ActionRole)
+    box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
+    box.exec()
+    if box.clickedButton() is folder:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(crashlog.crash_dir())))
+
+
 def main(argv: list[str] | None = None) -> int:
     import multiprocessing
 
     multiprocessing.freeze_support()  # the packaged app's worker processes start through here
+    crashlog.install()
     from .resources import quiet_windows_errors
 
     quiet_windows_errors()
@@ -3031,7 +3074,11 @@ def main(argv: list[str] | None = None) -> int:
     window.show()
     if updates.installed_app() is not None and updates.check_at_start(updates.load_settings()):
         window.check_for_updates()  # the installed app only, not a copy run from source
-    return app.exec()
+    if crashlog.previous_crash() is not None:
+        _offer_report(window, crashlog.previous_crash())
+    code = app.exec()
+    crashlog.close_cleanly()
+    return code
 
 
 if __name__ == "__main__":
