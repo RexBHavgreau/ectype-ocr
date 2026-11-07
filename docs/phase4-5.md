@@ -36,6 +36,6 @@ Placement: 97.2% of words' left ink edges and 92.3% of right ink edges land with
 
 ## Known limits
 
-- **Misreadings.** A misread character still gets a glyph shaped like what was printed, but with the wrong text behind it. The cluster report lists the likely ones (35 in the Young chapter); `ectype review` shows them in orange so they can be corrected, and `ectype rebuild` regenerates the PDF.
+- **Misreadings.** A misread character still gets a glyph shaped like what was printed, but with the wrong text behind it. The cluster report lists the likely ones (35 in the Young chapter); the desktop app's Review tab shows them in orange (the browser `ectype review` was removed in 0.8.0) so they can be corrected, and `ectype rebuild` regenerates the PDF.
 - **Heavily inked pages.** Where letters fuse into whole-word blobs (synthetic pages s04 and s08), segmentation falls below target. Those letters become multi-character glyphs, or the word falls back to the image.
 - **Blurry pages.** Fonts carry about 2 px of tracing tolerance; very blurry scans give slightly rounder corners.

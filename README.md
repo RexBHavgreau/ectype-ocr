@@ -120,11 +120,10 @@ ectype traced reports/work-young    # the traced-mode PDF: every glyph drawn fro
 ```
 
 ```
-ectype review reports/work-young    # correct OCR in the browser at http://127.0.0.1:8765/
 ectype rebuild reports/work-young   # after corrections: segment, cluster, fonts and the PDF again
 ```
 
-The review page boxes every word: red for low OCR confidence, orange where a glyph looks like a different character than the OCR says, green once corrected. Each correction updates `ocr/`, is logged in `corrections/`, and saves the corrected line as a training pair in `training/` (`.png` + `.gt.txt`, as Kraken's `ketos train` reads them).
+Correct the OCR in the desktop app's Review tab (the old browser review, `ectype review`, was removed in 0.8.0). It boxes every word: red for low OCR confidence, orange where a glyph looks like a different character than the OCR says, green once corrected. Each correction updates `ocr/`, is logged in `corrections/`, and saves the corrected line as a training pair in `training/` (`.png` + `.gt.txt`, as Kraken's `ketos train` reads them).
 
 OCR and segmentation run in parallel across pages (one worker per CPU) and reuse a page's result when it's newer than its inputs.
 
@@ -153,7 +152,7 @@ This compares two documents page by page. You get side-by-side renders, a differ
   - `cluster` is Phase 3.
   - `trace` and `fontbuild` are Phase 4.
   - `traced` is Phase 5.
-  - `project` (a book project: settings, overrides, running stages, corrections, export), `gui` (the desktop app) and `review` (the browser review) are Phase 6.
+  - `project` (a book project: settings, overrides, running stages, corrections, export), `gui` (the desktop app) and `review` (corrections and their training data) are Phase 6.
   - `textlayer` (the scan with an invisible OCR text layer), `languages` (OCR languages and their download), `layout` (text blocks and paragraphs), `fontmatch` (installed fonts most like the scan's), `idml` (the InDesign export), `docx` and `converter` (Reflow's Word manuscript and running docx-to-idml), and `idmlkit` (docx-to-idml's IDML writer, copied, used by Facsimile).
   - `lept` holds ctypes bindings to Leptonica's symbol classifier.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).

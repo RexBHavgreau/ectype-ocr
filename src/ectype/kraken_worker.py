@@ -10,7 +10,7 @@ Commands (results as JSON on stdout; progress as "progress <done> <total>" lines
 
     version                    Kraken's and PyTorch's versions, and the protocol version
     list                       the repository's recognition models
-    get <doi> <folder>         download a model's files
+    get <doi> <folder>         download a model's files, checked against Zenodo's MD5s
     serve                      read lines: one JSON request a line on stdin, one answer a
                                line on stdout, until stdin closes (`Reader.read`; with
                                "op": "segment", `Reader.segment`, and with "baselines",
@@ -112,7 +112,20 @@ def list_models() -> list[dict]:
     return out
 
 
-def get(doi: str, folder: str) -> dict:
+def _zenodo_checksums(doi: str) -> dict[str, str]:
+    """The MD5 Zenodo lists for each file of a record (file name -> "md5:...")."""
+    import urllib.request
+
+    from ectype import verify
+
+    record = doi.rsplit("zenodo.", 1)[-1]
+    with urllib.request.urlopen(verify.ZENODO_RECORD.format(record=record), timeout=60) as r:
+        return verify.zenodo_checksums(json.loads(r.read().decode("utf-8")))
+
+
+def get(doi: str, folder: str, checksums: dict[str, str] | None = None) -> dict:
+    """Download a model, then check every file against Zenodo's listed MD5 (`checksums`, or the
+    record's own). A file that doesn't match is deleted and the download refused."""
     from htrmopo import get_model
 
     seen = [0]
@@ -123,6 +136,18 @@ def get(doi: str, folder: str) -> dict:
             _progress(seen[0], total)
 
     path = Path(get_model(doi, path=folder, callback=callback))
+    import shutil
+
+    from ectype import verify
+
+    try:
+        verify.check_files(path, checksums if checksums is not None else _zenodo_checksums(doi))
+    except verify.DownloadMismatch:
+        shutil.rmtree(path, ignore_errors=True)
+        raise
+    except Exception as exc:  # the checksums couldn't be read: the files can't be vouched for
+        shutil.rmtree(path, ignore_errors=True)
+        raise verify.mismatch("The model") from exc
     files = sorted(str(p) for p in path.iterdir() if p.is_file())
     weights = [f for f in files if f.endswith((".mlmodel", ".safetensors"))]
     if weights:
@@ -385,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         elif command == "list":
             _out(list_models())
         elif command == "get":
-            _out(get(rest[0], rest[1]))
+            _out(get(rest[0], rest[1], json.loads(rest[2]) if len(rest) > 2 else None))
         elif command == "serve":
             serve()
         elif command in ("train", "segtrain"):

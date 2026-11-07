@@ -19,6 +19,8 @@ datas = [(str(root / name), ".") for name in ("LICENSE", "NOTICE", "CREDITS.md")
 # docx-to-idml's IDML base (InDesign's own settings and styles), used by the facsimile export.
 datas += [(str(root / "src" / "ectype" / "idmlkit" / "base"), "ectype/idmlkit/base"),
           (str(root / "src" / "ectype" / "idmlkit" / "LICENSE-docx-to-idml"), "ectype/idmlkit")]
+# The known fingerprints every download is checked against (verify.py); without it nothing downloads.
+datas.append((str(root / "src" / "ectype" / "fingerprints.json"), "ectype"))
 # Licence files of the LGPL Qt bindings travel with them.
 for dist in ("PySide6_Essentials", "shiboken6"):
     try:

@@ -13,7 +13,7 @@ here = Path(SPECPATH)
 root = here.parent
 
 datas = [(str(root / name), ".") for name in ("LICENSE", "NOTICE", "CREDITS.md")]
-binaries, hidden = [], ["ectype.kraken_worker"]
+binaries, hidden = [], ["ectype.kraken_worker", "ectype.verify"]  # verify checks model downloads
 # Kraken and the packages it loads by name or reads data files from.
 for package in ("kraken", "torchvision", "htrmopo", "lightning", "lightning_fabric", "torchmetrics", "coremltools", "safetensors",
                 "shapely", "sickle"):

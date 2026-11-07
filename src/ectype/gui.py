@@ -15,24 +15,27 @@ from __future__ import annotations
 
 import sys
 import traceback
+from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QIcon, QImage, QKeySequence, QPainterPath, QPainterPathStroker,
                            QPen, QPixmap, QShortcut,
                            QTransform)
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
-    QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QFormLayout, QFrame, QGraphicsItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
+    QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea, QSpinBox,
     QSplitter, QStackedWidget, QTableWidget,
-    QTableWidgetItem, QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import __version__, languages, updates
+from . import __version__, crashlog, languages, stopping, updates
 from .project import Project
 
+PAGE_IMAGES = [("gray", "Page image: grayscale (JPEG)"), ("lossless", "Page image: grayscale, lossless (larger)"),
+               ("bw", "Page image: black and white (smallest)")]
 MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
          ("text", "Text layer only (the scan + OCR)")]
 
@@ -48,16 +51,21 @@ class Worker(QThread):
     fraction = Signal(float)
     done = Signal(str)
     failed = Signal(str)
+    stopped = Signal()
 
     def __init__(self, project: Project, start: str):
         super().__init__()
         self.project, self.start_stage = project, start
+        self.stop = stopping.StopFlag()
 
     def run(self) -> None:
         try:
-            pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg),
-                                   lambda f: self.fraction.emit(f))
+            with stopping.active(self.stop):
+                pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg),
+                                       lambda f: self.fraction.emit(f), stop=self.stop)
             self.done.emit(str(pdf or ""))
+        except stopping.Stopped:
+            self.stopped.emit()
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -68,14 +76,38 @@ class Task(QThread):
     progress = Signal(str, str)
     done = Signal(object)
     failed = Signal(str)
+    stopped = Signal()
+
+    # Running tasks are kept here until they finish: a QThread destroyed while it runs makes Qt
+    # end the whole program at once (closing a dialog whose download or list is still loading).
+    _running: set = set()
 
     def __init__(self, fn):
         super().__init__()
         self.fn = fn
+        self.stop = stopping.StopFlag()
+        # Let go on the interface thread (queued), once the thread has really ended.
+        self.finished.connect(self._forget, Qt.ConnectionType.QueuedConnection)
+
+    def start(self, *args) -> None:
+        Task._running.add(self)
+        super().start(*args)
+
+    def _forget(self) -> None:
+        self.wait()
+        Task._running.discard(self)
 
     def run(self) -> None:
+        def report(stage: str, msg: str) -> None:
+            self.stop.check()  # every message is a safe point to stop at
+            self.progress.emit(stage, msg)
+
         try:
-            self.done.emit(self.fn(lambda stage, msg: self.progress.emit(stage, msg)))
+            with stopping.active(self.stop):
+                result = self.fn(report)
+            self.done.emit(result)
+        except stopping.Stopped:
+            self.stopped.emit()
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -96,6 +128,8 @@ class ProgressWindow(QDialog):
     """A run in progress: what it is doing, a progress bar with a percentage, how long it has
     been running, and the log. Hiding it leaves the run going; the Log tab has the same lines."""
 
+    stop_requested = Signal()
+
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -115,6 +149,8 @@ class ProgressWindow(QDialog):
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.buttons = QDialogButtonBox()
+        self.stop_button = self.buttons.addButton("Stop", QDialogButtonBox.ActionRole)
+        self.stop_button.clicked.connect(self._stop)
         self.hide_button = self.buttons.addButton("Hide", QDialogButtonBox.RejectRole)
         self.buttons.rejected.connect(self.hide)
         layout = QVBoxLayout(self)
@@ -126,6 +162,11 @@ class ProgressWindow(QDialog):
 
     def seconds(self) -> int:
         return self._started.elapsed() // 1000
+
+    def _stop(self) -> None:
+        self.stop_button.setEnabled(False)
+        self.stage.setText("Stopping after the current page…")
+        self.stop_requested.emit()
 
     def _tick(self) -> None:
         self.clock.setText(f"Running for {elapsed_text(self.seconds())}")
@@ -155,6 +196,7 @@ class ProgressWindow(QDialog):
             self.bar.setValue(1000)
         self.stage.setText(message)
         self.text.appendPlainText(message)
+        self.stop_button.hide()
         self.hide_button.setText("Close")
 
 
@@ -2158,6 +2200,101 @@ class FontTrainingDialog(QDialog):
         super().reject()
 
 
+class FlowLayout(QLayout):
+    """Lays its widgets out left to right and starts a new row when the next one doesn't fit, so
+    every button stays in view however narrow the window (a toolbar hides what doesn't fit behind
+    a » menu). Hidden widgets take no room."""
+
+    def __init__(self, parent: QWidget | None = None, spacing: int = 6):
+        super().__init__(parent)
+        self._items = []
+        self.setSpacing(spacing)
+        self.setContentsMargins(6, 4, 6, 4)
+
+    def addItem(self, item) -> None:
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._arrange(QRect(0, 0, width, 0), move=False)
+
+    def setGeometry(self, rect: QRect) -> None:
+        super().setGeometry(rect)
+        self._arrange(rect, move=True)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            if not item.isEmpty():
+                size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _arrange(self, rect: QRect, move: bool) -> int:
+        """Place the items in rows within rect (if move); the height they need."""
+        m = self.contentsMargins()
+        area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        row: list = []  # (item, x, size) on the row being filled
+        x, y, row_h = area.x(), area.y(), 0
+
+        def place_row() -> None:
+            for item, ix, size in row:  # centred in the row's height
+                item.setGeometry(QRect(QPoint(ix, y + (row_h - size.height()) // 2), size))
+
+        for item in self._items:
+            if item.isEmpty():
+                continue
+            size = item.sizeHint().expandedTo(item.minimumSize())
+            if row and x + size.width() > area.right() + 1:
+                if move:
+                    place_row()
+                row, x, y, row_h = [], area.x(), y + row_h + self.spacing(), 0
+            size.setWidth(min(size.width(), max(area.width(), item.minimumSize().width())))
+            row.append((item, x, size))
+            x += size.width() + self.spacing()
+            row_h = max(row_h, size.height())
+        if move:
+            place_row()
+        return y + row_h - rect.y() + m.bottom()
+
+
+def action_button(action: QAction) -> QToolButton:
+    """A button for a window action, showing its text, state and visibility (a QToolButton
+    follows its action's text, font and enabled state itself, not whether it is shown)."""
+    button = QToolButton()
+    button.setDefaultAction(action)
+    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+    button.setAutoRaise(True)
+    button.setVisible(action.isVisible())
+    action.changed.connect(lambda: button.setVisible(action.isVisible()))
+    return button
+
+
+def _separator() -> QFrame:
+    line = QFrame()
+    line.setFrameShape(QFrame.Shape.VLine)
+    line.setFrameShadow(QFrame.Shadow.Sunken)
+    line.setFixedHeight(22)
+    return line
+
+
 class MainWindow(QMainWindow):
     def __init__(self, project: Project | None = None):
         super().__init__()
@@ -2171,25 +2308,46 @@ class MainWindow(QMainWindow):
         self.load(self.project)
 
     def _build(self) -> None:
-        bar = QToolBar("Main")
-        self.addToolBar(bar)
+        # The buttons wrap onto more rows when the window is narrow (FlowLayout), so none is
+        # hidden; the same actions are in the menus (File, Run, Export, Training).
+        self.button_row = QWidget()
+        bar = FlowLayout(self.button_row)
         self.actions: dict[str, QAction] = {}
-        for key, text, slot in (("open_scan", "Select PDF…", self.open_scan), ("open_project", "Open project…", self.open_project)):
-            self.actions[key] = bar.addAction(text, slot)
+
+        def action(key: str, text: str, slot, shortcut: str | None = None, button: bool = True) -> QAction:
+            a = QAction(text, self)
+            a.triggered.connect(slot)
+            if shortcut:
+                a.setShortcut(QKeySequence(shortcut))
+            self.actions[key] = a
+            if button:
+                bar.addWidget(action_button(a))
+            return a
+
+        action("open_scan", "Select PDF…", self.open_scan, "Ctrl+O")
+        action("open_project", "Open project…", self.open_project, "Ctrl+Shift+O")
+        action("save_project", "Save project", self.save_project, "Ctrl+S", button=False)
         self.actions["open_scan"].setToolTip("Choose the scanned book (a PDF, or page images) to read")
         self.source_label = QLabel()
         self.source_label.setContentsMargins(8, 0, 8, 0)
         bar.addWidget(self.source_label)
-        bar.addSeparator()
+        bar.addWidget(_separator())
         self.mode = QComboBox()
         self.mode.addItems([label for _, label in MODES])
         self.mode.currentIndexChanged.connect(self._mode_changed)
-        self.mode_action = bar.addWidget(self.mode)
+        self.mode_action = self.mode  # shown or hidden with the mode (setVisible)
+        bar.addWidget(self.mode)
         self.page_image = QComboBox()
-        self.page_image.addItems(["Page image: grayscale", "Page image: black and white (smallest)"])
-        self.page_image.setToolTip("Text-layer mode: how the scanned page is kept under the text")
+        for value, label in PAGE_IMAGES:
+            self.page_image.addItem(label, value)
+        self.page_image.setToolTip(
+            "How the page picture is kept in the PDF. Grayscale (JPEG) is small, with a little loss. "
+            "Lossless keeps every grey value exactly, for libraries and archives, and is a few times larger. "
+            "Black and white is the smallest, for plain text; only the scan-with-text-layer mode and "
+            "manuscripts have it.")
         self.page_image.currentIndexChanged.connect(self._page_image_changed)
-        self.page_image_action = bar.addWidget(self.page_image)
+        self.page_image_action = self.page_image
+        bar.addWidget(self.page_image)
         self.langs = LanguageButton()
         self.langs.changed.connect(self._languages_changed)
         self.langs.add_requested.connect(self.add_languages)
@@ -2202,13 +2360,12 @@ class MainWindow(QMainWindow):
         self.split = QCheckBox("Split two-page spreads")
         self.split.toggled.connect(self._split_changed)
         bar.addWidget(self.split)
-        bar.addSeparator()
-        for key, text, slot in (("run", "Run", lambda: self.run("preprocess")),
-                                ("update", "Update after corrections", lambda: self.run(self.project.update_stage())),
-                                ("train", "Train OCR model…", self.train_model),
-                                ("export", "Export PDF…", self.export),
-                                ("export_idml", "Export IDML…", self.export_idml)):
-            self.actions[key] = bar.addAction(text, slot)
+        bar.addWidget(_separator())
+        action("run", "Run", lambda: self.run("preprocess"), "F5")
+        action("update", "Update after corrections", lambda: self.run(self.project.update_stage()), "Shift+F5")
+        action("train", "Train OCR model…", self.train_model)
+        action("export", "Export PDF…", self.export, "Ctrl+E")
+        action("export_idml", "Export IDML…", self.export_idml)
         from .gui_manuscript import ManuscriptReviewTab
 
         self.tabs = QTabWidget()
@@ -2225,13 +2382,35 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.review_stack, "Review")
         self.tabs.addTab(self.glyphs, "Glyphs")
         self.tabs.addTab(self.log, "Log")
-        self.setCentralWidget(self.tabs)
+        central = QWidget()
+        column = QVBoxLayout(central)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.button_row)
+        column.addWidget(self.tabs, 1)
+        self.setCentralWidget(central)
         self.spreads.changed.connect(self.statusBar().showMessage)
         self.review.message.connect(self.statusBar().showMessage)
         self.ms_review.message.connect(self.statusBar().showMessage)
         self.glyphs.jump.connect(self._jump)
 
+        file_menu = self.menuBar().addMenu("&File")
+        file_menu.addAction(self.actions["open_scan"])
+        file_menu.addAction(self.actions["open_project"])
+        file_menu.addAction(self.actions["save_project"])
+        file_menu.addAction("Show project folder", self.show_project_folder)
+        file_menu.addSeparator()
+        exit_action = file_menu.addAction("Exit", self.close)
+        exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        run_menu = self.menuBar().addMenu("&Run")
+        run_menu.addAction(self.actions["run"])
+        run_menu.addAction(self.actions["update"])
+        export_menu = self.menuBar().addMenu("&Export")
+        export_menu.addAction(self.actions["export"])
+        export_menu.addAction(self.actions["export_idml"])
         training_menu = self.menuBar().addMenu("&Training")
+        training_menu.addAction(self.actions["train"])
+        training_menu.addSeparator()
         self.actions["train_fonts"] = training_menu.addAction("Train from fonts…", self.train_from_fonts)
         self.actions["train_book"] = training_menu.addAction("Train for this book…", self.train_for_book)
         self.actions["train_book"].setToolTip("Manuscript Mode: correct a few pages first, train the hands on them, "
@@ -2261,7 +2440,6 @@ class MainWindow(QMainWindow):
         self.mode.setCurrentIndex(next((k for k, (m, _) in enumerate(MODES) if m == project.settings.mode), 0))
         self.mode.blockSignals(False)
         self.page_image.blockSignals(True)
-        self.page_image.setCurrentIndex(1 if project.settings.page_image == "bw" else 0)
         self.page_image.blockSignals(False)
         self._show_script()
         self.split.blockSignals(True)
@@ -2282,7 +2460,7 @@ class MainWindow(QMainWindow):
         else:
             self.langs.set_languages(self.project.languages())
         self.mode_action.setVisible(not ms)  # a manuscript's output is the scan with its text
-        self.page_image_action.setVisible(ms or self.project.settings.mode == "text")
+        self._sync_page_image()
         self.review_stack.setCurrentWidget(self.ms_review if ms else self.review)
         self.tabs.setTabVisible(self.tabs.indexOf(self.glyphs), not ms)
         self.actions["train_fonts"].setEnabled(not ms)
@@ -2367,12 +2545,30 @@ class MainWindow(QMainWindow):
     def _mode_changed(self, index: int) -> None:
         self.project.settings.mode = MODES[index][0]
         self.project.save_settings()
-        self.page_image_action.setVisible(self.project.settings.mode == "text")
+        self._sync_page_image()
         self.refresh()
 
+    def _sync_page_image(self) -> None:
+        """Show the project's page image choice; black and white only where it is supported (the
+        text-layer mode and manuscripts), else that item is off and the choice falls back to gray."""
+        settings = self.project.settings
+        bw_ok = self.project.manuscript() or settings.mode == "text"
+        if settings.page_image == "bw" and not bw_ok:
+            settings.page_image = "gray"
+            self.project.save_settings()
+        if settings.page_image not in dict(PAGE_IMAGES):
+            settings.page_image = "gray"
+        bw_row = self.page_image.findData("bw")
+        self.page_image.model().item(bw_row).setEnabled(bool(bw_ok))
+        self.page_image.blockSignals(True)
+        self.page_image.setCurrentIndex(self.page_image.findData(settings.page_image))
+        self.page_image.blockSignals(False)
+
     def _page_image_changed(self, index: int) -> None:
-        self.project.settings.page_image = "bw" if index == 1 else "gray"
-        self.project.save_settings()
+        value = self.page_image.itemData(index)
+        if value in dict(PAGE_IMAGES):
+            self.project.settings.page_image = value
+            self.project.save_settings()
 
     def _languages_changed(self, codes: list[str]) -> None:
         self.project.set_languages(codes)
@@ -2397,7 +2593,7 @@ class MainWindow(QMainWindow):
             return
         for a in self.actions.values():
             a.setEnabled(False)
-        self.log.appendPlainText(f"— {title} —")
+        self._log(f"— {title} —")
         self.progress_window = ProgressWindow(title, self)
         if measured:
             self.progress_window.set_fraction(0.0)
@@ -2405,17 +2601,31 @@ class MainWindow(QMainWindow):
             self.progress_window.busy()
         self.progress_window.show()
         self.task = Task(fn)
+        self.progress_window.stop_requested.connect(self.task.stop.request)
         self.task.progress.connect(self._progress_line)
         self.task.done.connect(lambda result: (self._close_progress(), self._enable(), on_done(result)))
         self.task.failed.connect(self._failed)
+        self.task.stopped.connect(self._stopped)
         self.task.start()
+
+    def _log(self, text: str) -> None:
+        """A line for the Log tab, the crash record and the book's log.txt."""
+        self.log.appendPlainText(text)
+        crashlog.note(text)
+        try:
+            workspace = self.project.workspace
+            with open(workspace / "log.txt", "a", encoding="utf-8", newline="\n") as f:
+                for line in text.splitlines() or [""]:
+                    f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {line}\n")
+        except (OSError, AttributeError):
+            pass
 
     def _progress_line(self, stage: str, msg: str) -> None:
         if stage == "fraction":  # how far along (training): the bar, not a line of the log
             if self.progress_window is not None:
                 self.progress_window.set_fraction(float(msg))
             return
-        self.log.appendPlainText(f"{stage}: {msg}")
+        self._log(f"{stage}: {msg}")
         self.statusBar().showMessage(f"{stage}: {msg}")
         if self.progress_window is not None:
             self.progress_window.add(stage, msg)
@@ -2424,7 +2634,7 @@ class MainWindow(QMainWindow):
         if self.progress_window is not None:
             self.progress_window.stop_clock()
             self.took = elapsed_text(self.progress_window.seconds())  # for the report at the end
-            self.log.appendPlainText(self.progress_window.clock.text())
+            self._log(self.progress_window.clock.text())
             self.progress_window.close()
             self.progress_window = None
 
@@ -2468,7 +2678,7 @@ class MainWindow(QMainWindow):
         idml = Path(out["idml"])
         folder = Path(out.get("folder") or idml.parent)
         self.statusBar().showMessage(f"Saved {idml}")
-        self.log.appendPlainText(f"IDML saved: {idml}")
+        self._log(f"IDML saved: {idml}")
         box = QMessageBox(self)
         box.setWindowTitle("Export IDML")
         box.setText(f"The IDML is saved:\n{idml}")
@@ -2520,24 +2730,38 @@ class MainWindow(QMainWindow):
         if path:
             self.load(Project(Path(path)))
 
+    def save_project(self) -> None:
+        """Ectype keeps its work as it goes (settings, corrections, readings); this writes the
+        settings now and says where the project is."""
+        self.project.save_settings()
+        self.statusBar().showMessage(f"Saved. The project is kept in {self.project.workspace}")
+
+    def show_project_folder(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.project.workspace)))
+
     def run(self, start: str) -> None:
         if self.worker is not None and self.worker.isRunning():
             return
         for a in self.actions.values():
             a.setEnabled(False)
-        self.log.appendPlainText(f"— Running from {start} —")
+        self._log(f"— Running from {start} —")
         self.progress_window = ProgressWindow(f"Running {self.project.settings.name or self.project.workspace.name}", self)
         self.progress_window.show()
         self.worker = Worker(self.project, start)
+        self.progress_window.stop_requested.connect(self.worker.stop.request)
         self.worker.progress.connect(self._progress_line)
         self.worker.fraction.connect(lambda f: self.progress_window and self.progress_window.set_fraction(f))
         self.worker.done.connect(self._finished)
         self.worker.failed.connect(self._failed)
+        self.worker.stopped.connect(self._stopped)
         self.worker.start()
 
     def _finished(self, pdf: str) -> None:
         self._close_progress()
-        self.log.appendPlainText(f"Done: {pdf}" if pdf else "Done.")
+        self._log(f"Done: {pdf}" if pdf else "Done.")
         self.statusBar().showMessage("Done.")
         for a in self.actions.values():
             a.setEnabled(True)
@@ -2582,8 +2806,18 @@ class MainWindow(QMainWindow):
 
             self._start(work, added, "Adding " + names)
 
+    def _stopped(self) -> None:
+        """The run ended at the person's Stop: what was finished is kept. No Review, no Log tab."""
+        self._log("Stopped by you.")
+        if self.progress_window is not None:
+            self.took = elapsed_text(self.progress_window.seconds())
+            self.progress_window.finish(False, "Stopped. Pages finished so far are kept; Run carries on from where it stopped.")
+            self.progress_window = None
+        self.statusBar().showMessage("Stopped.")
+        self._enable()
+
     def _failed(self, error: str) -> None:
-        self.log.appendPlainText(error)
+        self._log(error)
         if self.progress_window is not None:
             self.progress_window.finish(False, "Stopped: " + error.strip().splitlines()[-1])
             self.progress_window = None
@@ -2675,7 +2909,7 @@ class MainWindow(QMainWindow):
 
     def _trained_manuscript(self, report: list[str]) -> None:
         for line in report:
-            self.log.appendPlainText(line)
+            self._log(line)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
         box.setText(f"Training finished in {getattr(self, 'took', '') or 'a moment'}.")
@@ -2716,7 +2950,7 @@ class MainWindow(QMainWindow):
 
     def _trained_from_fonts(self, report: list[str]) -> None:
         for line in report:
-            self.log.appendPlainText(line)
+            self._log(line)
         box = QMessageBox(self)
         box.setWindowTitle("Train from fonts")
         box.setText(f"Training finished in {getattr(self, 'took', '') or 'a moment'}.")
@@ -2732,7 +2966,7 @@ class MainWindow(QMainWindow):
             if r.get("chosen"):
                 lines.append(f"  For this book: {r['chosen']}.")
         for line in lines:
-            self.log.appendPlainText(line)
+            self._log(line)
         changed = any(r["general"]["installed"] or any(f["kept"] for f in r["families"].values()) for r in reports)
         box = QMessageBox(self)
         box.setWindowTitle("Train OCR model")
@@ -2861,10 +3095,26 @@ def app_icon() -> QIcon:
     return icon
 
 
+def _offer_report(window: QWidget, report: Path) -> None:
+    box = QMessageBox(QMessageBox.Icon.Information, "Ectype OCR",
+                      "Ectype OCR didn't close normally last time (it stopped, froze, or the computer shut down). "
+                      f"A report was saved:\n{report}\n\nIf it crashed, please send this file so the cause can be found.",
+                      QMessageBox.StandardButton.NoButton, window)
+    folder = box.addButton("Open folder", QMessageBox.ButtonRole.ActionRole)
+    box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
+    box.exec()
+    if box.clickedButton() is folder:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(crashlog.crash_dir())))
+
+
 def main(argv: list[str] | None = None) -> int:
     import multiprocessing
 
     multiprocessing.freeze_support()  # the packaged app's worker processes start through here
+    crashlog.install()
     from .resources import quiet_windows_errors
 
     quiet_windows_errors()
@@ -2887,7 +3137,11 @@ def main(argv: list[str] | None = None) -> int:
     window.show()
     if updates.installed_app() is not None and updates.check_at_start(updates.load_settings()):
         window.check_for_updates()  # the installed app only, not a copy run from source
-    return app.exec()
+    if crashlog.previous_crash() is not None:
+        _offer_report(window, crashlog.previous_crash())
+    code = app.exec()
+    crashlog.close_cleanly()
+    return code
 
 
 if __name__ == "__main__":

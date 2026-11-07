@@ -31,6 +31,9 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           ECTYPE_DOCX2IDML: python -m docx2idml
           ECTYPE_DOCX2IDML_SOURCE: ${{ github.workspace }}/../docx-to-idml
+          # Newer Java refuses XML elements with more than 200 attributes; InDesign's own
+          # TextDefault and ParagraphStyle have more, so the IDML schema check (jing) needs no limit.
+          JAVA_TOOL_OPTIONS: -Djdk.xml.elementAttributeLimit=0
         run: |
           export PYTHONPATH="$ECTYPE_DOCX2IDML_SOURCE"
           pytest -q

@@ -19,6 +19,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 | Leptonica jbclass and jbig2enc | Symbol classification by correlation; averaging every instance of a class into one composite template | http://www.leptonica.org/ , https://github.com/agl/jbig2enc |
 | OCRmyPDF and Tesseract's PDF renderer ("GlyphLessFont") | An invisible text layer set in a font of empty glyphs, mapped to Unicode | https://github.com/ocrmypdf/OCRmyPDF |
 | tesstrain (Apache-2.0) | Fine-tuning Tesseract on line images with their text: box files for whole lines, .lstmf files, lstmtraining continued from a tessdata_best model. Followed as documented; no code copied | https://github.com/tesseract-ocr/tesstrain |
+| Qt's Flow Layout example (BSD-3-Clause) | `gui.FlowLayout`, the wrapping row of buttons: a QLayout that places items left to right, starts a new row when one doesn't fit, and reports its height for a width. Written for Ectype after the example's approach | https://doc.qt.io/qt-6/qtwidgets-layouts-flowlayout-example.html |
 | Ocular OCR; DeepVecFont, Im2Vec | Learned font models and vector-font reconstruction, for later work on damaged or rare glyphs | — |
 
 ## Dependencies
@@ -57,15 +58,15 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 
 | EB Garamond (bundled with the Windows app; the default substitute font) | Substitute mode | Georg Duffner, Octavio Pardo | SIL OFL 1.1 (`fonts/EBGaramond-OFL.txt` in the app) |
 | Tesseract and its libraries, with `eng` and `osd` data (bundled with the Windows app, UB Mannheim build) | OCR | Tesseract contributors; Leptonica, libpng, libjpeg, libtiff, zlib and others | Apache-2.0 (Tesseract); each library's licence is in the app's `tesseract` folder |
-| Tesseract language data (tessdata), downloaded on request | OCR in further languages | Tesseract contributors | Apache-2.0 |
-| Tesseract's trainable models (tessdata_best), downloaded on request | The base of a model trained on a book's corrections | Tesseract contributors | Apache-2.0 |
+| Tesseract language data (tessdata, pinned commit ced78752, checked against known fingerprints), downloaded on request | OCR in further languages | Tesseract contributors | Apache-2.0 |
+| Tesseract's trainable models (tessdata_best, pinned commit e12c65a9, checked), downloaded on request | The base of a model trained on a book's corrections | Tesseract contributors | Apache-2.0 |
 | Kraken models from Kraken's repository on Zenodo, chosen and downloaded by the user | OCR of Greek, Hebrew and other scripts; the base of a Kraken model trained on a book's corrections | Each model's authors, named in its record (shown in the app) | Each model's own licence, shown in the app before download |
-| Westminster Leningrad Codex, via the Open Scriptures Hebrew Bible (`openscriptures/morphhb`), downloaded on request | Training lines set in the user's fonts; matching scanned editions | Westminster Hebrew Institute; Open Scriptures | Public domain (WLC); CC BY 4.0 (OSHB) |
-| SBL Greek New Testament (`LogosBible/SBLGNT`), downloaded on request | The same, for Greek | Michael W. Holmes; Society of Biblical Literature and Logos Bible Software | CC BY 4.0 |
-| Clementine Vulgate (`lukesmithxyz/vul`), downloaded on request | The same, for Latin | Text public domain; file by Luke Smith | Public domain |
-| Peshitta Old Testament, plain text (`ETCBC/peshitta`), downloaded on request | The same, for Syriac (only on the user's machine, for their own training) | W. Th. van Peursen, G. J. Veldman, C. Sikkel, H. Vlaardingerbroek, D. Roorda (ETCBC), doi:10.5281/zenodo.1464757 | Text CC BY-NC 4.0; programs MIT |
-| Qurʾān, Tanzil.net's "simple" text (https://tanzil.net), downloaded on request | Training lines for Arabic, used unchanged | Tanzil Project | CC BY 3.0, verbatim, with credit and a link to Tanzil.net |
-| Smith–Van Dyck Arabic Bible (1865), eBible.org's VPL text (`arb-vd`), downloaded on request | Training lines for Arabic | Syrian Mission (Eli Smith, Cornelius Van Dyck); eBible.org | Public domain |
+| Westminster Leningrad Codex, via the Open Scriptures Hebrew Bible (`openscriptures/morphhb`, pinned commit 3d15126f, checked), downloaded on request | Training lines set in the user's fonts; matching scanned editions | Westminster Hebrew Institute; Open Scriptures | Public domain (WLC); CC BY 4.0 (OSHB) |
+| SBL Greek New Testament (`LogosBible/SBLGNT`, pinned commit d7f35adc, checked), downloaded on request | The same, for Greek | Michael W. Holmes; Society of Biblical Literature and Logos Bible Software | CC BY 4.0 |
+| Clementine Vulgate (`lukesmithxyz/vul`, pinned commit 10d9d619, checked), downloaded on request | The same, for Latin | Text public domain; file by Luke Smith | Public domain |
+| Peshitta Old Testament, plain text (`ETCBC/peshitta`, pinned commit 9850f5ad, checked), downloaded on request | The same, for Syriac (only on the user's machine, for their own training) | W. Th. van Peursen, G. J. Veldman, C. Sikkel, H. Vlaardingerbroek, D. Roorda (ETCBC), doi:10.5281/zenodo.1464757 | Text CC BY-NC 4.0; programs MIT |
+| Qurʾān, Tanzil.net's "simple" text (https://tanzil.net), as kept in `rizaumami/quran-epub` (pinned commit d96dab76, checked), downloaded on request | Training lines for Arabic, used unchanged | Tanzil Project | CC BY 3.0, verbatim, with credit and a link to Tanzil.net |
+| Smith–Van Dyck Arabic Bible (1865), eBible.org's VPL text (`arb-vd`; its download is off until a fingerprint is recorded for it), downloaded on request | Training lines for Arabic | Syrian Mission (Eli Smith, Cornelius Van Dyck); eBible.org | Public domain |
 | Liberation Serif (default substitute font when EB Garamond isn't installed) | Substitute mode; synthetic pages | Steve Matteson, Ascender Corp.; Red Hat | SIL OFL 1.1 |
 | DejaVu Serif, FreeSerif | Synthetic test pages | DejaVu fonts team; GNU FreeFont (Primož Peterlin et al.) | Bitstream Vera license; GPL-3.0 with font exception |
 

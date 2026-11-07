@@ -27,7 +27,7 @@ from . import report
 from .background import erase_text, smooth_paper
 from .fontbuild import UNITS_PER_EM, XH_UNITS, build_workspace_fonts
 from .ocr import OcrPage
-from .pdfwrite import GlyphRun, PageSpec, load_font, write_pdf
+from .pdfwrite import GlyphRun, PageSpec, load_font, workspace_meta, write_pdf
 from .preprocess import binarize
 from .scripts import is_rtl
 from .segment import Segmentation, fit_baselines, line_x_heights
@@ -111,8 +111,12 @@ def place_page(seg: Segmentation, ocr: OcrPage, cluster_of: dict[int, int], glyp
 
 
 def traced_workspace(workspace: Path, out_name: str | None = None, background_dpi: float = 150,
-                     on_page=None) -> dict:
+                     image: str = "gray", on_page=None) -> dict:
+    """`image`: "gray" (the background as JPEG at background_dpi) or "lossless" (full resolution, Flate)."""
     workspace = Path(workspace)
+    lossless = image == "lossless"
+    if lossless:
+        background_dpi = 0
     out = workspace / "traced"
     out.mkdir(parents=True, exist_ok=True)
     cl = json.loads((workspace / "cluster" / "clusters.json").read_text(encoding="utf-8"))
@@ -134,7 +138,7 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
         h, w = gray.shape
         seg_path, ocr_path = workspace / "segment" / f"{name}.seg.json", workspace / "ocr" / f"{name}.ocr.json"
         if not seg_path.is_file() or not ocr_path.is_file():
-            pages_out.append(PageSpec(w, h, dpi, background=gray, background_dpi=background_dpi))
+            pages_out.append(PageSpec(w, h, dpi, background=gray, background_dpi=background_dpi, lossless=lossless))
             text_only.append(PageSpec(w, h, dpi))
             rows.append({"page": name, "words": 0})
             placed_all.append([])
@@ -150,7 +154,7 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
         background, mask = erase_text(gray, drawn_seg, labels, float(np.median(sizes)) if sizes else 30.0)
         background = smooth_paper(background)
         ink_gray = float(np.median(gray[mask & (gray < 128)])) / 255 if (mask & (gray < 128)).any() else 0.1
-        pages_out.append(PageSpec(w, h, dpi, background=background, background_dpi=background_dpi,
+        pages_out.append(PageSpec(w, h, dpi, background=background, background_dpi=background_dpi, lossless=lossless,
                                   runs=runs, fill_gray=round(ink_gray, 3)))
         text_only.append(PageSpec(w, h, dpi, runs=[r for r in runs if not r.invisible]))
         cv2.imwrite(str(out / f"{name}.background.png"), background)
@@ -161,8 +165,9 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
 
     pdf_name = (out_name or workspace.name) + ".pdf"
     used = sorted({r.font for p in pages_out for r in p.runs})
-    write_pdf(out / pdf_name, pages_out, [fonts[k] for k in used])
-    write_pdf(out / "text-only.pdf", text_only, [fonts[k] for k in used])
+    title, lang = workspace_meta(workspace, out_name)
+    write_pdf(out / pdf_name, pages_out, [fonts[k] for k in used], title=title, lang=lang)
+    write_pdf(out / "text-only.pdf", text_only, [fonts[k] for k in used], title=title, lang=lang)
 
     from .compare import cer, match_size
 

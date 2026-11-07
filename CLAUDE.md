@@ -22,7 +22,8 @@ of "Planned".
 - Beaux pushes the release tags (`vX.Y.Z`) themself. A new feature is a minor version (0.4.0 added
   Train from fonts); fixes alone are a patch version. The version comes from the tag: no version
   number to edit in the code.
-- No force pushes. Commit messages and PRs carry no model names.
+- No force pushes. (Commit messages and PRs carry no model names: a convention of the Claude
+  Code setup, written here by an early session; Beaux never asked for it.)
 - Beaux likes to keep tweaking on the branch before merging; they test on their own Windows
   machine (a cloud session can't attach a Windows folder) and correct real books in Review.
 - UX: the Log is a record, not the main view. Work must not switch to the Log tab (progress has
@@ -31,8 +32,9 @@ of "Planned".
 ## Releasing
 
 Merge to `main`, Beaux tags it, `release.yml` builds and attaches `Ectype-OCR-<v>-Setup.exe` and
-`Ectype-OCR-Kraken-<v>-win64.zip`. The Windows installer workflow also runs on every branch push:
-check it passes (bundling, packaged-app smoke test, installer, Kraken engine) before asking to
+`Ectype-OCR-Kraken-<v>-win64.zip`. The Windows installer workflow also runs on a branch push, but only one
+that changes packaging files (its `paths`); otherwise run it by hand (workflow_dispatch). Check it
+passes (bundling, packaged-app smoke test, installer, Kraken engine) before asking to
 merge. The `Tests` workflow's `kraken` job takes about 20 minutes.
 
 ## What each version brought (for release notes and for knowing what is where)
@@ -195,7 +197,7 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   back one (`_close_gap`); logged as `"deleted"` with its box, so `carry_corrections` removes
   the new reading's word in that place (IoU >= 0.5) **before** carrying the rest (else the
   words drawn there were laid over the old wrong box). Deleted entries don't count as
-  corrected (`Project.corrected`, docx, the browser Review). Then Add a word draws the right ones.
+  corrected (`Project.corrected`, docx). Then Add a word draws the right ones.
 - *Stretching a box was hard* (Beaux: "doesn't really work very well"): `BoxEditor`'s grab
   band was fixed in page pixels when the word was selected, so zooming made it tiny or
   swallowed the word. It now keeps 7 screen pixels (`rescale`, called on zoom by `ImageView`
@@ -310,6 +312,73 @@ and Substitute PDF of the Treatise, ship with it):
   scripts first), and `scripts.scripts_read` counts them all as covered. Training such a model
   (`pool`, `trainall`) still uses its main script only.
 
+**0.8.0** (on the branch; new features, so a minor version; Beaux chose to ship the whole 0.8.0
+plan in it, not only the menus and crash recorder):
+- *Run disappeared* (Beaux, 0.7.4: in a narrow window the toolbar put the buttons behind a »
+  menu; everything should stay visible). The QToolBar is gone: the buttons and choices are in
+  `MainWindow.button_row`, a `FlowLayout` (gui.py) that wraps onto more rows, above the tabs.
+  Each button is an `action_button` over the window's QAction (a QToolButton follows its
+  action's text, font and enabled state, not its visibility, so that is connected by hand);
+  `mode_action`/`page_image_action` are now the combo boxes themselves.
+- *Menus* (Beaux): **File** (Select PDF… Ctrl+O, Open project… Ctrl+Shift+O, Save project
+  Ctrl+S, Show project folder, Exit Ctrl+Q), **Run** (Run F5, Update after corrections
+  Shift+F5), **Export** (PDF… Ctrl+E, IDML…), Train OCR model… at the top of Training. The
+  menus hold the same QActions as the buttons, so both enable and hide together. A project
+  is kept as Ectype works (settings, corrections, readings), so Save project writes the
+  settings and says where the project folder is.
+- *Crash recorder* (Beaux's 0.7.4 crashed mid-run, froze then vanished; Windows: BEX64,
+  ucrtbase.dll, c0000409 data 7 = abort() inside the app, cause unknown; the app kept no
+  record, and `quiet_windows_errors` also hides Windows' crash box). `crashlog.py`: each
+  running copy writes `<user folder>/crash/running-<pid>.txt` (start details; faulthandler,
+  all threads' Python stacks on an abort; uncaught Python and thread exceptions; Qt warnings
+  and fatal messages; the windowed app's stdout/stderr, fd 1/2, so Py_FatalError and C++
+  terminate messages land there; each Log line with the memory in use, `note`). A normal exit
+  deletes it (`close_cleanly`); one left at the next start (and not held open by a running
+  copy) becomes `crash-<date>-<time>.txt` (10 kept) and the app says so with Open folder
+  (`gui._offer_report`). `install` never stops the app from starting. The Log is also saved
+  to the project's `log.txt` (`MainWindow._log`; never the Log tab brought forward).
+- *A Task dropped while running* (found looking for the crash; not shown to be Beaux's): a
+  QThread destroyed while it runs makes Qt abort the program, e.g. closing the languages or
+  Kraken dialog while its download or list still loads. `Task._running` keeps each one from
+  `start` until it ends, let go on the interface thread (`finished`, queued, then `wait`).
+- *Tests on GitHub* failed in the IDML schema check: newer Java limits an XML element to 200
+  attributes and InDesign's TextDefault/ParagraphStyle have more. `ci.yml` sets
+  `JAVA_TOOL_OPTIONS=-Djdk.xml.elementAttributeLimit=0` (docx-to-idml's checker skips Java's
+  "Picked up" line). docx-to-idml's own CI may need the same.
+- *Every download checked* (`verify.py`, `fingerprints.json`, `tools/make_fingerprints.py`): each
+  GitHub source (tessdata, tessdata_best, the known texts, the Qurʾān copy) is pinned to a commit
+  (constants in `verify.py`) and each file's size and git blob id, plus SHA-256 for the texts, is on
+  record; `verify.fetch` hashes as it downloads and renames into place only on a match (else
+  `DownloadMismatch`, no .part left); a file not on record isn't downloaded. Kept known texts carry
+  a `.check` stamp (pin + SHA-256); one without it or not matching is fetched again. Tanzil's form
+  fallback is gone; **Van Dyck's download is off** (`texts.VAN_DYCK_FINGERPRINT` None; set it to
+  turn it on). Kraken models: the worker (`get`) checks every file against Zenodo's MD5 from the
+  record's API and removes the download on a mismatch or when no MD5 can be read; a model file
+  under a name not on record (the downloader may rename it) must have one listed file's MD5.
+  Untested against real Zenodo (blocked here). The updater and
+  the engine now also refuse a release file with no SHA-256 digest. To move a pin: change the
+  constant, run `tools/make_fingerprints.py`, commit both. (Tooling note: this was made where the
+  GitHub API was closed, so sizes come from HEAD requests and git ids from a blobless fetch.)
+- *Stop* (`stopping.py`): the progress window's Stop sets the run's `StopFlag`; `Project.run`
+  checks it between stages and in every `on_page` (after a page's files are written, so no half
+  page); every progress message of a `Task` is a stop point (training, exports). Pools cancel
+  pages not yet begun (`shutdown(cancel_futures=True)`); lstmtraining and ketos are killed
+  (`stopping.watch`); cluster, fonts and the final PDF can't stop midway (no per-page point).
+  `Stopped` is a BaseException, like KeyboardInterrupt, so `except Exception` code that carries
+  on can't swallow it. A model is installed only after its training and checks finished. The
+  window says what was kept; no Review, no Log tab.
+- *Browser Review retired*: `ectype review` and `review.serve`/`make_handler` (a local web
+  server any web page could post to) are gone; the desktop Review tab is the only one.
+- *Lossless page background and PDF metadata* (from the 0.8.0 plan): `Settings.page_image` is
+  "gray" (JPEG), "lossless" (same 8-bit gray, Flate, `PageSpec.lossless`; traced and substitute
+  then keep the background at full resolution, not 150 dpi) or "bw" (text layer and manuscripts
+  only; the Page image box disables it elsewhere and falls back to gray). PNG predictors gained
+  about 1%, so not used. Lossless is several times larger (a noisy test page: 6.6 MB against
+  0.8 MB). `pdfwrite.set_document_info` (called by `write_pdf`, title and language from
+  `workspace_meta`: project.json's name, else output name, scan name; first language, or the
+  first Manuscript Mode language) sets /Lang, Info Title/Producer/Creator, XMP and
+  DisplayDocTitle; no tagging claimed.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
@@ -400,6 +469,19 @@ and Substitute PDF of the Treatise, ship with it):
 - **Windows text files:** write list/box/gt files with `newline="\n"`; read tool output as UTF-8.
 - **Qt in tests:** free dialogs on the interface thread (close, deleteLater, processEvents) or a
   worker thread's garbage collection crashes the run.
+- **Agents in worktrees**: the package is installed editable from the main checkout, so an
+  agent in `.claude/worktrees/…` must run with `PYTHONPATH=<its worktree>/src` (a full path;
+  `$PWD` was refused) or it tests the main tree's code.
+
+- **Kept results are judged by content, never by file times or hand-bumped versions**
+  (`stamps.py`): `code_version()` (hash of the package's .py files; in the packaged app the
+  build's `__version__`), `file_digest`, `stamp`. Cluster caches are `.npy`/`.npz` (no pickle
+  anywhere in src/; old `.pkl` are deleted unread), keyed on the code and the instances'
+  fingerprints; a page's instances on code + png + seg + labels + ocr digests. `clusters.json`
+  holds `inputs` (`cluster.inputs_stamp`; `Project._stale`). Segmentation: `<page>.seg.stamp`
+  (code, png, ocr.json digests; `segment.seg_fresh`). OCR: `<page>.ocr.stamp` holds the png's
+  digest only (no code: a reading is not redone after an upgrade; one made before has no
+  sidecar and is trusted once if newer than its png). `CACHE_VERSION`/`RESULT_VERSION` are gone.
 
 ## Decisions
 
@@ -483,7 +565,7 @@ and Substitute PDF of the Treatise, ship with it):
   stress accents, transliteration, footnotes). Stock eng+grc+heb, 207 s for a full run: English
   roman nearly exact; Greek good even in footnotes; italic often wrong ("faken", "zs seliing");
   superscript letters wrong (3ᵃ "3%"); transliteration wrong (Noʿŏmi "Nodmi"); pointed Hebrew
-  poor (כָּרָה "173"). `corpus/E J. Young Inspiration-1.pdf`: 17 pages, English; a full traced
+  poor (כָּרָה "173"). `corpus/E J. Young Inspiration-1.pdf`: 13 pages, English; a full traced
   run 106 s.
 - Transliteration training (300 lines in each of 4 fonts, 3,000 iterations): eng's character
   errors on a 5th font 14.8% -> 4.5% (qūdšāʾ ʾabbāʾ read exactly; stock: "qiidSa' 'abba'").
@@ -497,16 +579,10 @@ and Substitute PDF of the Treatise, ship with it):
 
 ## Planned
 
-- **0.8.0** (Beaux agreed, after Qwen Code's review of 0.7.2; new features, so a minor version):
-  a **Stop** button for any run (the progress window; stages stop between pages); **retire the
-  browser Review** (`ectype review`, `review.serve`/`make_handler`: an older Review in a web
-  browser, with no protection against other web pages posting to it; Beaux didn't remember it);
-  **check every download** against a known fingerprint (Tesseract language files, the known
-  texts, Kraken models by Zenodo's checksums; the updater and engine already use SHA-256);
-  **lossless page background** as a choice (now JPEG quality 75), and the PDF's language, title
-  and metadata (libraries may take these files); replace the pickle caches (`cluster.Cache`)
-  with a safe format; cached results checked by content and the code's own version, not by
-  file times and hand-bumped `CACHE_VERSION`s (a forgotten bump has bitten twice).
+- **Left from 0.8.0**: Van Dyck's fingerprint (ebible.org is blocked here; its download is off);
+  Kraken model checks tried on a real Zenodo download (Beaux's PC); training stamps still use
+  file times (`pool.py`, `synthtrain.py`, `trainall.py`, `training.py`, `manuscript._stamp`)
+  and hand-kept `SCRIPT_VERSION`/`VERSION` in synthtrain.
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
   the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.

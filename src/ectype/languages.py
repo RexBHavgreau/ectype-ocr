@@ -10,14 +10,15 @@ beside them so that Tesseract still finds everything in one place.
 from __future__ import annotations
 
 import shutil
-import tempfile
-import urllib.request
 from pathlib import Path
 from typing import Callable
 
+from . import verify
 from .resources import base_tessdata_dir, tessdata_dir, user_tessdata_dir
 
-DOWNLOAD_URL = "https://raw.githubusercontent.com/tesseract-ocr/tessdata/main/{code}.traineddata"
+# Pinned to one commit and checked against its known fingerprints (verify.py).
+DOWNLOAD_URL = verify.RAW.format(repo=verify.PINS["tessdata"][0], commit=verify.TESSDATA_COMMIT,
+                                 path="{code}.traineddata")
 
 # Tesseract's language data (tessdata repository), by code. "osd" (orientation) and
 # "equ" (equations) are not languages to choose and are left out.
@@ -116,10 +117,12 @@ def _seed(user: Path) -> None:
 
 
 def download(codes: list[str], progress: Callable[[str, int, int], None] | None = None,
-             url: str = DOWNLOAD_URL) -> list[str]:
+             url: str = DOWNLOAD_URL, fingerprints: dict[str, dict] | None = None) -> list[str]:
     """Download language data into the user's folder. `progress(code, bytes_done, bytes_total)`
-    is called as data arrives. Returns the codes now installed. A failed download leaves
-    no partial file behind."""
+    is called as data arrives. Returns the codes now installed. Each file is checked against its
+    known fingerprint (`fingerprints`, code -> fingerprint, in place of the shipped list) and
+    only then put in place; one that doesn't match, or isn't known, raises
+    `verify.DownloadMismatch` and leaves no partial file behind."""
     user = user_tessdata_dir()
     _seed(user)
     done = []
@@ -130,23 +133,8 @@ def download(codes: list[str], progress: Callable[[str, int, int], None] | None 
         if target.is_file():
             done.append(code)
             continue
-        with urllib.request.urlopen(url.format(code=code), timeout=60) as response:
-            total = int(response.headers.get("Content-Length") or 0)
-            with tempfile.NamedTemporaryFile(dir=user, suffix=".part", delete=False) as tmp:
-                try:
-                    got = 0
-                    while chunk := response.read(1 << 16):
-                        tmp.write(chunk)
-                        got += len(chunk)
-                        if progress:
-                            progress(code, got, total)
-                    tmp.close()
-                    if total and got != total:
-                        raise OSError(f"download of {code} stopped at {got} of {total} bytes")
-                    Path(tmp.name).replace(target)
-                except BaseException:
-                    tmp.close()
-                    Path(tmp.name).unlink(missing_ok=True)
-                    raise
+        want = fingerprints.get(code) if fingerprints is not None else verify.known("tessdata", target.name)
+        verify.fetch(url.format(code=code), target, want or {}, name=f"The {LANGUAGES[code]} language data",
+                     progress=(lambda got, total, code=code: progress(code, got, total)) if progress else None)
         done.append(code)
     return done

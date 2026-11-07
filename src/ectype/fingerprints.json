@@ -1,0 +1,1590 @@
+{
+ "greek-nt": {
+  "commit": "d7f35adca9ec410e1d1499c63b4dd989d76c8d4d",
+  "files": {
+   "1Cor.txt": {
+    "git": "e3518b277c62f4f28c62089dffdda385fb30ed5b",
+    "sha256": "2a706bac29f1e34568bf6862cbc1616471511e9b915d7292adba3e93fb72c946",
+    "size": 86178
+   },
+   "1John.txt": {
+    "git": "e4f7c05c3e7d6afb1fceff563bc443065df586eb",
+    "sha256": "074201796600c23d79c0abd26621ed0046290d5f227f4aaea67ac425784094c5",
+    "size": 25135
+   },
+   "1Pet.txt": {
+    "git": "fe0f29aecbc8476ce87df0bf396e5e78c410491d",
+    "sha256": "9c847143fbecfb2c5d0fc35820f973efb749c04a9badae99eb8d9ac0cf3d2a6d",
+    "size": 23064
+   },
+   "1Thess.txt": {
+    "git": "e3d844977c70badc19c056f3728dfeafe493486f",
+    "sha256": "58b57d9b87ee994757a6bd425cfb8a12cecee9b3c7d0206286fdf2b089b44ccf",
+    "size": 19334
+   },
+   "1Tim.txt": {
+    "git": "54745ec5731df6c6f844b28a9e12d063a38cf416",
+    "sha256": "e4813e23b26b8b4763771b252cb41982d3af66abeead62f014e5f5f0a5323dcb",
+    "size": 22409
+   },
+   "2Cor.txt": {
+    "git": "9fa2dfdaf9736f102f4377084c6176cc92ff7e89",
+    "sha256": "af6a60d5f851762c7ee22be6f15975e706a55cf24bd0b890d6ee9ab2ad74bd18",
+    "size": 57684
+   },
+   "2John.txt": {
+    "git": "29ac357d293ef2b525f04e66ba4bef5c144e4b12",
+    "sha256": "b2daf832c6f88d67ae0bdf2ecfbbb42309e330dc161f5b127c8939d5cb448bc7",
+    "size": 3014
+   },
+   "2Pet.txt": {
+    "git": "4e5e26aba20f43d1509afc828e96d90134e52e00",
+    "sha256": "7afd9df2ea451cc6b3d55984d12fcf8d8d159b5f3d40489b4ebd375dbac8aea0",
+    "size": 15288
+   },
+   "2Thess.txt": {
+    "git": "d73ba27f24a7d4a953242bc81d230833152c87ed",
+    "sha256": "c2a6922591a0282f5c07fe9fa47b8f38cd1aaf15b56eb9364aac91f5546f5822",
+    "size": 10591
+   },
+   "2Tim.txt": {
+    "git": "8809e18b0f95c7e6913ea5d239f2c28eda2fffad",
+    "sha256": "eecea7f17f3493bb3e0d2d5922acf2ab10dae876156e0cbc395355c05f66d2bf",
+    "size": 16684
+   },
+   "3John.txt": {
+    "git": "023c167c50535f735e9b15d564f1bd83e10b7d6d",
+    "sha256": "db0bfc024dfbafa4bf0c978d6f53186c35e6eb771058672ff4f1c31708db6c16",
+    "size": 2917
+   },
+   "Acts.txt": {
+    "git": "4cdcc5176134a1b9802c87dbdf3a90ffb6c284aa",
+    "sha256": "199867a92d9a1ef73abe85986e4489d4799bb187bdd22845f3c168c93cafa9c8",
+    "size": 244952
+   },
+   "Col.txt": {
+    "git": "06f9ee0bc5f86cd1f28f1e54867224f49e446380",
+    "sha256": "665ef40dbc19bacf2b2642aa0bfc265e3cfab3f37b5757ea1ff69bdaf968bd08",
+    "size": 20334
+   },
+   "Eph.txt": {
+    "git": "a6e1ed7096486673ce3c89bb85869c8283297d5c",
+    "sha256": "c15837d245dc849384a0be9f6c76de65590ffd496474f48c16822696ca024f6a",
+    "size": 30904
+   },
+   "Gal.txt": {
+    "git": "f0ccf0cd88061ba2df09f88c8cc6da9101d92aa6",
+    "sha256": "cea30996850efb7a24d5be03d5d1ea052f2200e292f8bdd190c57298bd8c2fb1",
+    "size": 28701
+   },
+   "Heb.txt": {
+    "git": "3a7e9b3f7f17aaae39976aae8661bfa5dba55db2",
+    "sha256": "a89fa2a3a8f04e8bf6a9c71404a9c45fa0e32cff5b6942043e663d8c1f40cc93",
+    "size": 66518
+   },
+   "Jas.txt": {
+    "git": "283a675fdfab4ca4967ca5a72500a1aff2bd07c7",
+    "sha256": "1343ea4125c64585c738a2f8bf54a077947d0a6229b2642b39a1ad845f40e153",
+    "size": 22732
+   },
+   "John.txt": {
+    "git": "a79ae036447d48fd88c4db8e166c771b4fc57d93",
+    "sha256": "ada9643154a990ae2725ab847c6cfb576ce2c3bcd4945d47606e8a90c8d065f5",
+    "size": 189793
+   },
+   "Jude.txt": {
+    "git": "acff675d2bda62ecbe081bb75a73788e71c521da",
+    "sha256": "9d80e8332848395a7af425ebf30edd21c9c43f0f446489f648b65c652630b734",
+    "size": 6475
+   },
+   "Luke.txt": {
+    "git": "735aca6a87f3339d806e5330461cb4c7a7d46d9c",
+    "sha256": "102d65ec7a91271777115d1a605688776adfda6a1188680ccf593e27e3e876d6",
+    "size": 251219
+   },
+   "Mark.txt": {
+    "git": "3f50fe360d1d2351db6b6c3000de47c16abccf84",
+    "sha256": "fe1b5a4c15db71e7e30f33fb67966ca93baffae377085ece0b88f66316729638",
+    "size": 148655
+   },
+   "Matt.txt": {
+    "git": "d19efbdff018c2bde83ba0fc01e0d8cb399b496b",
+    "sha256": "4fa718540cbc6330591b233c99c68bbf52b85afc90016e4188efe5cd9719eeb0",
+    "size": 235067
+   },
+   "Phil.txt": {
+    "git": "c97991ef6d1bd1f236ea4bb81dc9230df895bc7b",
+    "sha256": "c99e25ea7856fd7a3edb1055716869117c4cba4c15f07567ea22c0269e211b85",
+    "size": 20729
+   },
+   "Phlm.txt": {
+    "git": "7904bf8debfe51ea69e0259d214352310eebe3c2",
+    "sha256": "0b74d129888819be274cdcf239672f4688691ebab77c627521b5fcb185bea011",
+    "size": 4181
+   },
+   "Rev.txt": {
+    "git": "a50a57daa6f410cccc219ac45b03f069f43baad8",
+    "sha256": "61419de7970661f8c481975c35b50e7c1df0422db0c6400d1ce2c6ade35da9f0",
+    "size": 118255
+   },
+   "Rom.txt": {
+    "git": "9782d917928719056708db2b1849eb8cfe65a6c5",
+    "sha256": "a919e44983ec633d541ec1084da79cfba1c1aa7f0eac6470c1ac7ec66cf774e8",
+    "size": 88508
+   },
+   "Titus.txt": {
+    "git": "114ee929baff42f702b30553442010fe1ec84747",
+    "sha256": "8a7ff3511b7cbaaba481fe92b9aa716b8fd2abcc9d54829939c2fa3f836a2267",
+    "size": 9470
+   }
+  },
+  "repo": "LogosBible/SBLGNT"
+ },
+ "hebrew-bible": {
+  "commit": "3d15126fb1ef74867fc1434be1942e837932691f",
+  "files": {
+   "1Chr.xml": {
+    "git": "614ceb107774d9ed4010d3ecf33e46d189768a83",
+    "sha256": "8b59992b6607c6ca0fc423813be8cc244f011c1da32bc8485c0c0f581a897ed4",
+    "size": 1014881
+   },
+   "1Kgs.xml": {
+    "git": "f28c90fa0604154a92629d578da88c1cddae0263",
+    "sha256": "832ba10f605dce34c4888ee0a795d91edc2b293391d6ae9c36c36c6350761a3e",
+    "size": 1189874
+   },
+   "1Sam.xml": {
+    "git": "a098d99be40bc22a77a2abe646410b6f717fc788",
+    "sha256": "960432732c22286b82d80b6b25af8d10dc5f2e82a4e5e48b2e3a1b1eea17f3cb",
+    "size": 1206608
+   },
+   "2Chr.xml": {
+    "git": "52ff350ffcffaaa35ab22940d8f1f0d996746345",
+    "sha256": "507294e8ca0fcf31ec25fe62fa24a7f2581f53116519bf08cfe96ff85e9c99fb",
+    "size": 1222694
+   },
+   "2Kgs.xml": {
+    "git": "2a7134748a7292c858c4ee913f6d5bfeb59d33fd",
+    "sha256": "056db5393beaef0a1159d9bcaac7dfd865df9bab2eb240ea90e9fa3f0c0e7449",
+    "size": 1115537
+   },
+   "2Sam.xml": {
+    "git": "ae33a1ca6871cbf2ce849b5bebb8056c26e3b495",
+    "sha256": "e7793e141ed94eadbd2dfb23936abbb4062e81a7dcd41114a6e36644f50b8333",
+    "size": 1013552
+   },
+   "Amos.xml": {
+    "git": "686510536da8691f7015ade8e472c17f8c50683f",
+    "sha256": "6ad94c6a18076762f1a458720c62156d354e5111ee25719b7792b70792d0084d",
+    "size": 201588
+   },
+   "Dan.xml": {
+    "git": "2d3ede0464a1f313152276f8d4e97a0cf9e2d356",
+    "sha256": "bc69d0fa9708dacb11ea6d587509250bf1bcc1b4343eac2d6e97f8b41518fc0d",
+    "size": 569236
+   },
+   "Deut.xml": {
+    "git": "6966deedd88043fbef5a124d50e346711f652efa",
+    "sha256": "04f8087442a1e67a631cd70f2ac4e42fe0a780ae132edb165a3a29f3f290358f",
+    "size": 1315399
+   },
+   "Eccl.xml": {
+    "git": "8e071f175b233629e75b227da78e407f8fdb2d69",
+    "sha256": "2dfc858d19048f6479eca33b9fe781c2d7e9059e9ae3ab0b37b802d3afec02bb",
+    "size": 285122
+   },
+   "Esth.xml": {
+    "git": "a644e4aedc0bcde6f609aff48bb17e3efa5d6fc1",
+    "sha256": "f9b5b8adaf504dcac409bb6a27c9328967f47eeb4e920070cd53ef5301299019",
+    "size": 292184
+   },
+   "Exod.xml": {
+    "git": "9397e001f25d14353793a3924d4e9c605cecfc6c",
+    "sha256": "04868367cdacb6ccdc61488e923e20f918172042e6437842a0621f63ac5b847f",
+    "size": 1524391
+   },
+   "Ezek.xml": {
+    "git": "2b9cdaab9f434201f69d5a0d747d8a567f4b9432",
+    "sha256": "90bf8adfa66b2f6695c702263fe668755c99c6afc386202c12de4f704f5d4e46",
+    "size": 1724378
+   },
+   "Ezra.xml": {
+    "git": "86c6763390817450141661d48ef3c177dcb97ee8",
+    "sha256": "fb28ff697d0ee17eba5b4db47fb7261ee1870cea0d5701bfc77c9e28d4138129",
+    "size": 369918
+   },
+   "Gen.xml": {
+    "git": "09ac9cab0a47c5fae8d747c2868f1cf50d6d1131",
+    "sha256": "0526e5c9a5fb4d907847645f954ed3d1268fa69decbd872056cedd2668d86449",
+    "size": 1859928
+   },
+   "Hab.xml": {
+    "git": "f64d893d18e79842e85b6457ea643008a81a8f9c",
+    "sha256": "2592b212d816775adc8dac46bd0c46263982c308a186dde64dfb8239c57bd2d1",
+    "size": 79467
+   },
+   "Hag.xml": {
+    "git": "f2334fa92e2229a8da8b68d3386335e9836a18ac",
+    "sha256": "26ebbae4fe491cf89ce70e1264cbcbf66a562b497cb214b677e67a9a43ad545c",
+    "size": 71754
+   },
+   "Hos.xml": {
+    "git": "4e737ff7ae7bdf9f21a9c85eaa6e023005ed51cd",
+    "sha256": "f38ae44a3a97d142768bd5f4d40e77b69265184f9a5aec9e6af1b9b226e8daae",
+    "size": 236712
+   },
+   "Isa.xml": {
+    "git": "b64ca328892a998d0540b5a6bf89ac6a19b574b0",
+    "sha256": "0807678de609bdef284bed5400b94ddab570d101b593c7f59ae1939015572fa2",
+    "size": 1548674
+   },
+   "Jer.xml": {
+    "git": "de440367b576a694094ab7c6e6a861481c8c7f0d",
+    "sha256": "1a7ad7bc26a2cae1d3964230e8eb73043bc1f32505cb86cd69a25261dc39f493",
+    "size": 1977728
+   },
+   "Job.xml": {
+    "git": "7145ccffb4bfe624c428acc90ecf3adf58974eab",
+    "sha256": "7db3311184122f37a8fd52f3c7c0c4a6d2da7b77ee82f4fdb26bcba9171d297f",
+    "size": 813715
+   },
+   "Joel.xml": {
+    "git": "d1a160746190931dccd91014499558fae735586a",
+    "sha256": "c0fefc6881afe949b023968106cdccc05a690734b8bb6e9aa48914d77e5369af",
+    "size": 105277
+   },
+   "Jonah.xml": {
+    "git": "158c18ecbf3026fa845105d34b8766d89bcd039e",
+    "sha256": "1e1afcc3aaba1399d5c884ee106894c6bfca87c8c81fa57783ab75a923eee17d",
+    "size": 80534
+   },
+   "Josh.xml": {
+    "git": "8530c301a0211e8c7cb19ee868ca07bdac3aa2ab",
+    "sha256": "a066200ab2269c0a86a2e9ba119a3d0fce8c5f7ecc44bb53ec134b83dffc6006",
+    "size": 919916
+   },
+   "Judg.xml": {
+    "git": "51062fc90a87e1cc2abedc78d8ec299cd154bbdf",
+    "sha256": "3b3a909f04041dbd52dc6b7293a96ce75d94db8a90fdeda878943db7b8fac57f",
+    "size": 904347
+   },
+   "Lam.xml": {
+    "git": "c971eb03fbe9562c19e206e013bf657cfba948e8",
+    "sha256": "be68fc6a913313367280c2596e28733ee8cf877c12a65227237733b40d0248c4",
+    "size": 167766
+   },
+   "Lev.xml": {
+    "git": "71dca6003694912dd283b5d4f7e98d0790a123f6",
+    "sha256": "e21e70265c9ef500182f8ccb4f4e1186e5a79e1169d24cef23cc479baf07b191",
+    "size": 1085066
+   },
+   "Mal.xml": {
+    "git": "cbc6a0ee566e2911b2c8c4a229d8ee4af82b587b",
+    "sha256": "1583e6a701406dce7b8c2bf85e3522ec31383756de130685fc7c2eb6df8964b2",
+    "size": 95722
+   },
+   "Mic.xml": {
+    "git": "91f1eb9525085bdf34d5554d93e38943ea350452",
+    "sha256": "267e111adc1b941e32444816af07aa136ecde02cb315cd42597f78b393e67a01",
+    "size": 145482
+   },
+   "Nah.xml": {
+    "git": "dc0341e8b053449e92daae8197cd28240fd57d00",
+    "sha256": "5993b28bdbee3c922e3e93002d343a655493e8bd45e3472f3b62d77beadcb62c",
+    "size": 69823
+   },
+   "Neh.xml": {
+    "git": "24319052ec0326b6ddaedb42f8607c2c21eb5b16",
+    "sha256": "be082e95c206469122455b9849d4dd08da50c817732d8198c1beece90402801a",
+    "size": 512876
+   },
+   "Num.xml": {
+    "git": "15339e5a99c7900cf37810f8d6d7f18c59ad0aa0",
+    "sha256": "02e4febfcc027d10b3e35e4f091eae67a40d26f37b6254faac6b4af053fe4896",
+    "size": 1496830
+   },
+   "Obad.xml": {
+    "git": "17496d001587f142484239a7337380c68a30e77e",
+    "sha256": "1e893e552a7ed7e2e6d4048637ff5da8a2853a9e4432f4095cede80b959d850c",
+    "size": 44626
+   },
+   "Prov.xml": {
+    "git": "c999b67fd1b44bb9474ee9a2b2d66c2453ffdd90",
+    "sha256": "964f99c00239b53b854c4686c99490c8d1ac7664784a30afdfc23781a3abb161",
+    "size": 678669
+   },
+   "Ps.xml": {
+    "git": "2da40d4bfc7d1772eccb6f49cf027f460b8be4f4",
+    "sha256": "fe55eef316a65fb0f46d833d526ca2fd722e86ff7339f1a39f0c5b7f9062ced2",
+    "size": 1925086
+   },
+   "Ruth.xml": {
+    "git": "1f4a59a804900a13ace95054f60f854f15a53bb1",
+    "sha256": "fb6a2660383c7176941cb87b2be182ef634b66d49d057635869f4d9cb1f0a11e",
+    "size": 136188
+   },
+   "Song.xml": {
+    "git": "1feee17dd05ab7e51e5f6b684d092ef70e9aa0bc",
+    "sha256": "5cd6ae36d32c059aaf794af5a5eaed914ac643486db3e412eb0b969760db82ca",
+    "size": 138554
+   },
+   "Zech.xml": {
+    "git": "d2b0328e0611559396df3c1acbe9d8abe7238199",
+    "sha256": "2e287c8d0e0abd3bf601eb8ef9b4ee6ca3ae12cf36c0ed1612a7dcca54a2e777",
+    "size": 300202
+   },
+   "Zeph.xml": {
+    "git": "db77292abc38d6c4655c892f080246883b8180a3",
+    "sha256": "eb5bd2a745fba1ffeed31dfafd834ce7c290929c992390be1a2b9451d22dea2e",
+    "size": 87313
+   }
+  },
+  "repo": "openscriptures/morphhb"
+ },
+ "peshitta": {
+  "commit": "9850f5addade26f681334aa475570bef9b0b440a",
+  "files": {
+   "Amos.txt": {
+    "git": "71fece058e689ce343658c9eb72a4f2c3284e463",
+    "sha256": "3b04a288de4caa6141be195a026ff0ff70a022f0e9ca330eca7be93b44840744",
+    "size": 21922
+   },
+   "Baruch.txt": {
+    "git": "fa6253f4fce36b6c13974295a7cb1f913f29dc30",
+    "sha256": "42881450e39bcd96ba8dcfc24db7e5be4e2c77057a4f5e272b57f562be1aec5a",
+    "size": 21796
+   },
+   "Chronicles_1.txt": {
+    "git": "cd3e1a669f3b8ad16ae82bc23ca122e2a53cd029",
+    "sha256": "3005766ff818994ae884d851fded0cb4e4bfd4ed233b07b728c6212080da93f1",
+    "size": 121111
+   },
+   "Chronicles_2.txt": {
+    "git": "c1f697ddd97d8062cc2920e34a574ebbce9897f7",
+    "sha256": "f874cf5577d300a1b6ec17c22302c93509aedcf4c5f04b57a385524fe56625cb",
+    "size": 142529
+   },
+   "Daniel.txt": {
+    "git": "566f159188a44f32e503cc8d9c4ac6311f8e7370",
+    "sha256": "f0d48a88cc2586539615a8284609091de1d4e4ba96fbcda714029c2f3e2993f8",
+    "size": 69654
+   },
+   "Deuteronomy.txt": {
+    "git": "4e73e00354b585fd73736fa777668330de6ee12f",
+    "sha256": "53ce9bfe0a8e723a79690f5c8088125e8535c681457f6698a8bf5f509fe5c197",
+    "size": 148266
+   },
+   "Ecclesiastes.txt": {
+    "git": "67d7a4a8ba121e2eaf2272fe81c5d88e33a48053",
+    "sha256": "4e17a27dbc583e8eacf8b99094b1ffdf83ef70c9d251237f7d035b532f5e41fc",
+    "size": 29207
+   },
+   "Esther.txt": {
+    "git": "ee057d8c7268441ee28e9536dbb76c81bc07539c",
+    "sha256": "dfd922e2f2ac3071289da9e7e15959616b7ba9654a8b36eb4d4cd5914f130daf",
+    "size": 32713
+   },
+   "Exodus.txt": {
+    "git": "81569ad9432206b1c04f4d8880eac0e7177b7521",
+    "sha256": "d3a2a30d3992edbf15cb58b615c34944e771d9ab593b5f43436383d447f9e81a",
+    "size": 178506
+   },
+   "Ezekiel.txt": {
+    "git": "e57e65d1f536b8e15e05ea8fba94524f2139a156",
+    "sha256": "a55ea152cd5c75d0e4dfbe9057d1b8ebbf871bbac88ab3dec44c04e46cefb0af",
+    "size": 197510
+   },
+   "Ezra.txt": {
+    "git": "318390966773092b323a0f24f41da486f66db24d",
+    "sha256": "95822a76bec6b3ba36319f17caa6655ab730d7a6c0739b1c904e7676d8844e1f",
+    "size": 41743
+   },
+   "Genesis.txt": {
+    "git": "d16f591277c0c835c03d30e6c844c9d3f10a4c89",
+    "sha256": "aee2a1d0cefbd66c8a6666d97352d83bc03b15fb71f415ae694fe6e724ab2685",
+    "size": 208287
+   },
+   "Habakkuk.txt": {
+    "git": "be31989234e92df0654c8f1cdd3373568ff54851",
+    "sha256": "7052dc576de990e4ad6d4d733a974472aaa3caaa6c8521d0c7e8aa1b160fd0ed",
+    "size": 7224
+   },
+   "Haggai.txt": {
+    "git": "64f21e9c117dbc349544f790560ba5a647499c34",
+    "sha256": "7aece4ec9a48be05a19d3534dac4351106fc1b15fe8b50f0ede29b07015626a2",
+    "size": 6101
+   },
+   "Hosea.txt": {
+    "git": "984dd2cbc09d436a027291c322bed5de15656bc3",
+    "sha256": "6a8cfa9558e2e4f57d5c8e24f657e3f8728ea51768940016b078a6ecf9996d27",
+    "size": 26012
+   },
+   "Isaiah.txt": {
+    "git": "f7f3207e4f655e89eaab3e37dc86de3a925aa4f2",
+    "sha256": "826da60966e4cfd6650f84a88209552e06b6871c727196e2b499dc26c55bbb4d",
+    "size": 187490
+   },
+   "Jeremiah.txt": {
+    "git": "71206fdf2135403004e1d5b6b61eaeb67056be0f",
+    "sha256": "624295987d9710293479438924e1025152d836091b183f63d705e97cc7e6c684",
+    "size": 224066
+   },
+   "Job.txt": {
+    "git": "04a0d7ab9909b62db3aa2d727c45433f060728ec",
+    "sha256": "0573b80be1e54932b28e4b6898e18752df1b15ed016e74c41d324cf92e153a7c",
+    "size": 93771
+   },
+   "Joel.txt": {
+    "git": "e6e69fb13871e0c28f04738cbc0d2f70ad8eb65d",
+    "sha256": "1bd01ddf0b0d591a2803bc1528a8e30d9e38873305cb12cc14e33ed82312b62e",
+    "size": 10523
+   },
+   "Jonah.txt": {
+    "git": "b9c4180a2353ab3feba9ea8b9d0b2d8aa11dcb43",
+    "sha256": "ecbfdb303eee9d71e89fad6a573d55841f31d7f517874e73703fda7b8cdb584c",
+    "size": 6957
+   },
+   "Joshua.txt": {
+    "git": "9d6a93a562bd15cdffe16f92da421c691ad692ba",
+    "sha256": "37dabb08adb57087c7ca63c0172b1c048339d11f3a2ca04b58e5eda811541b2f",
+    "size": 107785
+   },
+   "Judges.txt": {
+    "git": "7d3184f7633437232ef853c936a3c8318995acf4",
+    "sha256": "a46cbffc9c978d8826762eed742ec99af980baf4be0804baa936440cef7a442c",
+    "size": 99363
+   },
+   "Judith.txt": {
+    "git": "e3ac1b0c7a3299983afd2309304ef1acb207e2e7",
+    "sha256": "d1beae7192197f2894943932037c250ea1b0299416d4e03fe02811681e808e79",
+    "size": 63437
+   },
+   "Kings_1.txt": {
+    "git": "ed7ce3345c1a86306b75016c303b68e787369a77",
+    "sha256": "546618ca89649c06830e1998a892b2f78ee9097889edf8329684fce1c07f13d8",
+    "size": 129015
+   },
+   "Kings_2.txt": {
+    "git": "4d0bfad946957f92b41bb2b7b5408431ac585567",
+    "sha256": "537a621f2e853c2bf1386fb878b2920a01d575c40f8da30bc0c29ae40f1601ad",
+    "size": 120726
+   },
+   "Lamentations.txt": {
+    "git": "a7952099d7fa6098603847ff54ac5432326eeffa",
+    "sha256": "b750122124746d2101317a2d5261ca8b28af2e2fb9bbac01307d59eecfc66860",
+    "size": 18932
+   },
+   "Leviticus.txt": {
+    "git": "84a6ff3c2f4645ccc2b41e1b9e9cf2f37233030d",
+    "sha256": "6925773bbcba3166db9c2fd45995828868ba83c7b648a31008ee227e4f00bd4f",
+    "size": 123671
+   },
+   "Maccabees_1_A.txt": {
+    "git": "bdb454a04f2360aa1329b368b3f134fb065d524d",
+    "sha256": "f71c6f633e1b7ac3b9ea75eee8339bfd0207f8599bbb415e120092f44e8f5894",
+    "size": 122764
+   },
+   "Maccabees_2.txt": {
+    "git": "a581e80260f6391264a29b3a0cbf65b77d127efd",
+    "sha256": "a963a6bf7daf5b32eb10b899e9e6738d781f4b99eb00374c1638b84f35831972",
+    "size": 115171
+   },
+   "Malachi.txt": {
+    "git": "8be16db75ff8260b13b9045e83468ca5b7ce7b18",
+    "sha256": "e8f33d85229ef16d08ec6e30aebe529b73c9b609be93414c1b09d89a0c9c5db5",
+    "size": 9565
+   },
+   "Micah.txt": {
+    "git": "d4b977a77ff405d888070c30ebbe0d0103ff5265",
+    "sha256": "72ba3599fac5e90c028da31a76748ff07408069002448ca40c6f97d597190df7",
+    "size": 15830
+   },
+   "Nahum.txt": {
+    "git": "c13e6ff9ab15fb73c896fc182ef3b41bbcbaed38",
+    "sha256": "5e1e99edea83203dc48ca56b0432cfb42d5c438f1015c8e1a9fc38d60204097f",
+    "size": 6520
+   },
+   "Nehemia.txt": {
+    "git": "dfa73c2921b48ada31035149a5c67b7941ab33f9",
+    "sha256": "247b93f715d9a48612da63c68591390f516eb4ca5a1b6744d0ec73904da99092",
+    "size": 59687
+   },
+   "Numbers.txt": {
+    "git": "329afe7aebd9a7c931d0942a12def839e0117e5c",
+    "sha256": "435900ca891c7785d7c0bcfb724245d71ad0dd5d1d30b010335edc5184e04ce0",
+    "size": 176731
+   },
+   "Obadiah.txt": {
+    "git": "9d792ec78acccb0253637fac6c2f1c9e30257688",
+    "sha256": "921e9e3ba792425f0789de386e4cd915547aff9f02586bf8e01eb1dfe709a09a",
+    "size": 3149
+   },
+   "Proverbs.txt": {
+    "git": "a5ad57a8ce7c02c291758ceb9fbdefb9caf5eb02",
+    "sha256": "cbe8136134f38ebc6e8f0677dc3b66fe5879dc2061a5d06fbedb15ea04f20d4a",
+    "size": 84929
+   },
+   "Psalms.txt": {
+    "git": "97c80013406a39cb59f0d5bf7aba7623802e6b6b",
+    "sha256": "2cf17f607a34af8d28612ea59a5683cabfb4695b9d4608cc03428cefd26e830c",
+    "size": 215763
+   },
+   "Ruth.txt": {
+    "git": "e3d84264fd072376851a562419eff0b71280c983",
+    "sha256": "71c3bb229169b73a7dd297f9af1676df0a32a01db9631546767bedc67d3be79b",
+    "size": 14572
+   },
+   "Samuel_1.txt": {
+    "git": "9acc9c89d5cb5ea8d1ffd66ae3a87440f81a751a",
+    "sha256": "92fb8850191c852ba3e1d4e23901da52d26e9b8a5c0894e943b34f9f46fe0b21",
+    "size": 128817
+   },
+   "Samuel_2.txt": {
+    "git": "faaaa466a90f5a5a8547862974d8df2d4a526360",
+    "sha256": "a23880589ae332b83d85d3b3f23ddb78800d7b02d3c70c07e15f99ff90ebd478",
+    "size": 107808
+   },
+   "Sirach.txt": {
+    "git": "6deb09514b783f0b95f21802441bee347b3342a7",
+    "sha256": "806fa9b907afa388183f8e020631b662552811d73151a4e18ebb4a39510d49d4",
+    "size": 134066
+   },
+   "Song_of_Songs.txt": {
+    "git": "c99ec704467d53b473fa6239e4dae5d795074a4e",
+    "sha256": "b7622b9313454f8fa38480863d10e4ee675c9231cdcc9128c3a49512c01829b3",
+    "size": 13661
+   },
+   "Tobit_A.txt": {
+    "git": "5b8df29e6242d58164f13fe45c71a0adec139561",
+    "sha256": "c5b3a6314ff169dea8d895fecb506438758ead7877417019f4e780d3f9fa6dfc",
+    "size": 42935
+   },
+   "Wisdom_of_Solomon.txt": {
+    "git": "4a90baeb3b46148abf723c62f0567f1e2def126b",
+    "sha256": "ba5cf5348e7fd26990ad739eba2dc3e8733b19214d22561e46bc79f7276198b8",
+    "size": 63084
+   },
+   "Zechariah.txt": {
+    "git": "1d6426070103ad1dbda45d758845bae5fdc9f103",
+    "sha256": "09c57dfd7618907544924e870dceeae6bc6b777c0ffd010801b455858b6e9fad",
+    "size": 32414
+   },
+   "Zephaniah.txt": {
+    "git": "b153c4245b4a2974b3d54461f6cdeb614e8df81d",
+    "sha256": "ebacb9739e0e3be452ed9f0b41c5faaf026e9b53aa8dd397974b27dc0dc4addf",
+    "size": 8542
+   }
+  },
+  "repo": "ETCBC/peshitta"
+ },
+ "quran": {
+  "commit": "d96dab765d712634ba17d1550cd5d1dc15c25b36",
+  "files": {
+   "quran-simple.txt": {
+    "git": "5fef7cd38d506248be7b1a3db379e7611a7a4b3f",
+    "sha256": "25975755fd9e34e3397337c6bec6ad50b91ff189e55290a157fb959dcf8f96ac",
+    "size": 1344086
+   }
+  },
+  "repo": "rizaumami/quran-epub"
+ },
+ "tessdata": {
+  "commit": "ced78752cc61322fb554c280d13360b35b8684e4",
+  "files": {
+   "afr.traineddata": {
+    "git": "a0b86d86b7d4c6b313e73c79a0fc8c2400f7e292",
+    "size": 7851157
+   },
+   "amh.traineddata": {
+    "git": "4025db626bae6dcdcdb2cf96b97bb333565efba9",
+    "size": 8423467
+   },
+   "ara.traineddata": {
+    "git": "42e5c4b387e45f0e54213ce6964543dd6fc6aea0",
+    "size": 2494806
+   },
+   "asm.traineddata": {
+    "git": "2d6e50d87e38c8ceb80a69dd157c98be07cdced8",
+    "size": 2045457
+   },
+   "aze.traineddata": {
+    "git": "8ec678bda6c694269e4ee6b3044533e03846dcc4",
+    "size": 10139884
+   },
+   "aze_cyrl.traineddata": {
+    "git": "7ede6aeff904ffed6726b0301dc353b65c353b31",
+    "size": 4726411
+   },
+   "bel.traineddata": {
+    "git": "5955af0798f8a8451fb39d0fa06626d6660b8645",
+    "size": 11185811
+   },
+   "ben.traineddata": {
+    "git": "68872d3e92dcf3eca491ba0536628c5b8ebfc1c1",
+    "size": 1789439
+   },
+   "bod.traineddata": {
+    "git": "8b05da61a341d6385c62a9a376d357fb2048c49c",
+    "size": 1966470
+   },
+   "bos.traineddata": {
+    "git": "4a0e06748ea667c8b4989a050dcdfa1cf2df40e1",
+    "size": 7930443
+   },
+   "bre.traineddata": {
+    "git": "ebb6a98c2a60544c40451c9555ac08a8a7bcb98c",
+    "size": 6335020
+   },
+   "bul.traineddata": {
+    "git": "da4ff782facd6ec3a32e9861fe5941a800d194dd",
+    "size": 8371797
+   },
+   "cat.traineddata": {
+    "git": "2602a26aec3622c24fd8687a5028f73163e95d2e",
+    "size": 6502025
+   },
+   "ceb.traineddata": {
+    "git": "f3d4f3f51514bcd85102f3830dd8a353020c9379",
+    "size": 2402839
+   },
+   "ces.traineddata": {
+    "git": "d8384a707dac23ef68011499c476b6deda41ec33",
+    "size": 16238266
+   },
+   "chi_sim.traineddata": {
+    "git": "eeb66cfbd9c02b170a6aeeece673910793d8d8c4",
+    "size": 44366093
+   },
+   "chi_sim_vert.traineddata": {
+    "git": "851996ca18c6c894925a17ab4eb74b78b94b9448",
+    "size": 2470991
+   },
+   "chi_tra.traineddata": {
+    "git": "5f1fe2712b7f7e44d8ca43f351307375b67f08f9",
+    "size": 59025073
+   },
+   "chi_tra_vert.traineddata": {
+    "git": "a7949354a4d7fcf3eaff8da6c94c6546f0b9de1e",
+    "size": 2368306
+   },
+   "chr.traineddata": {
+    "git": "928c5e9ba4e68d2a8a00e39477df405198facfa6",
+    "size": 1458011
+   },
+   "cos.traineddata": {
+    "git": "57eb6199a871485933f369ab5df2663331544df1",
+    "size": 2299112
+   },
+   "cym.traineddata": {
+    "git": "b0a06d239c0189071812335dd4aa1150899e2870",
+    "size": 5998144
+   },
+   "dan.traineddata": {
+    "git": "f32034cc427963d917a2804d080c52ba1479c1ba",
+    "size": 10578171
+   },
+   "deu.traineddata": {
+    "git": "36f623a0b724d546ba831e7eeead33bf4c6cb24f",
+    "size": 15437534
+   },
+   "div.traineddata": {
+    "git": "fcbefb5840f031cd6f6c0120709238c77518760e",
+    "size": 1774548
+   },
+   "dzo.traineddata": {
+    "git": "1ba85d80f7807379b5c572a979a9bbe7dca5a2e7",
+    "size": 449626
+   },
+   "ell.traineddata": {
+    "git": "6e60373e4d2421b5248d1f2476903d685c9efb9e",
+    "size": 7543380
+   },
+   "eng.traineddata": {
+    "git": "f4744c201359d02ced6914c77f0de68ee9bbdd74",
+    "size": 23466654
+   },
+   "enm.traineddata": {
+    "git": "492743cf52c091497aea9d768e21648dc38c2cef",
+    "size": 5207312
+   },
+   "epo.traineddata": {
+    "git": "96229c590378d621ef8b62e5b5919f6c15c20b9c",
+    "size": 11330444
+   },
+   "est.traineddata": {
+    "git": "35b510c39e9a37ad5364f5f813fce748cc7f5634",
+    "size": 15301628
+   },
+   "eus.traineddata": {
+    "git": "541e17457927106697754503088b805711232fd7",
+    "size": 10145441
+   },
+   "fao.traineddata": {
+    "git": "bae700b870bec421f405d6dd3a75e78b685050c0",
+    "size": 3439785
+   },
+   "fas.traineddata": {
+    "git": "a0b9843164d928caad5afb0bd6973c964ba5b0b9",
+    "size": 561272
+   },
+   "fil.traineddata": {
+    "git": "4e8d922c4fff8534f151f6a71a5e229523c98a5d",
+    "size": 2509440
+   },
+   "fin.traineddata": {
+    "git": "a0b6d153611c0e15246c85752cbba35e81cf5658",
+    "size": 21140513
+   },
+   "fra.traineddata": {
+    "git": "250c7749ba301ce50c3317631c6a61b03b6410ce",
+    "size": 14213351
+   },
+   "frm.traineddata": {
+    "git": "4a5671ba9dfaa41031da2d16bcfb1c1e29fe4ff9",
+    "size": 17856636
+   },
+   "fry.traineddata": {
+    "git": "8a4b54268e10024f431256701f7ab78899578a39",
+    "size": 1906031
+   },
+   "gla.traineddata": {
+    "git": "af3f2f03291f32b7b83753376e9a989f93f35561",
+    "size": 3068320
+   },
+   "gle.traineddata": {
+    "git": "c508b329ea9e2eab2968b6a73dd5c631072f4088",
+    "size": 4664254
+   },
+   "glg.traineddata": {
+    "git": "45743ab5f7e79e728ea3fe4ce55e66c52ce04175",
+    "size": 8074927
+   },
+   "grc.traineddata": {
+    "git": "a306f3e7ce0bb55ff5a45e4b6c4432180e488d08",
+    "size": 7428728
+   },
+   "guj.traineddata": {
+    "git": "f8567c21069972aca110852f7dd2fb4ddc62148b",
+    "size": 1963128
+   },
+   "hat.traineddata": {
+    "git": "d6025d7d09bfab5fa2c52d1f1a13f4320459d3cc",
+    "size": 3326722
+   },
+   "heb.traineddata": {
+    "git": "3463445a64e4c6e985fa3ef158c641d729e31511",
+    "size": 5413459
+   },
+   "hin.traineddata": {
+    "git": "aa169cf89557769348aba38b9f5ecbcc682db806",
+    "size": 1651010
+   },
+   "hrv.traineddata": {
+    "git": "0f3604756d8deabaef4b4e244d133b56d726f9c9",
+    "size": 13797409
+   },
+   "hun.traineddata": {
+    "git": "750965161e2964523be07fdbbca6ec15c0a3dd2c",
+    "size": 18051690
+   },
+   "hye.traineddata": {
+    "git": "fd7b0b81795288c007139d43f50dd7edec341043",
+    "size": 3594112
+   },
+   "iku.traineddata": {
+    "git": "9aea84d105de89fbb3b064cd66491e4e35713fb2",
+    "size": 3797385
+   },
+   "ind.traineddata": {
+    "git": "7019b8dc4d3c10a0f92a1f2ee8d954392f5a6cfa",
+    "size": 8279230
+   },
+   "isl.traineddata": {
+    "git": "20b20af536bdb996196d96b294283f6fa4768a82",
+    "size": 9037703
+   },
+   "ita.traineddata": {
+    "git": "92ef3007914cc07e23a57fd3b3c6347cee97abf3",
+    "size": 15951669
+   },
+   "ita_old.traineddata": {
+    "git": "694c68bc27bd25d09275bf79eb05e5178e3c6656",
+    "size": 17345259
+   },
+   "jav.traineddata": {
+    "git": "d1df3d6b91150de5699c696c2a0300698751095b",
+    "size": 7386965
+   },
+   "jpn.traineddata": {
+    "git": "7fd5b76b53b2dca7e49e6fb13f704ee31aa16509",
+    "size": 35659159
+   },
+   "jpn_vert.traineddata": {
+    "git": "b1a31da4ce8e0da4d3849edfbb41650df41ea2db",
+    "size": 3039939
+   },
+   "kan.traineddata": {
+    "git": "5be4daf6b6fb716f37ffde9c2cf9b06d6b01488c",
+    "size": 3608311
+   },
+   "kat.traineddata": {
+    "git": "5bdabae7939de8ff4ae7a9d5adc74669b02a84df",
+    "size": 8744377
+   },
+   "kat_old.traineddata": {
+    "git": "53a737cfb517ec65bd3562d028b670b9450523ea",
+    "size": 1082383
+   },
+   "kaz.traineddata": {
+    "git": "9f66a948a05545b1947bb3c02eec8ea38f643eaf",
+    "size": 9263539
+   },
+   "khm.traineddata": {
+    "git": "c6af44581b9e517e480b79b7bea0b6857b91b1aa",
+    "size": 1446906
+   },
+   "kir.traineddata": {
+    "git": "388778a7f54f2b36a58167c088e720f933be6ec0",
+    "size": 15430595
+   },
+   "kmr.traineddata": {
+    "git": "1f7671f19acdfb3a3ca6993701e5068118138d69",
+    "size": 3568645
+   },
+   "kor.traineddata": {
+    "git": "cc689b2b2569fdfadd68b55b3914f68c004f5253",
+    "size": 15317715
+   },
+   "kor_vert.traineddata": {
+    "git": "016065ca0641b03c43ba2676347a500488300fe6",
+    "size": 1128590
+   },
+   "lao.traineddata": {
+    "git": "6c70a236adebda5f63536fe63304b9bcf1fd517f",
+    "size": 7055204
+   },
+   "lat.traineddata": {
+    "git": "5ccd52da62fc14472f1981598b0cf5f936a2f6e2",
+    "size": 9215366
+   },
+   "lav.traineddata": {
+    "git": "2735c157d6aa261b68531063d0c733691a76c83a",
+    "size": 10635271
+   },
+   "lit.traineddata": {
+    "git": "fae4c3669c91c79d2b1ab787ec2108dfd091d391",
+    "size": 12629538
+   },
+   "ltz.traineddata": {
+    "git": "7aa29169a8dc209b960daf0c2a19742e24a6e278",
+    "size": 2606439
+   },
+   "mal.traineddata": {
+    "git": "d9dbf0471ba60dcec41333e59ac858c6a519b4c7",
+    "size": 5953416
+   },
+   "mar.traineddata": {
+    "git": "21b2679a0c7e0acbc436eef41edd6928f87897ba",
+    "size": 3193116
+   },
+   "mkd.traineddata": {
+    "git": "303578a7aa1eaf3c1b0ff5f3494d9de5cb7ecd36",
+    "size": 5323418
+   },
+   "mlt.traineddata": {
+    "git": "712765599364625897134f589a992c1729100846",
+    "size": 7426902
+   },
+   "mon.traineddata": {
+    "git": "a7be4dd6c6ab13e2ac3edc1e540d0df97d8ee279",
+    "size": 2137055
+   },
+   "mri.traineddata": {
+    "git": "5047877b26bfe4d7207cdad3c3503c3edc1b8315",
+    "size": 862986
+   },
+   "msa.traineddata": {
+    "git": "406d26835bd9ad47767f387d5fa632a0a84c2adc",
+    "size": 8243366
+   },
+   "mya.traineddata": {
+    "git": "0075bb6f9daf0273d2f838b78da3c8bdc5a40799",
+    "size": 4640591
+   },
+   "nep.traineddata": {
+    "git": "98e530c8356872f32f7d98a2c09b174277bbd1ed",
+    "size": 2189424
+   },
+   "nld.traineddata": {
+    "git": "db30235cd1a3f68be97895b735e5386a868d3ae1",
+    "size": 23163950
+   },
+   "nor.traineddata": {
+    "git": "f2ce26114b63edb4f18ac3ddf49a16502ce54458",
+    "size": 12397893
+   },
+   "oci.traineddata": {
+    "git": "614c489e10f1bdff83ed0900760ab717b8d3eb7e",
+    "size": 6322100
+   },
+   "ori.traineddata": {
+    "git": "1062bf0734201cf1e9be51c2e1d733d570abc2f9",
+    "size": 1480096
+   },
+   "pan.traineddata": {
+    "git": "328f806ae121f8070d1c0d7a8ad9149a82a30ecc",
+    "size": 1698789
+   },
+   "pol.traineddata": {
+    "git": "fba79589cd619c21cb5989ec8be2388f1963b52f",
+    "size": 19344135
+   },
+   "por.traineddata": {
+    "git": "992bb0f4cd4d36cae179b9497bec56873e82eaf2",
+    "size": 15336931
+   },
+   "pus.traineddata": {
+    "git": "696b52f7d576b9d7684b2ebca637cc2686f606d8",
+    "size": 1772117
+   },
+   "que.traineddata": {
+    "git": "ea481c6f01e6792bf358cd413a5453562d248827",
+    "size": 5026349
+   },
+   "ron.traineddata": {
+    "git": "df596d431da3c68cdb98ebefa441959ea139d360",
+    "size": 11008634
+   },
+   "rus.traineddata": {
+    "git": "8b71c2d3814369d85f8ca75e7a265aaa3d3ab9ae",
+    "size": 19920885
+   },
+   "san.traineddata": {
+    "git": "7678f930a7bb1973aa0eaf55c4b79aba46122fe5",
+    "size": 12404680
+   },
+   "sin.traineddata": {
+    "git": "fb27f5cf979c4d4e0b7857717cfc0d89b3692874",
+    "size": 1727443
+   },
+   "slk.traineddata": {
+    "git": "6eb8f38e62b8850ae154850867a0d7a0d439bd56",
+    "size": 14100356
+   },
+   "slv.traineddata": {
+    "git": "89b3622882879c11187156dba7f9a74749afdde1",
+    "size": 9942454
+   },
+   "snd.traineddata": {
+    "git": "27d4842ce140be90f49d5d9aade05734b2b4ed1e",
+    "size": 1694065
+   },
+   "spa.traineddata": {
+    "git": "f703e0535e08fce166b3554b330b28f86a369de1",
+    "size": 18256019
+   },
+   "spa_old.traineddata": {
+    "git": "76904756d4571d0b32421771acca19885de7a1b7",
+    "size": 19628379
+   },
+   "sqi.traineddata": {
+    "git": "1b54161035052524e2cb0785931d9353bd64b398",
+    "size": 8575759
+   },
+   "srp.traineddata": {
+    "git": "8908c8e7a82b190cd2c8447b209ffeb31d1a2265",
+    "size": 7434267
+   },
+   "srp_latn.traineddata": {
+    "git": "ec7e93da05ef3b5d5d8318a573e3a9322c21b43b",
+    "size": 9375025
+   },
+   "sun.traineddata": {
+    "git": "ffaf69cb6a4b75df535f5c9853d6d854264a8f19",
+    "size": 1369513
+   },
+   "swa.traineddata": {
+    "git": "938830f630ca62d9cc4d4479e50f94428e07faa2",
+    "size": 6029030
+   },
+   "swe.traineddata": {
+    "git": "df32ac26c28c36ad1920fa8fd1c17d8d92502ecf",
+    "size": 13627152
+   },
+   "syr.traineddata": {
+    "git": "be57e5986496fdf376dabd381ce3938e9b47615d",
+    "size": 2207238
+   },
+   "tam.traineddata": {
+    "git": "dec17b5fb968c2e50181e08d46a1c261f92e1a29",
+    "size": 3353079
+   },
+   "tat.traineddata": {
+    "git": "7174273a0f6ae9072f263cca0161532a855466c9",
+    "size": 1072909
+   },
+   "tel.traineddata": {
+    "git": "1b1925d2562bd8ebe3dc319b292cefdd35a763ad",
+    "size": 3315170
+   },
+   "tgk.traineddata": {
+    "git": "493464182b99cc33f4839f85a98c67f0b1ed90de",
+    "size": 3721580
+   },
+   "tha.traineddata": {
+    "git": "fa80ee4baa528376a226e2251b4804593a3f196b",
+    "size": 1072519
+   },
+   "tir.traineddata": {
+    "git": "057009ee738ab32a8d1c5be48fd70ec3ff3252ad",
+    "size": 2184930
+   },
+   "ton.traineddata": {
+    "git": "1d0fe53a088665cf996b52c518d61447a1f157e4",
+    "size": 947262
+   },
+   "tur.traineddata": {
+    "git": "81f4b0a8be19d85d29321b7b71d5668616b791d2",
+    "size": 18750612
+   },
+   "uig.traineddata": {
+    "git": "f8cf2f156d0106f26cb104f02fa3c8ab772e2f64",
+    "size": 2794302
+   },
+   "ukr.traineddata": {
+    "git": "65bebacefa7a1df86456df3a7476fdbee252ca85",
+    "size": 12408644
+   },
+   "urd.traineddata": {
+    "git": "dfc34ada6ec9ce9fe89ac63427b42a487282902a",
+    "size": 1398748
+   },
+   "uzb.traineddata": {
+    "git": "cf9f7e03d87130a2e5ba19566eed00c97ed62f9d",
+    "size": 10757098
+   },
+   "uzb_cyrl.traineddata": {
+    "git": "434d2776a2a2dcd7eab9069a80bf23f626ec9bf3",
+    "size": 4905658
+   },
+   "vie.traineddata": {
+    "git": "85c1d84f880889e65e2ba32528a43b04babfb5c1",
+    "size": 7763728
+   },
+   "yid.traineddata": {
+    "git": "6fcd77b109171221d9cd2221b3531c6751678537",
+    "size": 4882707
+   },
+   "yor.traineddata": {
+    "git": "35f8142f7327cd563a2fe4d78c9009a2e9ff72f3",
+    "size": 963413
+   }
+  },
+  "repo": "tesseract-ocr/tessdata"
+ },
+ "tessdata_best": {
+  "commit": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
+  "files": {
+   "afr.traineddata": {
+    "git": "40ac7eabfe869e4d48d8410c1b5cdc7b88a7b39a",
+    "size": 12800552
+   },
+   "amh.traineddata": {
+    "git": "a25f63e65b0023d95516356d5ab4158feee4fba5",
+    "size": 8389639
+   },
+   "ara.traineddata": {
+    "git": "4b687c7d54c86cf6219aebe781b47284fd5d41f0",
+    "size": 12603724
+   },
+   "asm.traineddata": {
+    "git": "c2638071e3f0f8f195a59d4c27073da349a9f662",
+    "size": 11315350
+   },
+   "aze.traineddata": {
+    "git": "f18d1e9a95b3df16b6229ab99afa010cef718c6e",
+    "size": 6281404
+   },
+   "aze_cyrl.traineddata": {
+    "git": "5c671e0342f24e065096406b48437c226133ff31",
+    "size": 4700277
+   },
+   "bel.traineddata": {
+    "git": "4421405ac619b62d53bb3a226ed6f1069953566e",
+    "size": 10870278
+   },
+   "ben.traineddata": {
+    "git": "b16a79b0bf5a66e70a0f73165ed0eb92c688ee20",
+    "size": 11045427
+   },
+   "bod.traineddata": {
+    "git": "e6309bdc3ebfac9d7163a0de4da978c52ca23e38",
+    "size": 8623846
+   },
+   "bos.traineddata": {
+    "git": "b217d3c2fda11ac8366104679bba533602c76b70",
+    "size": 5264248
+   },
+   "bre.traineddata": {
+    "git": "d92118421479211ddae32474795f257134f72499",
+    "size": 15640760
+   },
+   "bul.traineddata": {
+    "git": "72f4f79f886f1ee4af0fb432f1b39e57cc361ee1",
+    "size": 8844613
+   },
+   "cat.traineddata": {
+    "git": "f68513407b07255f7b3a53215e9bc1fa55686e75",
+    "size": 3802329
+   },
+   "ceb.traineddata": {
+    "git": "afa487092c3a865ca6090d6097a7adbbdbe80a96",
+    "size": 3452674
+   },
+   "ces.traineddata": {
+    "git": "d762752614325b5b60733804b70b8281ab9c8543",
+    "size": 10918912
+   },
+   "chi_sim.traineddata": {
+    "git": "da7fa49ded2895ebe974c6ea3a6cc1af8595f1af",
+    "size": 13077423
+   },
+   "chi_sim_vert.traineddata": {
+    "git": "2284498de65d8ba930bc2ff71495dccbb5e69832",
+    "size": 13077507
+   },
+   "chi_tra.traineddata": {
+    "git": "c1dd109cd5bbec27381f578e9a425cef88466244",
+    "size": 12985735
+   },
+   "chi_tra_vert.traineddata": {
+    "git": "930343b23e1a4fa13fd2c666e0655bfaaeba8ec1",
+    "size": 12985521
+   },
+   "chr.traineddata": {
+    "git": "87337066d1f6e85eefe33058d5a69b1988e4fa6d",
+    "size": 2258703
+   },
+   "cos.traineddata": {
+    "git": "a9c0fec80af495e94a5d1400beea6fe97b8a0652",
+    "size": 8830216
+   },
+   "cym.traineddata": {
+    "git": "ded660f6f9f1917be5c3e97e7a790da055975906",
+    "size": 8750784
+   },
+   "dan.traineddata": {
+    "git": "c790ec5c7ae4b0134fce9daa4699334c27bac8fd",
+    "size": 9758142
+   },
+   "deu.traineddata": {
+    "git": "6dd654880db617f3edfa00bc2ed9c9e3107b8fd0",
+    "size": 8628461
+   },
+   "div.traineddata": {
+    "git": "f1c2794521c8b430f1f29878485b197a6a0d9001",
+    "size": 4574116
+   },
+   "dzo.traineddata": {
+    "git": "b24a17af8b1354e6947b327fcf5a8fc783932d2b",
+    "size": 3243805
+   },
+   "ell.traineddata": {
+    "git": "f6f73870885f4fd6e63371244c7f3d5904e1b276",
+    "size": 8945021
+   },
+   "eng.traineddata": {
+    "git": "176dc3220de7db34d3b3aecbfa42043a6038348b",
+    "size": 15400601
+   },
+   "enm.traineddata": {
+    "git": "95c4bcce8e0325c81cba03351a322608e0330dff",
+    "size": 13281564
+   },
+   "epo.traineddata": {
+    "git": "90aefd6d452e144ba48b5770341be7592cdda76a",
+    "size": 7402169
+   },
+   "est.traineddata": {
+    "git": "0a5bc369b103b9486f0fc364262dccf2348d3871",
+    "size": 15833749
+   },
+   "eus.traineddata": {
+    "git": "1ad03ea7fee8bf4fb144b34568db3cf8cfd57096",
+    "size": 7933869
+   },
+   "fao.traineddata": {
+    "git": "53ded67d0be8744a32327a8da92ee7b3b20bdcb4",
+    "size": 10030003
+   },
+   "fas.traineddata": {
+    "git": "326a26e8522dce12596fc0de314710c5cc7055d0",
+    "size": 3325955
+   },
+   "fil.traineddata": {
+    "git": "7fa2c5af5bdd9c9f308a0429727cb55c0dd41ccf",
+    "size": 8978743
+   },
+   "fin.traineddata": {
+    "git": "5896d6214ad70a02b8ce4ef969d9d369398324f7",
+    "size": 14369979
+   },
+   "fra.traineddata": {
+    "git": "f73e7dec0669dbac6443d8f83054b8b2a3146729",
+    "size": 3972885
+   },
+   "frm.traineddata": {
+    "git": "b1cf37686d494bcdacd177417ffc3c8ccee1b3e9",
+    "size": 4043005
+   },
+   "fry.traineddata": {
+    "git": "e085d033be5d871d74a9244ae3dc629c5bdb8bf3",
+    "size": 8442509
+   },
+   "gla.traineddata": {
+    "git": "cef7956da4065d023625e759ff9e84a21598b9f5",
+    "size": 9599424
+   },
+   "gle.traineddata": {
+    "git": "32f0536d856fa407650e819e31c7a16978bf971e",
+    "size": 3942458
+   },
+   "glg.traineddata": {
+    "git": "ed95a43108559b215a43ffce9f58108326028d3c",
+    "size": 12709487
+   },
+   "grc.traineddata": {
+    "git": "d556abf33b3347f0b7a50c55072fc59619f900aa",
+    "size": 5168122
+   },
+   "guj.traineddata": {
+    "git": "2284f7e1c8aeecd01cc1a4c01315b1d739ba762a",
+    "size": 8515761
+   },
+   "hat.traineddata": {
+    "git": "0f3d42574c4233a7c67ecda0b0d6329b2271e4f6",
+    "size": 12128251
+   },
+   "heb.traineddata": {
+    "git": "0fc27335b628e0e7992c58804c0437662ec54b06",
+    "size": 3704077
+   },
+   "hin.traineddata": {
+    "git": "bb1e1c2da68a2b56d74fdf49a9dd53e7198b3302",
+    "size": 11895564
+   },
+   "hrv.traineddata": {
+    "git": "0c81abc72092231abdd0221279b9f5d963ef649d",
+    "size": 11195424
+   },
+   "hun.traineddata": {
+    "git": "d2cd8ec070f4341f4cf75bdc7da08755c272ffc1",
+    "size": 12350405
+   },
+   "hye.traineddata": {
+    "git": "33938b0d9c2e1befec0e485c75a4e2059c022b0b",
+    "size": 6372242
+   },
+   "iku.traineddata": {
+    "git": "b964752686f526da8bbac7f10b78ff069539bd5f",
+    "size": 6139484
+   },
+   "ind.traineddata": {
+    "git": "8df4926187c806b35607519eee0c5a6e970a630a",
+    "size": 8253606
+   },
+   "isl.traineddata": {
+    "git": "bbcd030b8113176ab168f8fcc3df66258a5c4b78",
+    "size": 9486436
+   },
+   "ita.traineddata": {
+    "git": "8a09dcab553d22307b8110af0848ed71e5560cc8",
+    "size": 8863635
+   },
+   "ita_old.traineddata": {
+    "git": "25ead0d26f2f0d81b7e7f3864247a75c88820ed3",
+    "size": 9852171
+   },
+   "jav.traineddata": {
+    "git": "81e409548f90e43f4bf6fd50a32463553f743ffd",
+    "size": 8650382
+   },
+   "jpn.traineddata": {
+    "git": "d2a8eab80ba3aba7654ac789b82f70b64d1cf051",
+    "size": 14330109
+   },
+   "jpn_vert.traineddata": {
+    "git": "ea8e1ab655d629e7865f289f3a8ea6daeb50bb89",
+    "size": 14330809
+   },
+   "kan.traineddata": {
+    "git": "8f2e98e1d36ee516a1638522e569d2c4d11ac86d",
+    "size": 10233763
+   },
+   "kat.traineddata": {
+    "git": "8abab366b817b7f39a6330cfb6d90205cd32086e",
+    "size": 4487336
+   },
+   "kat_old.traineddata": {
+    "git": "ec7fe2afe5bca3c257d3a692f606ba0bff4b24f9",
+    "size": 3174400
+   },
+   "kaz.traineddata": {
+    "git": "ef5f6c521b066935bf8a8d5c4d4c7e3436ee3315",
+    "size": 7528853
+   },
+   "khm.traineddata": {
+    "git": "4b5ab11f50df8205657f407f027a2a25edcbe6f1",
+    "size": 8104332
+   },
+   "kir.traineddata": {
+    "git": "77c0efe7dfe613507717dad6a26172f7e5bb5733",
+    "size": 11948344
+   },
+   "kmr.traineddata": {
+    "git": "fa1780bb1b0c31eab4f17de9d3ee23f6a4cb6e42",
+    "size": 10196464
+   },
+   "kor.traineddata": {
+    "git": "c82615b5228c9981c33a0985b32224d97b7fb43a",
+    "size": 12528128
+   },
+   "kor_vert.traineddata": {
+    "git": "8d5ee900d7cb7b874cb46d615b7873969e783cd1",
+    "size": 3964469
+   },
+   "lao.traineddata": {
+    "git": "bdd2715bd1f76852b9430997eef890495e8637ef",
+    "size": 13532551
+   },
+   "lat.traineddata": {
+    "git": "02b4059d9a5e53d110b072729183d63472d47ec9",
+    "size": 9705145
+   },
+   "lav.traineddata": {
+    "git": "bb98786317620461b8253ee5c3f498f4ff9da6ef",
+    "size": 5623473
+   },
+   "lit.traineddata": {
+    "git": "1f0b242ee68123ffbfe9eb63e90b2f6e4803c230",
+    "size": 10252680
+   },
+   "ltz.traineddata": {
+    "git": "8f4b19a1c6e84cae7255cdc74cb2377724816d68",
+    "size": 12721945
+   },
+   "mal.traineddata": {
+    "git": "349b089a477374a6d3bc535f99c0c734b9275a71",
+    "size": 12524967
+   },
+   "mar.traineddata": {
+    "git": "93d5e21d8c2eeeff34f7865bdef3c87fe472f26a",
+    "size": 13437670
+   },
+   "mkd.traineddata": {
+    "git": "24be6b1287c8675b747a512c3f71e6609f813a36",
+    "size": 3453054
+   },
+   "mlt.traineddata": {
+    "git": "c53d788d276525896ee79609b97a94da06e33b4a",
+    "size": 5060029
+   },
+   "mon.traineddata": {
+    "git": "d56f13ede00ec99bda944c87cb62e5b6306be7d3",
+    "size": 8646663
+   },
+   "mri.traineddata": {
+    "git": "55e52377e078992701d91d36790b21c6731c5514",
+    "size": 3610177
+   },
+   "msa.traineddata": {
+    "git": "c4816abcc62dab52fe2bb74518b3927fb664e2c8",
+    "size": 8230552
+   },
+   "mya.traineddata": {
+    "git": "4adbb96ab500fb339f988de33eb8bb5717e8e6a6",
+    "size": 14971060
+   },
+   "nep.traineddata": {
+    "git": "2e552631af6d03efb9700819c2302481e31f27d3",
+    "size": 12387399
+   },
+   "nld.traineddata": {
+    "git": "e4d30d0e558bab61d618b60722764a1a30596a04",
+    "size": 8903736
+   },
+   "nor.traineddata": {
+    "git": "8913672c357f44d44b40540dfce7d0469fb7f991",
+    "size": 14312333
+   },
+   "oci.traineddata": {
+    "git": "59da8803d1842ac8a2377d70cc47752fc25f0e17",
+    "size": 12917692
+   },
+   "ori.traineddata": {
+    "git": "7cf73f62541de3eac181453614983e13d1dea0a6",
+    "size": 8110602
+   },
+   "pan.traineddata": {
+    "git": "bb8e64abf7cb56938dce621c149bdc20a9bbee03",
+    "size": 11893154
+   },
+   "pol.traineddata": {
+    "git": "6c149bd1f9bc6da3948ebc81be1a0d9de0a597f4",
+    "size": 11978867
+   },
+   "por.traineddata": {
+    "git": "01743fdba931e706f79d86620ce18424036220f2",
+    "size": 8159939
+   },
+   "pus.traineddata": {
+    "git": "18c502919b3c031cca8cc219ac54cbea90a12bdf",
+    "size": 11987930
+   },
+   "que.traineddata": {
+    "git": "8f10669b361bdfc1924938c361ba7b6db90f9e51",
+    "size": 10774587
+   },
+   "ron.traineddata": {
+    "git": "cafc0e00a05a68175c46c56f6ef3d717231878c2",
+    "size": 9595755
+   },
+   "rus.traineddata": {
+    "git": "702e3c43c863cf3325002c9d2cc38045e01314a9",
+    "size": 15301764
+   },
+   "san.traineddata": {
+    "git": "41a7c21605b0b8e2fd636a38e2969cb606162f06",
+    "size": 15136202
+   },
+   "sin.traineddata": {
+    "git": "96c1864bea3a622997887f041761e3a3a84f6490",
+    "size": 8282713
+   },
+   "slk.traineddata": {
+    "git": "09b2dbe22141bd9973d91507f6ed261392527a29",
+    "size": 11542252
+   },
+   "slv.traineddata": {
+    "git": "28da1ff38ea817481cb38616c9afd26dcafbf6d6",
+    "size": 5879151
+   },
+   "snd.traineddata": {
+    "git": "66c2b387b4b0596d9869d88ea68d146950b0d4d2",
+    "size": 11981538
+   },
+   "spa.traineddata": {
+    "git": "18ceb5679049d25f9e5486a1571359829530e7e0",
+    "size": 13570187
+   },
+   "spa_old.traineddata": {
+    "git": "344d09416d0344be4709f7b5b330a5874dfd28b4",
+    "size": 9476925
+   },
+   "sqi.traineddata": {
+    "git": "45c642b46a964c3b69348bca741978ac2bb998ce",
+    "size": 4631498
+   },
+   "srp.traineddata": {
+    "git": "f353b2ec90eb6ffc1343a469c04b967bfa440b40",
+    "size": 9345851
+   },
+   "srp_latn.traineddata": {
+    "git": "76c5c17f14fa9b73cf9a9db6f5961492ce74f72d",
+    "size": 9831713
+   },
+   "sun.traineddata": {
+    "git": "d8551203bc8b87163e5862b6d40bef14c4d73bd0",
+    "size": 4132820
+   },
+   "swa.traineddata": {
+    "git": "af6272eaa471eb63ee69c86ab66083f648c9622d",
+    "size": 4914855
+   },
+   "swe.traineddata": {
+    "git": "3d8beb8153194cda278c055a45cf4d808bc37469",
+    "size": 14325549
+   },
+   "syr.traineddata": {
+    "git": "e53e8855703092fae154376c6fe90427c3d2db91",
+    "size": 12498294
+   },
+   "tam.traineddata": {
+    "git": "8fbaab122ac77d816de3cc8b58ec314db64ca96e",
+    "size": 6023201
+   },
+   "tat.traineddata": {
+    "git": "ac08e8f9bf5b0ee999ec6e379146e738942c7529",
+    "size": 7585204
+   },
+   "tel.traineddata": {
+    "git": "1c413574a26db896ba3baa4e33f4d17e55f290bd",
+    "size": 9098795
+   },
+   "tgk.traineddata": {
+    "git": "f2fe50409726f24eec78653f54da85e7e13af263",
+    "size": 4602842
+   },
+   "tha.traineddata": {
+    "git": "b975c85f60f82febe6f8c5a52a3eb74f3ceb01b9",
+    "size": 7614571
+   },
+   "tir.traineddata": {
+    "git": "1001e49c7aa955aa868cdbf13270d4ae36010d64",
+    "size": 2410256
+   },
+   "ton.traineddata": {
+    "git": "234fef71961a2f354c98f1ddfd35b648f30aaad8",
+    "size": 3729371
+   },
+   "tur.traineddata": {
+    "git": "297ecddbccd5e597037d2be34043bb0a0c53f3be",
+    "size": 7456265
+   },
+   "uig.traineddata": {
+    "git": "9a6b9bf3fd0642c19b8918d93d0c20761ffe7ce3",
+    "size": 13074609
+   },
+   "ukr.traineddata": {
+    "git": "be88f63252a3d9e81cdac161e11e4e8498129cfa",
+    "size": 10859081
+   },
+   "urd.traineddata": {
+    "git": "3815f0640b06255391f69e5b184052c442ee3d34",
+    "size": 7994323
+   },
+   "uzb.traineddata": {
+    "git": "5b240340e79802aed87f57cdff0a35ad6a7c10f7",
+    "size": 12953454
+   },
+   "uzb_cyrl.traineddata": {
+    "git": "6826c8a36371683d0b29cf2d5b6a717b92f46e7e",
+    "size": 4325478
+   },
+   "vie.traineddata": {
+    "git": "28bc301dc848861eb6ba734b866152b2a04732fc",
+    "size": 12435550
+   },
+   "yid.traineddata": {
+    "git": "875531660a3b205f3a01519e0aae82186ec8c6ce",
+    "size": 3278995
+   },
+   "yor.traineddata": {
+    "git": "d3c5893d8ca442a6a1e2e05c012f34d9419068d8",
+    "size": 3736121
+   }
+  },
+  "repo": "tesseract-ocr/tessdata_best"
+ },
+ "vulgate": {
+  "commit": "10d9d6191dd81f110a9788e66b4818483f32d31d",
+  "files": {
+   "vul.tsv": {
+    "git": "a29f5d789333b11378fca274f94e3c65eca15421",
+    "sha256": "1ff06d318623c0a860c07d65d000fb59f19083e940fe20e3233f6767e907a83b",
+    "size": 4500727
+   }
+  },
+  "repo": "lukesmithxyz/vul"
+ }
+}
