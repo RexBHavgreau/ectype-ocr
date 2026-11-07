@@ -196,7 +196,7 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   back one (`_close_gap`); logged as `"deleted"` with its box, so `carry_corrections` removes
   the new reading's word in that place (IoU >= 0.5) **before** carrying the rest (else the
   words drawn there were laid over the old wrong box). Deleted entries don't count as
-  corrected (`Project.corrected`, docx, the browser Review). Then Add a word draws the right ones.
+  corrected (`Project.corrected`, docx; the browser Review it once also named was removed in 0.8.0). Then Add a word draws the right ones.
 - *Stretching a box was hard* (Beaux: "doesn't really work very well"): `BoxEditor`'s grab
   band was fixed in page pixels when the word was selected, so zooming made it tiny or
   swallowed the word. It now keeps 7 screen pixels (`rescale`, called on zoom by `ImageView`
