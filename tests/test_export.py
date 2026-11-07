@@ -10,7 +10,7 @@ from xml.dom import minidom
 import pypdfium2 as pdfium
 import pytest
 
-from ectype import languages
+from ectype import languages, verify
 from ectype.cluster import cluster_workspace
 from ectype.idml import IdmlOptions, export_idml
 from ectype.layout import build_layout, join_lines
@@ -67,7 +67,8 @@ def test_language_codes_and_download(tmp_path, monkeypatch):
     (source / "lat.traineddata").write_bytes(b"x" * 1000)
     seen = []
     done = languages.download(["lat"], lambda code, got, total: seen.append((code, got, total)),
-                              url=(source.as_uri() + "/{code}.traineddata"))
+                              url=(source.as_uri() + "/{code}.traineddata"),
+                              fingerprints={"lat": {"size": 1000, "git": verify.git_blob_id(b"x" * 1000)}})
     assert done == ["lat"] and seen[-1] == ("lat", 1000, 1000)
     assert "lat" in languages.installed() and "eng" in languages.installed(), "the shipped languages are copied beside it"
     assert not list((tmp_path / "data" / "tessdata").glob("*.part"))

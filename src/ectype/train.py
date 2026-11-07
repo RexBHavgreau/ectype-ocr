@@ -34,16 +34,17 @@ import shutil
 import threading
 import subprocess
 import unicodedata
-import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from . import stopping
+from . import stopping, verify
 from .resources import subprocess_flags, tesseract_cmd, tesseract_env, user_data_dir
 
-BEST_URL = "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/{code}.traineddata"
+# Pinned to one commit and checked against its known fingerprints (verify.py).
+BEST_URL = verify.RAW.format(repo=verify.PINS["tessdata_best"][0], commit=verify.TESSDATA_BEST_COMMIT,
+                             path="{code}.traineddata")
 MIN_LINES = 10  # corrected lines needed to train at all
 MIN_WORDS = 20  # corrected words needed to train another script's language
 LSTMF_VERSION = 2  # of the box files: training files made by an older one are made again
@@ -213,13 +214,12 @@ def best_model(base: str, progress: Callable[[str], None] | None = None) -> Path
     folder.mkdir(parents=True, exist_ok=True)
     if progress:
         progress(f"downloading the trainable {base} model (tessdata_best)")
-    part = path.with_suffix(".part")
     try:
-        with urllib.request.urlopen(BEST_URL.format(code=base), timeout=120) as r, open(part, "wb") as out:
-            shutil.copyfileobj(r, out)
-        part.replace(path)
+        verify.fetch(BEST_URL.format(code=base), path, verify.known("tessdata_best", path.name),
+                     name=f"The trainable {base} model", timeout=120)
+    except verify.DownloadMismatch as exc:
+        raise TrainingError(str(exc)) from exc
     except Exception as exc:
-        part.unlink(missing_ok=True)
         raise TrainingError(f"Couldn't download the trainable {base} model ({exc}). Check the connection and try again.") from exc
     return path
 

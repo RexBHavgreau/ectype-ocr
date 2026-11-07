@@ -23,43 +23,47 @@ dots) are removed, keeping consonants, vowel points, dagesh, shin and sin dots, 
 sof pasuq; Greek keeps its accents and breathings, which are part of its spelling. Lines set
 for training ask for them (`load(accents=True)`): grammars and editions print Hebrew with
 its accents, or with ֫ over a stress before the last syllable (`grammar_style`).
-Downloads are kept in the user's folder.
+Downloads are kept in the user's folder. Every file comes from a pinned commit and is checked
+against its known fingerprint before it is used (`verify.py`, `fingerprints.json`); a kept copy
+is checked again when read (`_cache_ok`) and downloaded again if it doesn't match.
 """
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import re
+import tempfile
 import unicodedata
-import urllib.parse
-import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
 
+from . import verify
 from .resources import user_data_dir
 
 HEBREW_BOOKS = ("Gen Exod Lev Num Deut Josh Judg Ruth 1Sam 2Sam 1Kgs 2Kgs 1Chr 2Chr Ezra Neh Esth Job Ps Prov "
                 "Eccl Song Isa Jer Lam Ezek Dan Hos Joel Amos Obad Jonah Mic Nah Hab Zeph Hag Zech Mal").split()
-HEBREW_URL = "https://raw.githubusercontent.com/openscriptures/morphhb/master/wlc/{book}.xml"
+# Each file's address is verify.url_for(source, name): its repository at the commit pinned in verify.py.
 GREEK_BOOKS = ("Matt Mark Luke John Acts Rom 1Cor 2Cor Gal Eph Phil Col 1Thess 2Thess 1Tim 2Tim Titus Phlm Heb "
                "Jas 1Pet 2Pet 1John 2John 3John Jude Rev").split()
-GREEK_URL = "https://raw.githubusercontent.com/LogosBible/SBLGNT/master/data/sblgnt/text/{book}.txt"
-VULGATE_URL = "https://raw.githubusercontent.com/lukesmithxyz/vul/master/vul.tsv"
-PESHITTA_URL = "https://raw.githubusercontent.com/ETCBC/peshitta/master/plain/0.2/{book}.txt"
 PESHITTA_BOOKS = ("Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ruth Samuel_1 Samuel_2 Kings_1 Kings_2 "
                   "Chronicles_1 Chronicles_2 Ezra Nehemia Esther Job Psalms Proverbs Ecclesiastes Song_of_Songs Isaiah "
                   "Jeremiah Lamentations Ezekiel Daniel Hosea Joel Amos Obadiah Jonah Micah Nahum Habakkuk Zephaniah "
                   "Haggai Zechariah Malachi Tobit_A Judith Wisdom_of_Solomon Sirach Baruch Maccabees_1_A "
                   "Maccabees_2").split()
 # Tanzil's "simple" text, unchanged with its notice, as kept in a public repository (its 2019
-# download, SHA-1 16d8abb3...): reachable where tanzil.net's own form isn't, and testable.
-QURAN_URL = ("https://raw.githubusercontent.com/rizaumami/quran-epub/d96dab765d712634ba17d1550cd5d1dc15c25b36/"
-             "src/quran/quran-simple.txt")
-TANZIL_URL = "https://tanzil.net/pub/download/download.php"  # a form: the text chosen, the terms agreed to
-TANZIL_FORM = {"quranType": "simple", "outType": "txt-2", "agree": "true"}  # txt-2: sura|aya|text a line
-VAN_DYCK_URL = "https://ebible.org/Scriptures/arb-vd_vpl.zip"  # "GEN 1:1 text", a verse a line
+# download, SHA-1 16d8abb3...), at the commit pinned in verify.py. Tanzil's own form is no
+# longer a fallback: a form's answer can't be checked against a known fingerprint.
+QURAN_FILE = "quran-simple.txt"
+# eBible.org's Smith-Van Dyck zip ("GEN 1:1 text", a verse a line). Its download is OFF: it
+# couldn't be fingerprinted (ebible.org is unreachable from where this was made). To turn it
+# on, download the zip once, check it is the right file, and put its {"size": ..., "sha256": ...}
+# here; `_cached` then downloads it and checks it like the others.
+VAN_DYCK_URL = "https://ebible.org/Scriptures/arb-vd_vpl.zip"
+VAN_DYCK_FINGERPRINT: dict | None = None
 SOURCES = {"hebrew-bible": "Hebrew Bible (Westminster Leningrad Codex)", "greek-nt": "Greek New Testament (SBLGNT)",
            "vulgate": "Latin Vulgate (Clementine)", "peshitta": "Peshitta (Old Testament, ETCBC)",
            "quran": "Qurʾān (Tanzil.net)", "van-dyck": "Arabic Bible (Smith–Van Dyck)"}
@@ -80,9 +84,13 @@ def without_accents(text: str) -> str:
     return unicodedata.normalize("NFC", HEBREW_ACCENTS.sub("", unicodedata.normalize("NFD", text)))
 
 
-def _get(url: str) -> str:
-    with urllib.request.urlopen(url, timeout=60) as r:
-        return r.read().decode("utf-8")
+def _get(source: str, name: str) -> str:
+    """One file of a pinned source, downloaded and checked (size, git id and SHA-256) before it
+    is read; nothing is kept."""
+    with tempfile.TemporaryDirectory(prefix="ectype-text-") as tmp:
+        path = verify.fetch(verify.url_for(source, name), Path(tmp) / name, verify.known(source, name),
+                            name=f"The {SOURCES[source]} ({name})")
+        return path.read_text(encoding="utf-8")
 
 
 def _hebrew_book(xml: str) -> list[str]:
@@ -150,24 +158,12 @@ def _tanzil_notice(txt: str) -> list[str]:
 
 
 def _get_quran() -> tuple[list[str], list[str]]:
-    """The Qurʾān's verses and Tanzil's notice: from the repository's copy, else Tanzil's form."""
-    problems = []
-    for fetch in (lambda: _get(QURAN_URL), _tanzil_form):
-        try:
-            txt = fetch()
-            verses = _quran(txt)
-            if len(verses) >= 6000:
-                return verses, _tanzil_notice(txt)
-            problems.append(f"{len(verses)} verses")
-        except Exception as exc:
-            problems.append(str(exc))
-    raise RuntimeError("; ".join(problems))
-
-
-def _tanzil_form() -> str:
-    form = urllib.parse.urlencode(TANZIL_FORM).encode()
-    with urllib.request.urlopen(urllib.request.Request(TANZIL_URL, data=form), timeout=120) as r:
-        return r.read().decode("utf-8")
+    """The Qurʾān's verses and Tanzil's notice, from the repository's copy (checked)."""
+    txt = _get("quran", QURAN_FILE)
+    verses = _quran(txt)
+    if len(verses) < 6000:
+        raise RuntimeError(f"the download held {len(verses)} verses, not the whole text")
+    return verses, _tanzil_notice(txt)
 
 
 def _van_dyck(data: bytes) -> list[str]:
@@ -201,21 +197,53 @@ def _arabic(say: Callable[[str], None]) -> list[str]:
     return out
 
 
+def _stamp(cache: Path) -> Path:
+    return cache.with_name(cache.name + ".check")
+
+
+def _cache_ok(cache: Path, pin: str) -> bool:
+    """Whether a kept text was made from the files of the pinned commit `pin` and is unchanged:
+    its stamp names that pin and the text's SHA-256. Copies made before the stamp existed (from
+    a branch's head at some other time) and damaged ones fail, and are downloaded again."""
+    try:
+        stamp = json.loads(_stamp(cache).read_text(encoding="utf-8"))
+        return bool(pin) and stamp.get("pin") == pin and stamp.get("sha256") == hashlib.sha256(cache.read_bytes()).hexdigest()
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def _write_cache(cache: Path, pin: str, lines: list[str]) -> None:
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    data = ("\n".join(lines) + "\n").encode("utf-8")
+    _stamp(cache).unlink(missing_ok=True)
+    cache.write_bytes(data)
+    _stamp(cache).write_text(json.dumps({"pin": pin, "sha256": hashlib.sha256(data).hexdigest()}) + "\n",
+                             encoding="utf-8", newline="\n")
+
+
 def _cached(source: str, say: Callable[[str], None]) -> list[str]:
-    """One downloaded text's verses, from the user's folder once fetched."""
+    """One downloaded Arabic text's verses, from the user's folder once fetched (and while the
+    kept copy still matches what was checked)."""
     cache = folder() / f"{source}.txt"
-    if not cache.is_file():
+    if source == "quran":
+        pin = verify.QURAN_COMMIT
+    elif VAN_DYCK_FINGERPRINT is None:
+        raise RuntimeError("its download is off until a fingerprint is recorded for it")
+    else:
+        pin = VAN_DYCK_FINGERPRINT.get("sha256", "")
+    if not _cache_ok(cache, pin):
         say(f"downloading the {SOURCES[source]}")
         notice: list[str] = []
         if source == "quran":
             verses, notice = _get_quran()
         else:
-            with urllib.request.urlopen(VAN_DYCK_URL, timeout=120) as r:
-                verses = _van_dyck(r.read())
+            with tempfile.TemporaryDirectory(prefix="ectype-text-") as tmp:
+                zipped = verify.fetch(VAN_DYCK_URL, Path(tmp) / "arb-vd_vpl.zip", VAN_DYCK_FINGERPRINT, timeout=120,
+                                      name=f"The {SOURCES[source]}")
+                verses = _van_dyck(zipped.read_bytes())
         if len(verses) < 1000:
             raise RuntimeError(f"the download held {len(verses)} verses, not the whole text")
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text("\n".join(verses + notice) + "\n", encoding="utf-8", newline="\n")
+        _write_cache(cache, pin, verses + notice)
     return [v for v in cache.read_text(encoding="utf-8").splitlines() if v.strip() and not v.startswith("#")]
 
 
@@ -249,21 +277,20 @@ def load(source: str, progress: Callable[[str], None] | None = None, accents: bo
                                     "or a text file.")
         return [keep(line.strip()) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     cache = folder() / f"{source}.txt"
-    if not cache.is_file() and source == "vulgate":
+    pin = verify.PINS[source][1]
+    if not _cache_ok(cache, pin):
         say(f"downloading the {SOURCES[source]}")
-        verses = _vulgate(_get(VULGATE_URL))
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text("\n".join(verses) + "\n", encoding="utf-8", newline="\n")
-    if not cache.is_file():
-        verses = []
-        books, url, parse = {"hebrew-bible": (HEBREW_BOOKS, HEBREW_URL, _hebrew_book),
-                             "greek-nt": (GREEK_BOOKS, GREEK_URL, _greek_book),
-                             "peshitta": (PESHITTA_BOOKS, PESHITTA_URL, _peshitta_book)}[source]
-        for k, book in enumerate(books, 1):
-            say(f"downloading the {SOURCES[source]}: {book} ({k} of {len(books)})")
-            verses += parse(_get(url.format(book=book)))
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text("\n".join(verses) + "\n", encoding="utf-8", newline="\n")
+        if source == "vulgate":
+            verses = _vulgate(_get("vulgate", "vul.tsv"))
+        else:
+            verses = []
+            books, ext, parse = {"hebrew-bible": (HEBREW_BOOKS, ".xml", _hebrew_book),
+                                 "greek-nt": (GREEK_BOOKS, ".txt", _greek_book),
+                                 "peshitta": (PESHITTA_BOOKS, ".txt", _peshitta_book)}[source]
+            for k, book in enumerate(books, 1):
+                say(f"downloading the {SOURCES[source]}: {book} ({k} of {len(books)})")
+                verses += parse(_get(source, book + ext))
+        _write_cache(cache, pin, verses)
     return [keep(v) for v in cache.read_text(encoding="utf-8").splitlines() if v.strip()]
 
 

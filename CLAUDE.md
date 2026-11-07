@@ -343,6 +343,20 @@ and Substitute PDF of the Treatise, ship with it):
   attributes and InDesign's TextDefault/ParagraphStyle have more. `ci.yml` sets
   `JAVA_TOOL_OPTIONS=-Djdk.xml.elementAttributeLimit=0` (docx-to-idml's checker skips Java's
   "Picked up" line). docx-to-idml's own CI may need the same.
+- *Every download checked* (`verify.py`, `fingerprints.json`, `tools/make_fingerprints.py`): each
+  GitHub source (tessdata, tessdata_best, the known texts, the Qurʾān copy) is pinned to a commit
+  (constants in `verify.py`) and each file's size and git blob id, plus SHA-256 for the texts, is on
+  record; `verify.fetch` hashes as it downloads and renames into place only on a match (else
+  `DownloadMismatch`, no .part left); a file not on record isn't downloaded. Kept known texts carry
+  a `.check` stamp (pin + SHA-256); one without it or not matching is fetched again. Tanzil's form
+  fallback is gone; **Van Dyck's download is off** (`texts.VAN_DYCK_FINGERPRINT` None; set it to
+  turn it on). Kraken models: the worker (`get`) checks every file against Zenodo's MD5 from the
+  record's API and removes the download on a mismatch or when no MD5 can be read; a model file
+  under a name not on record (the downloader may rename it) must have one listed file's MD5.
+  Untested against real Zenodo (blocked here). The updater and
+  the engine now also refuse a release file with no SHA-256 digest. To move a pin: change the
+  constant, run `tools/make_fingerprints.py`, commit both. (Tooling note: this was made where the
+  GitHub API was closed, so sizes come from HEAD requests and git ids from a blobless fetch.)
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
@@ -546,9 +560,8 @@ and Substitute PDF of the Treatise, ship with it):
   a **Stop** button for any run (the progress window; stages stop between pages); **retire the
   browser Review** (`ectype review`, `review.serve`/`make_handler`: an older Review in a web
   browser, with no protection against other web pages posting to it; Beaux didn't remember it);
-  **check every download** against a known fingerprint (Tesseract language files, the known
-  texts, Kraken models by Zenodo's checksums; the updater and engine already use SHA-256);
-  **lossless page background** as a choice (now JPEG quality 75), and the PDF's language, title
+  (downloads checked: done, see 0.8.0 above; still to do: Van Dyck's fingerprint, Kraken models
+  verified on a real Zenodo download); **lossless page background** as a choice (now JPEG quality 75), and the PDF's language, title
   and metadata (libraries may take these files); replace the pickle caches (`cluster.Cache`)
   with a safe format; cached results checked by content and the code's own version, not by
   file times and hand-bumped `CACHE_VERSION`s (a forgotten bump has bitten twice).

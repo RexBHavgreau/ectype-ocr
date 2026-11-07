@@ -316,8 +316,10 @@ def install_model(record: dict, progress: Callable[[int, int], None] | None = No
         got = _run(["get", record["doi"], str(folder)], timeout=1800, progress=progress)
         if not got or not got.get("model"):
             raise KrakenError(f"{record['doi']} has no model file Kraken can read.")
-    except KrakenError:
+    except KrakenError as exc:
         shutil.rmtree(folder, ignore_errors=True)
+        if "known fingerprint" in str(exc):  # the worker checks the files against Zenodo's MD5s
+            raise KrakenError(str(exc).split("): ", 1)[-1]) from exc
         raise
     register(code, {"title": record.get("summary") or record["doi"], "doi": record["doi"], "file": got["model"],
                     "scripts": record.get("script") or [], "languages": record.get("language") or [],
