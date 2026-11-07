@@ -196,7 +196,7 @@ ran over an hour and sat at 30% for minutes while the old pool's line texts were
   back one (`_close_gap`); logged as `"deleted"` with its box, so `carry_corrections` removes
   the new reading's word in that place (IoU >= 0.5) **before** carrying the rest (else the
   words drawn there were laid over the old wrong box). Deleted entries don't count as
-  corrected (`Project.corrected`, docx; the browser Review it once also named was removed in 0.8.0). Then Add a word draws the right ones.
+  corrected (`Project.corrected`, docx). Then Add a word draws the right ones.
 - *Stretching a box was hard* (Beaux: "doesn't really work very well"): `BoxEditor`'s grab
   band was fixed in page pixels when the word was selected, so zooming made it tiny or
   swallowed the word. It now keeps 7 screen pixels (`rescale`, called on zoom by `ImageView`
@@ -311,7 +311,8 @@ and Substitute PDF of the Treatise, ship with it):
   scripts first), and `scripts.scripts_read` counts them all as covered. Training such a model
   (`pool`, `trainall`) still uses its main script only.
 
-**0.8.0** (on the branch; menus are a new feature, so a minor version):
+**0.8.0** (on the branch; new features, so a minor version; Beaux chose to ship the whole 0.8.0
+plan in it, not only the menus and crash recorder):
 - *Run disappeared* (Beaux, 0.7.4: in a narrow window the toolbar put the buttons behind a »
   menu; everything should stay visible). The QToolBar is gone: the buttons and choices are in
   `MainWindow.button_row`, a `FlowLayout` (gui.py) that wraps onto more rows, above the tabs.
@@ -357,7 +358,16 @@ and Substitute PDF of the Treatise, ship with it):
   the engine now also refuse a release file with no SHA-256 digest. To move a pin: change the
   constant, run `tools/make_fingerprints.py`, commit both. (Tooling note: this was made where the
   GitHub API was closed, so sizes come from HEAD requests and git ids from a blobless fetch.)
-
+- *Stop* (`stopping.py`): the progress window's Stop sets the run's `StopFlag`; `Project.run`
+  checks it between stages and in every `on_page` (after a page's files are written, so no half
+  page); every progress message of a `Task` is a stop point (training, exports). Pools cancel
+  pages not yet begun (`shutdown(cancel_futures=True)`); lstmtraining and ketos are killed
+  (`stopping.watch`); cluster, fonts and the final PDF can't stop midway (no per-page point).
+  `Stopped` is a BaseException, like KeyboardInterrupt, so `except Exception` code that carries
+  on can't swallow it. A model is installed only after its training and checks finished. The
+  window says what was kept; no Review, no Log tab.
+- *Browser Review retired*: `ectype review` and `review.serve`/`make_handler` (a local web
+  server any web page could post to) are gone; the desktop Review tab is the only one.
 - *Lossless page background and PDF metadata* (from the 0.8.0 plan): `Settings.page_image` is
   "gray" (JPEG), "lossless" (same 8-bit gray, Flate, `PageSpec.lossless`; traced and substitute
   then keep the background at full resolution, not 150 dpi) or "bw" (text layer and manuscripts
@@ -458,6 +468,13 @@ and Substitute PDF of the Treatise, ship with it):
 - **Windows text files:** write list/box/gt files with `newline="\n"`; read tool output as UTF-8.
 - **Qt in tests:** free dialogs on the interface thread (close, deleteLater, processEvents) or a
   worker thread's garbage collection crashes the run.
+- **No model names in commits** (0.8.0): the session's own attribution named the model
+  ("Co-Authored-By: Claude Opus …"); Beaux's rule wins. Use `Co-Authored-By: Claude
+  <noreply@anthropic.com>`, and strip it from agents' commits when merging them. Commits up
+  to dd34358 (pushed; no force push) still carry it.
+- **Agents in worktrees**: the package is installed editable from the main checkout, so an
+  agent in `.claude/worktrees/…` must run with `PYTHONPATH=<its worktree>/src` (a full path;
+  `$PWD` was refused) or it tests the main tree's code.
 
 - **Kept results are judged by content, never by file times or hand-bumped versions**
   (`stamps.py`): `code_version()` (hash of the package's .py files; in the packaged app the
@@ -565,16 +582,10 @@ and Substitute PDF of the Treatise, ship with it):
 
 ## Planned
 
-- **The next minor version** (planned for 0.8.0, which shipped the menus and the crash recorder
-  first; Beaux agreed, after Qwen Code's review of 0.7.2):
-  a **Stop** button for any run (the progress window; stages stop between pages); **retire the
-  browser Review** (`ectype review`, `review.serve`/`make_handler`: an older Review in a web
-  browser, with no protection against other web pages posting to it; Beaux didn't remember it);
-  (downloads checked: done, see 0.8.0 above; still to do: Van Dyck's fingerprint, Kraken models
-  verified on a real Zenodo download); **lossless page background** as a choice (now JPEG quality 75), and the PDF's language, title
-  and metadata (libraries may take these files); replace the pickle caches (`cluster.Cache`)
-  with a safe format; cached results checked by content and the code's own version, not by
-  file times and hand-bumped `CACHE_VERSION`s (a forgotten bump has bitten twice).
+- **Left from 0.8.0**: Van Dyck's fingerprint (ebible.org is blocked here; its download is off);
+  Kraken model checks tried on a real Zenodo download (Beaux's PC); training stamps still use
+  file times (`pool.py`, `synthtrain.py`, `trainall.py`, `training.py`, `manuscript._stamp`)
+  and hand-kept `SCRIPT_VERSION`/`VERSION` in synthtrain.
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
   the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.
