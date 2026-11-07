@@ -23,7 +23,7 @@ of "Planned".
   Train from fonts); fixes alone are a patch version. The version comes from the tag: no version
   number to edit in the code.
 - No force pushes. (Commit messages and PRs carry no model names: a convention of the Claude
-  Code setup, written here by an early session, not a request of Beaux's; Beaux doesn't mind.)
+  Code setup, written here by an early session; Beaux never asked for it.)
 - Beaux likes to keep tweaking on the branch before merging; they test on their own Windows
   machine (a cloud session can't attach a Windows folder) and correct real books in Review.
 - UX: the Log is a record, not the main view. Work must not switch to the Log tab (progress has
