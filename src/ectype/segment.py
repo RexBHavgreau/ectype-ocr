@@ -751,10 +751,14 @@ def segment_workspace(workspace: Path, truth_root: Path | None = None, jobs: int
 
         # spawn, not fork: forking a process that has threads (OpenCV, BLAS) can deadlock.
         with ProcessPoolExecutor(max_workers=min(jobs, len(pngs)), mp_context=multiprocessing.get_context("spawn")) as pool:
-            for row in pool.map(_segment_one, pngs, [workspace] * len(pngs), [truth_root] * len(pngs), [force] * len(pngs)):
-                rows.append(row)
-                if on_page:
-                    on_page(len(rows), len(pngs))
+            try:
+                for row in pool.map(_segment_one, pngs, [workspace] * len(pngs), [truth_root] * len(pngs), [force] * len(pngs)):
+                    rows.append(row)
+                    if on_page:
+                        on_page(len(rows), len(pngs))
+            except BaseException:  # stopped (or failed): pages not yet begun are dropped
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
     rows = [r for r in rows if r is not None]
     evals = [r["eval"] for r in rows if "eval" in r]
     summary = {"pages": rows}

@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from . import stopping
 from .resources import subprocess_flags, tesseract_cmd, tesseract_env, user_data_dir
 
 BEST_URL = "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/{code}.traineddata"
@@ -118,6 +119,7 @@ def _run_reporting(args: list[str], cwd: Path | None, timeout: float, on_line,
                             errors="replace", cwd=cwd, env=env, **subprocess_flags())
     timer = threading.Timer(timeout, proc.kill)
     timer.start()
+    watcher = stopping.watch(proc)  # Stop kills it
     lines = []
     try:
         for line in proc.stdout:
@@ -126,6 +128,11 @@ def _run_reporting(args: list[str], cwd: Path | None, timeout: float, on_line,
         proc.wait()
     finally:
         timer.cancel()
+        watcher.set()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    stopping.check()
     text = "".join(lines)
     return subprocess.CompletedProcess(args, proc.returncode, text, text)
 
@@ -183,13 +190,18 @@ def _side_by_side(fn, items: list) -> list:
     from concurrent.futures import ThreadPoolExecutor
 
     def one_core(i):
+        stopping.check()
         with CORES.take(1):
             return fn(i)
     workers = max(1, min(len(items), share_of_cores()))
     if workers == 1:
         return [one_core(i) for i in items]
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(one_core, items))
+        try:
+            return list(pool.map(one_core, items))
+        except BaseException:  # stopped (or failed): the rest are dropped
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
 
 
 def best_model(base: str, progress: Callable[[str], None] | None = None) -> Path:
@@ -482,6 +494,7 @@ def errors_kraken(model_file: str, items, pack: str | None = None, per_item: dic
     out: dict[str, list[int]] = {}
     with kraken.Session() as session:
         for item in items:
+            stopping.check()
             with Image.open(item.png) as im:
                 box = [0, 0, im.width, im.height]
             got = session.read(model_file, item.png, [box], pack)[0]["text"]

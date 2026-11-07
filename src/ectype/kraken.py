@@ -30,7 +30,7 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
-from . import __version__
+from . import __version__, stopping
 from .kraken_worker import PROTOCOL  # the protocol this app speaks: always the worker's own
 from .resources import subprocess_flags, user_data_dir
 
@@ -100,12 +100,15 @@ def _run(args: list[str], timeout: float = 600, progress: Callable[[int, int], N
     killed = []
     timer = threading.Timer(timeout, lambda: (killed.append(True), proc.kill()))
     timer.start()
+    stop_watch = stopping.watch(proc)  # Stop kills it
     try:
         out = proc.stdout.read()  # stdout here, stderr in the watcher: neither pipe fills up
         proc.wait()
     finally:
         timer.cancel()
+        stop_watch.set()
     watcher.join(10)
+    stopping.check()
     if killed:
         raise KrakenError(f"Kraken took longer than {timeout:.0f} seconds ({args[0]}).")
     if proc.returncode != 0:

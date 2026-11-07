@@ -400,7 +400,11 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
                 models.save_workspace_state(workspace, fingerprints=prints)
                 resolved = models.resolve_all(codes, workspace)
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            rows = list(pool.map(one, pngs))
+            try:
+                rows = list(pool.map(one, pngs))
+            except BaseException:  # stopped (or failed): pages not yet begun are dropped
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
     finally:
         if session is not None:
             session.close()

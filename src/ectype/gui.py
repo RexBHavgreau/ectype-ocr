@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import __version__, crashlog, languages, updates
+from . import __version__, crashlog, languages, stopping, updates
 from .project import Project
 
 MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
@@ -49,16 +49,21 @@ class Worker(QThread):
     fraction = Signal(float)
     done = Signal(str)
     failed = Signal(str)
+    stopped = Signal()
 
     def __init__(self, project: Project, start: str):
         super().__init__()
         self.project, self.start_stage = project, start
+        self.stop = stopping.StopFlag()
 
     def run(self) -> None:
         try:
-            pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg),
-                                   lambda f: self.fraction.emit(f))
+            with stopping.active(self.stop):
+                pdf = self.project.run(self.start_stage, lambda stage, msg: self.progress.emit(stage, msg),
+                                       lambda f: self.fraction.emit(f), stop=self.stop)
             self.done.emit(str(pdf or ""))
+        except stopping.Stopped:
+            self.stopped.emit()
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -69,6 +74,7 @@ class Task(QThread):
     progress = Signal(str, str)
     done = Signal(object)
     failed = Signal(str)
+    stopped = Signal()
 
     # Running tasks are kept here until they finish: a QThread destroyed while it runs makes Qt
     # end the whole program at once (closing a dialog whose download or list is still loading).
@@ -77,6 +83,7 @@ class Task(QThread):
     def __init__(self, fn):
         super().__init__()
         self.fn = fn
+        self.stop = stopping.StopFlag()
         # Let go on the interface thread (queued), once the thread has really ended.
         self.finished.connect(self._forget, Qt.ConnectionType.QueuedConnection)
 
@@ -89,8 +96,16 @@ class Task(QThread):
         Task._running.discard(self)
 
     def run(self) -> None:
+        def report(stage: str, msg: str) -> None:
+            self.stop.check()  # every message is a safe point to stop at
+            self.progress.emit(stage, msg)
+
         try:
-            self.done.emit(self.fn(lambda stage, msg: self.progress.emit(stage, msg)))
+            with stopping.active(self.stop):
+                result = self.fn(report)
+            self.done.emit(result)
+        except stopping.Stopped:
+            self.stopped.emit()
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -111,6 +126,8 @@ class ProgressWindow(QDialog):
     """A run in progress: what it is doing, a progress bar with a percentage, how long it has
     been running, and the log. Hiding it leaves the run going; the Log tab has the same lines."""
 
+    stop_requested = Signal()
+
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -130,6 +147,8 @@ class ProgressWindow(QDialog):
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.buttons = QDialogButtonBox()
+        self.stop_button = self.buttons.addButton("Stop", QDialogButtonBox.ActionRole)
+        self.stop_button.clicked.connect(self._stop)
         self.hide_button = self.buttons.addButton("Hide", QDialogButtonBox.RejectRole)
         self.buttons.rejected.connect(self.hide)
         layout = QVBoxLayout(self)
@@ -141,6 +160,11 @@ class ProgressWindow(QDialog):
 
     def seconds(self) -> int:
         return self._started.elapsed() // 1000
+
+    def _stop(self) -> None:
+        self.stop_button.setEnabled(False)
+        self.stage.setText("Stopping after the current page…")
+        self.stop_requested.emit()
 
     def _tick(self) -> None:
         self.clock.setText(f"Running for {elapsed_text(self.seconds())}")
@@ -170,6 +194,7 @@ class ProgressWindow(QDialog):
             self.bar.setValue(1000)
         self.stage.setText(message)
         self.text.appendPlainText(message)
+        self.stop_button.hide()
         self.hide_button.setText("Close")
 
 
@@ -2552,9 +2577,11 @@ class MainWindow(QMainWindow):
             self.progress_window.busy()
         self.progress_window.show()
         self.task = Task(fn)
+        self.progress_window.stop_requested.connect(self.task.stop.request)
         self.task.progress.connect(self._progress_line)
         self.task.done.connect(lambda result: (self._close_progress(), self._enable(), on_done(result)))
         self.task.failed.connect(self._failed)
+        self.task.stopped.connect(self._stopped)
         self.task.start()
 
     def _log(self, text: str) -> None:
@@ -2700,10 +2727,12 @@ class MainWindow(QMainWindow):
         self.progress_window = ProgressWindow(f"Running {self.project.settings.name or self.project.workspace.name}", self)
         self.progress_window.show()
         self.worker = Worker(self.project, start)
+        self.progress_window.stop_requested.connect(self.worker.stop.request)
         self.worker.progress.connect(self._progress_line)
         self.worker.fraction.connect(lambda f: self.progress_window and self.progress_window.set_fraction(f))
         self.worker.done.connect(self._finished)
         self.worker.failed.connect(self._failed)
+        self.worker.stopped.connect(self._stopped)
         self.worker.start()
 
     def _finished(self, pdf: str) -> None:
@@ -2752,6 +2781,16 @@ class MainWindow(QMainWindow):
                 self.run("ocr")
 
             self._start(work, added, "Adding " + names)
+
+    def _stopped(self) -> None:
+        """The run ended at the person's Stop: what was finished is kept. No Review, no Log tab."""
+        self._log("Stopped by you.")
+        if self.progress_window is not None:
+            self.took = elapsed_text(self.progress_window.seconds())
+            self.progress_window.finish(False, "Stopped. Pages finished so far are kept; Run carries on from where it stopped.")
+            self.progress_window = None
+        self.statusBar().showMessage("Stopped.")
+        self._enable()
 
     def _failed(self, error: str) -> None:
         self._log(error)

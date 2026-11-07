@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import report
+from .stopping import StopFlag
 
 Progress = Callable[[str, str], None]  # (stage, message)
 
@@ -367,9 +368,11 @@ class Project:
         return any((self.workspace / "corrections").glob("*.json"))
 
     def run(self, start: str = "preprocess", progress: Progress | None = None,
-            fraction: Callable[[float], None] | None = None) -> Path | None:
+            fraction: Callable[[float], None] | None = None, stop: StopFlag | None = None) -> Path | None:
         """Run the pipeline from `start` to the output PDF. Stages before it keep their results.
-        `fraction(f)` reports how much of the run is done, from 0 to 1, page by page."""
+        `fraction(f)` reports how much of the run is done, from 0 to 1, page by page. `stop`:
+        when requested, the run ends with Stopped at the next page (or stage); what was
+        finished stays."""
         progress = progress or (lambda stage, msg: None)
         fraction = fraction or (lambda f: None)
         stages = self.stages()
@@ -384,7 +387,12 @@ class Project:
         for stage in running:
             weight = STAGE_WEIGHT.get(stage, 10)
 
+            if stop:
+                stop.check()
+
             def on_page(done: int, total: int, stage=stage, weight=weight, before=before) -> None:
+                if stop:
+                    stop.check()
                 fraction((before + weight * done / max(1, total)) / whole)
                 if stage in ("ocr", "segment") or done == total:
                     progress(stage, f"page {done} of {total}")
