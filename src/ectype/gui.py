@@ -34,6 +34,8 @@ from PySide6.QtWidgets import (
 from . import __version__, crashlog, languages, stopping, updates
 from .project import Project
 
+PAGE_IMAGES = [("gray", "Page image: grayscale (JPEG)"), ("lossless", "Page image: grayscale, lossless (larger)"),
+               ("bw", "Page image: black and white (smallest)")]
 MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
          ("text", "Text layer only (the scan + OCR)")]
 
@@ -2336,8 +2338,13 @@ class MainWindow(QMainWindow):
         self.mode_action = self.mode  # shown or hidden with the mode (setVisible)
         bar.addWidget(self.mode)
         self.page_image = QComboBox()
-        self.page_image.addItems(["Page image: grayscale", "Page image: black and white (smallest)"])
-        self.page_image.setToolTip("Text-layer mode: how the scanned page is kept under the text")
+        for value, label in PAGE_IMAGES:
+            self.page_image.addItem(label, value)
+        self.page_image.setToolTip(
+            "How the page picture is kept in the PDF. Grayscale (JPEG) is small, with a little loss. "
+            "Lossless keeps every grey value exactly, for libraries and archives, and is a few times larger. "
+            "Black and white is the smallest, for plain text; only the scan-with-text-layer mode and "
+            "manuscripts have it.")
         self.page_image.currentIndexChanged.connect(self._page_image_changed)
         self.page_image_action = self.page_image
         bar.addWidget(self.page_image)
@@ -2433,7 +2440,6 @@ class MainWindow(QMainWindow):
         self.mode.setCurrentIndex(next((k for k, (m, _) in enumerate(MODES) if m == project.settings.mode), 0))
         self.mode.blockSignals(False)
         self.page_image.blockSignals(True)
-        self.page_image.setCurrentIndex(1 if project.settings.page_image == "bw" else 0)
         self.page_image.blockSignals(False)
         self._show_script()
         self.split.blockSignals(True)
@@ -2454,7 +2460,7 @@ class MainWindow(QMainWindow):
         else:
             self.langs.set_languages(self.project.languages())
         self.mode_action.setVisible(not ms)  # a manuscript's output is the scan with its text
-        self.page_image_action.setVisible(ms or self.project.settings.mode == "text")
+        self._sync_page_image()
         self.review_stack.setCurrentWidget(self.ms_review if ms else self.review)
         self.tabs.setTabVisible(self.tabs.indexOf(self.glyphs), not ms)
         self.actions["train_fonts"].setEnabled(not ms)
@@ -2539,12 +2545,30 @@ class MainWindow(QMainWindow):
     def _mode_changed(self, index: int) -> None:
         self.project.settings.mode = MODES[index][0]
         self.project.save_settings()
-        self.page_image_action.setVisible(self.project.settings.mode == "text")
+        self._sync_page_image()
         self.refresh()
 
+    def _sync_page_image(self) -> None:
+        """Show the project's page image choice; black and white only where it is supported (the
+        text-layer mode and manuscripts), else that item is off and the choice falls back to gray."""
+        settings = self.project.settings
+        bw_ok = self.project.manuscript() or settings.mode == "text"
+        if settings.page_image == "bw" and not bw_ok:
+            settings.page_image = "gray"
+            self.project.save_settings()
+        if settings.page_image not in dict(PAGE_IMAGES):
+            settings.page_image = "gray"
+        bw_row = self.page_image.findData("bw")
+        self.page_image.model().item(bw_row).setEnabled(bool(bw_ok))
+        self.page_image.blockSignals(True)
+        self.page_image.setCurrentIndex(self.page_image.findData(settings.page_image))
+        self.page_image.blockSignals(False)
+
     def _page_image_changed(self, index: int) -> None:
-        self.project.settings.page_image = "bw" if index == 1 else "gray"
-        self.project.save_settings()
+        value = self.page_image.itemData(index)
+        if value in dict(PAGE_IMAGES):
+            self.project.settings.page_image = value
+            self.project.save_settings()
 
     def _languages_changed(self, codes: list[str]) -> None:
         self.project.set_languages(codes)

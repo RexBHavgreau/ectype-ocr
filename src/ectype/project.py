@@ -37,7 +37,7 @@ class Settings:
     split_spreads: bool = True
     font: str = ""  # substitute mode; empty = default serif
     lang: str = "eng"  # Tesseract languages, e.g. "eng+grc"
-    page_image: str = "gray"  # text mode: "gray" or "bw" (black and white, smallest)
+    page_image: str = "gray"  # "gray" (JPEG), "lossless" (gray, no loss) or "bw" (text layer only: black and white, smallest)
     declined_languages: list = field(default_factory=list)  # languages the user chose not to add when offered
     name: str = ""  # output file name without .pdf
     script: str = "print"  # "print", or "manuscript" (Manuscript Mode: manuscript.py)
@@ -448,13 +448,14 @@ class Project:
             elif stage == "traced":
                 from .traced import traced_workspace
 
-                out = traced_workspace(ws, out_name=s.name or None, on_page=on_page)
+                out = traced_workspace(ws, out_name=s.name or None, image=s.page_image, on_page=on_page)
                 msg = f"{out['bytes']:,} bytes; {out['words']} words as text, {out['fallback_words']} left as image"
             else:
                 from .substitute import substitute_workspace
                 from .synth import find_font
 
-                out = substitute_workspace(ws, find_font(s.font or None), out_name=s.name or None, on_page=on_page)
+                out = substitute_workspace(ws, find_font(s.font or None), out_name=s.name or None,
+                                           image=s.page_image, on_page=on_page)
                 msg = f"{out['bytes']:,} bytes"
             progress(stage, msg)
             before += weight

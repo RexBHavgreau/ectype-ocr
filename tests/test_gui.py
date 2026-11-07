@@ -160,11 +160,18 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     w.mode.setCurrentIndex(2)
     assert project.settings.mode == "text" and project.stages() == ["preprocess", "ocr", "textlayer"]
     assert project.update_stage() == "textlayer"
-    w.page_image.setCurrentIndex(1)
+    assert [w.page_image.itemData(k) for k in range(w.page_image.count())] == ["gray", "lossless", "bw"]
+    assert w.page_image.model().item(2).isEnabled()
+    w.page_image.setCurrentIndex(w.page_image.findData("lossless"))
+    assert project.settings.page_image == "lossless"
+    w.page_image.setCurrentIndex(w.page_image.findData("bw"))
     assert project.settings.page_image == "bw"
     project.run("textlayer")
     assert project.output_pdf() is not None and project.output_pdf().parent.name == "textlayer"
     w.mode.setCurrentIndex(0)
+    # Black and white is off outside the text-layer mode and the choice falls back to gray.
+    assert not w.page_image.model().item(2).isEnabled() and project.settings.page_image == "gray"
+    assert w.page_image.currentData() == "gray" and not w.page_image.isHidden()
 
     # IDML: the choice comes first, before anything is prepared (a damaged font used to stop
     # the export before it was shown); Facsimile's fonts follow, once compared.

@@ -358,6 +358,16 @@ and Substitute PDF of the Treatise, ship with it):
   constant, run `tools/make_fingerprints.py`, commit both. (Tooling note: this was made where the
   GitHub API was closed, so sizes come from HEAD requests and git ids from a blobless fetch.)
 
+- *Lossless page background and PDF metadata* (from the 0.8.0 plan): `Settings.page_image` is
+  "gray" (JPEG), "lossless" (same 8-bit gray, Flate, `PageSpec.lossless`; traced and substitute
+  then keep the background at full resolution, not 150 dpi) or "bw" (text layer and manuscripts
+  only; the Page image box disables it elsewhere and falls back to gray). PNG predictors gained
+  about 1%, so not used. Lossless is several times larger (a noisy test page: 6.6 MB against
+  0.8 MB). `pdfwrite.set_document_info` (called by `write_pdf`, title and language from
+  `workspace_meta`: project.json's name, else output name, scan name; first language, or the
+  first Manuscript Mode language) sets /Lang, Info Title/Producer/Creator, XMP and
+  DisplayDocTitle; no tagging claimed.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
