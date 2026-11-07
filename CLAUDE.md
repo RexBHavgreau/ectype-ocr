@@ -22,7 +22,8 @@ of "Planned".
 - Beaux pushes the release tags (`vX.Y.Z`) themself. A new feature is a minor version (0.4.0 added
   Train from fonts); fixes alone are a patch version. The version comes from the tag: no version
   number to edit in the code.
-- No force pushes. Commit messages and PRs carry no model names.
+- No force pushes. (Commit messages and PRs carry no model names: a convention of the Claude
+  Code setup, written here by an early session, not a request of Beaux's; Beaux doesn't mind.)
 - Beaux likes to keep tweaking on the branch before merging; they test on their own Windows
   machine (a cloud session can't attach a Windows folder) and correct real books in Review.
 - UX: the Log is a record, not the main view. Work must not switch to the Log tab (progress has
@@ -468,10 +469,6 @@ plan in it, not only the menus and crash recorder):
 - **Windows text files:** write list/box/gt files with `newline="\n"`; read tool output as UTF-8.
 - **Qt in tests:** free dialogs on the interface thread (close, deleteLater, processEvents) or a
   worker thread's garbage collection crashes the run.
-- **No model names in commits** (0.8.0): the session's own attribution named the model
-  ("Co-Authored-By: Claude Opus …"); Beaux's rule wins. Use `Co-Authored-By: Claude
-  <noreply@anthropic.com>`, and strip it from agents' commits when merging them. Commits up
-  to dd34358 (pushed; no force push) still carry it.
 - **Agents in worktrees**: the package is installed editable from the main checkout, so an
   agent in `.claude/worktrees/…` must run with `PYTHONPATH=<its worktree>/src` (a full path;
   `$PWD` was refused) or it tests the main tree's code.
