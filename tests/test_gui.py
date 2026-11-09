@@ -160,11 +160,18 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     w.mode.setCurrentIndex(2)
     assert project.settings.mode == "text" and project.stages() == ["preprocess", "ocr", "textlayer"]
     assert project.update_stage() == "textlayer"
-    w.page_image.setCurrentIndex(1)
+    assert [w.page_image.itemData(k) for k in range(w.page_image.count())] == ["gray", "lossless", "bw"]
+    assert w.page_image.model().item(2).isEnabled()
+    w.page_image.setCurrentIndex(w.page_image.findData("lossless"))
+    assert project.settings.page_image == "lossless"
+    w.page_image.setCurrentIndex(w.page_image.findData("bw"))
     assert project.settings.page_image == "bw"
     project.run("textlayer")
     assert project.output_pdf() is not None and project.output_pdf().parent.name == "textlayer"
     w.mode.setCurrentIndex(0)
+    # Black and white is off outside the text-layer mode and the choice falls back to gray.
+    assert not w.page_image.model().item(2).isEnabled() and project.settings.page_image == "gray"
+    assert w.page_image.currentData() == "gray" and not w.page_image.isHidden()
 
     # IDML: the choice comes first, before anything is prepared (a damaged font used to stop
     # the export before it was shown); Facsimile's fonts follow, once compared.
@@ -505,3 +512,89 @@ def test_export_idml_says_where_it_went(project, tmp_path, monkeypatch):
     assert f"IDML saved: {idml}" in w.log.toPlainText()
     w.close()
     app.processEvents()
+
+
+def test_buttons_wrap_and_stay_visible_in_a_narrow_window(tmp_path):
+    """0.7.x: the toolbar hid Run behind a » menu in a narrow window. The buttons now wrap onto
+    more rows; every one stays inside the window, and the menus hold the same actions."""
+    from PySide6.QtWidgets import QApplication, QToolButton
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(Project.for_scan(_spread_pdf(tmp_path)))
+    w.show()
+    heights = {}
+    for width in (1400, 520):
+        w.resize(width, 700)
+        app.processEvents()
+        row = w.button_row
+        buttons = {b.defaultAction().text(): b for b in row.findChildren(QToolButton) if b.defaultAction()}
+        for name in ("Run", "Update after corrections", "Train OCR model…", "Export PDF…", "Select PDF…"):
+            b = buttons[name]
+            assert b.isVisible(), name
+            g = b.geometry()
+            assert g.left() >= 0 and g.right() < row.width() and g.bottom() < row.height(), (width, name, g)
+        heights[width] = row.height()
+    assert heights[520] > heights[1400], "the buttons wrapped onto more rows"
+    menus = {a.text(): a.menu() for a in w.menuBar().actions()}
+    assert list(menus)[:3] == ["&File", "&Run", "&Export"]
+    assert w.actions["run"] in menus["&Run"].actions() and w.actions["save_project"] in menus["&File"].actions()
+    assert w.actions["export_idml"] in menus["&Export"].actions()
+    assert w.actions["train"] in menus["&Training"].actions()
+    w.actions["save_project"].trigger()  # from the menu or Ctrl+S
+    assert w.statusBar().currentMessage().startswith("Saved.")
+    assert w.actions["run"].shortcut().toString() == "F5"
+    w.actions["export_idml"].setVisible(False)  # Manuscript Mode hides it: its button goes too
+    app.processEvents()
+    assert not next(b for b in w.button_row.findChildren(QToolButton)
+                    if b.defaultAction() is w.actions["export_idml"]).isVisible()
+    w.close()
+    w.deleteLater()
+    app.processEvents()
+
+
+def test_log_lines_go_to_the_books_log_file_and_keep_the_tab(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(Project.for_scan(_spread_pdf(tmp_path)))
+    app.processEvents()
+    tab = w.tabs.currentIndex()
+    w._progress_line("read", "page 12 of 26")
+    w._progress_line("fraction", "0.5")
+    lines = (w.project.workspace / "log.txt").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1 and lines[0][19:] == " read: page 12 of 26"
+    assert "read: page 12 of 26" in w.log.toPlainText()
+    assert w.tabs.currentIndex() == tab
+    w.close()
+    w.deleteLater()
+    app.processEvents()
+
+
+def test_a_task_dropped_while_running_is_kept_until_it_ends():
+    """Closing a dialog whose download is still running dropped its QThread while it ran, and Qt
+    then ends the whole program. A running Task is kept until it ends, and let go after."""
+    import gc
+    import threading
+
+    from PySide6.QtCore import QElapsedTimer
+    from PySide6.QtWidgets import QApplication
+
+    from ectype.gui import Task
+
+    app = QApplication.instance() or QApplication([])
+    release = threading.Event()
+    task = Task(lambda progress: release.wait(5))
+    task.start()
+    del task
+    gc.collect()
+    assert len(Task._running) == 1
+    release.set()
+    timer = QElapsedTimer()
+    timer.start()
+    while Task._running and timer.elapsed() < 5000:
+        app.processEvents()
+    assert not Task._running

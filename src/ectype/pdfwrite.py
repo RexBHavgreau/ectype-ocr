@@ -10,6 +10,7 @@ converted to PDF points here, in one place.
 from __future__ import annotations
 
 import io
+import json
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,8 @@ import numpy as np
 import pikepdf
 from fontTools.ttLib import TTFont
 from PIL import Image
+
+from . import __version__
 
 
 @dataclass
@@ -63,6 +66,7 @@ class PageSpec:
     background: np.ndarray | None = None  # grayscale, full page
     background_dpi: float = 150
     background_quality: int = 75
+    lossless: bool = False  # background kept without loss: the same 8-bit gray, Flate coded, not JPEG
     bilevel: np.ndarray | None = None  # instead of background: black-and-white page (True = ink), CCITT G4
     runs: list[GlyphRun] = field(default_factory=list)
     fill_gray: float = 0.0  # text colour, 0 = black
@@ -156,12 +160,18 @@ def _background_xobject(pdf: pikepdf.Pdf, page: PageSpec) -> pikepdf.Stream:
     if page.background_dpi and page.background_dpi < page.dpi:
         scale = page.background_dpi / page.dpi
         img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    buf = io.BytesIO()
-    Image.fromarray(img).save(buf, format="JPEG", quality=page.background_quality, optimize=True)
-    xobj = pikepdf.Stream(pdf, buf.getvalue())
+    if page.lossless:
+        # PNG-style predictors gained about 1% on a scanned page: not worth the complexity.
+        xobj = pikepdf.Stream(pdf, zlib.compress(np.ascontiguousarray(img).tobytes(), 9))
+        filt = pikepdf.Name.FlateDecode
+    else:
+        buf = io.BytesIO()
+        Image.fromarray(img).save(buf, format="JPEG", quality=page.background_quality, optimize=True)
+        xobj = pikepdf.Stream(pdf, buf.getvalue())
+        filt = pikepdf.Name.DCTDecode
     xobj.Type, xobj.Subtype = pikepdf.Name.XObject, pikepdf.Name.Image
     xobj.Width, xobj.Height = img.shape[1], img.shape[0]
-    xobj.ColorSpace, xobj.BitsPerComponent, xobj.Filter = pikepdf.Name.DeviceGray, 8, pikepdf.Name.DCTDecode
+    xobj.ColorSpace, xobj.BitsPerComponent, xobj.Filter = pikepdf.Name.DeviceGray, 8, filt
     return xobj
 
 
@@ -182,7 +192,61 @@ def _bilevel_xobject(pdf: pikepdf.Pdf, ink: np.ndarray) -> pikepdf.Stream:
     return xobj
 
 
-def write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], producer: str = "Ectype OCR") -> None:
+# Tesseract's language codes -> BCP 47 (the PDF's /Lang). Others: omitted.
+BCP47 = {"eng": "en", "heb": "he", "grc": "grc", "ell": "el", "lat": "la", "syr": "syr", "ara": "ar", "deu": "de",
+         "fra": "fr", "ita": "it", "spa": "es", "por": "pt", "nld": "nl", "rus": "ru", "pol": "pl", "swe": "sv",
+         "dan": "da", "nor": "no", "fin": "fi", "ces": "cs", "hun": "hu", "tur": "tr", "hin": "hi", "fas": "fa",
+         "jpn": "ja", "kor": "ko", "ukr": "uk", "bul": "bg", "ron": "ro", "cat": "ca"}
+
+
+def bcp47(code: str | None) -> str | None:
+    """The BCP 47 tag for a Tesseract code ("eng" -> "en"), or None when not known."""
+    code = (code or "").strip().lower().split("+")[0]
+    return BCP47.get(code)
+
+
+def workspace_meta(workspace: Path, out_name: str | None = None) -> tuple[str, str | None]:
+    """(title, language) for the PDF of a workspace, from its project.json: the project's name
+    (else the output name, the scan's file name, the folder's name) and its first language
+    (Manuscript Mode: its own list)."""
+    workspace = Path(workspace)
+    data: dict = {}
+    try:
+        data = json.loads((workspace / "project.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    if not isinstance(data, dict):
+        data = {}
+    title = data.get("name") or out_name or (Path(data["source"]).stem if data.get("source") else "") or workspace.name
+    if data.get("script") == "manuscript" and data.get("ms_languages"):
+        first = data["ms_languages"][0]
+    else:
+        first = str(data.get("lang") or "").split("+")[0]
+    return title, bcp47(first)
+
+
+def set_document_info(pdf: pikepdf.Pdf, title: str | None, lang: str | None) -> None:
+    """Title, producer, creator and language, in /Info, the catalog (/Lang) and XMP; readers show
+    the title. No tagging is claimed (no /MarkInfo)."""
+    producer = f"Ectype OCR {__version__}"
+    with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as meta:
+        if title:
+            meta["dc:title"] = title
+        if lang:
+            meta["dc:language"] = [lang]
+        meta["xmp:CreatorTool"] = "Ectype OCR"
+        meta["pdf:Producer"] = producer
+    if title:
+        pdf.docinfo["/Title"] = title
+    pdf.docinfo["/Creator"] = "Ectype OCR"
+    pdf.docinfo["/Producer"] = producer
+    if lang:
+        pdf.Root.Lang = pikepdf.String(lang)
+    pdf.Root.ViewerPreferences = pikepdf.Dictionary(DisplayDocTitle=True)
+
+
+def write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], title: str | None = None,
+              lang: str | None = None) -> None:
     pdf = pikepdf.new()
     font_objs = {f.key: _embed_font(pdf, f) for f in fonts}
     for page in pages:
@@ -241,7 +305,7 @@ def write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], prod
         pdf_page.Resources = resources
         pdf_page.Contents = pikepdf.Stream(pdf, zlib.compress("\n".join(ops).encode("latin-1")))
         pdf_page.Contents.Filter = pikepdf.Name.FlateDecode
-    pdf.docinfo["/Producer"] = producer
+    set_document_info(pdf, title, lang)
     pdf.save(path, compress_streams=True, object_stream_mode=pikepdf.ObjectStreamMode.generate)
 
 

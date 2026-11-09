@@ -25,9 +25,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import pickle
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import cv2
@@ -37,7 +36,7 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import pdist
 from rapidfuzz import fuzz
 
-from . import report
+from . import report, stamps
 from .ocr import OcrPage
 from .segment import Segmentation, fit_baselines, line_x_heights
 
@@ -130,54 +129,128 @@ def _size_class(ratio: float) -> float:
     return 1.0 if abs(ratio - 1) < 0.12 else round(round(ratio / 0.1) * 0.1, 1)
 
 
-# clusters.json's version: 2 measures sizes against each page's own text (`relative_size`);
-# a project's older result is made again before an IDML export (`Project._stale`).
-RESULT_VERSION = 4
-CACHE_VERSION = 3  # 3: capitals lines sized by their capitals (segment.line_x_heights). Of what the caches hold: kept results made by an older one are made again
+def _json_default(o):
+    if isinstance(o, np.generic):
+        return o.item()
+    raise TypeError(f"{type(o).__name__} is not JSON serializable")
+
+
+def _dump(value) -> np.ndarray:
+    """Anything JSON can hold, as a 0-d unicode array (it loads without pickle)."""
+    return np.array(json.dumps(value, default=_json_default))
+
+
+def _undump(array: np.ndarray):
+    return json.loads(str(array))
+
+
+def _save(path: Path, **arrays) -> None:
+    """Write arrays (no pickled objects) through a temporary name, so a crash never leaves a
+    half file that looks whole."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".part")
+    with open(tmp, "wb") as f:
+        if path.suffix == ".npy":
+            (value,) = arrays.values()
+            np.save(f, value, allow_pickle=False)
+        else:
+            np.savez(f, **arrays)
+    tmp.replace(path)
 
 
 class Cache:
-    """Results kept between runs (cluster/cache/<kind>/), named by what they were made from: a
-    letter's grouping by its instances' fingerprints, a composite by its members'. "Update
-    after corrections" then remakes only what the corrected words touch. Results not used in
-    a run are removed at its end (`prune`)."""
+    """Results kept between runs (cluster/cache/<kind>/), named by what they were made from and
+    by the program's code (`stamps.code_version`): a letter's grouping (a `.npy` of labels) by its
+    instances' fingerprints, a composite (a `.npz`) by its members'. "Update after corrections"
+    then remakes only what the corrected words touch. Results not used in a run, and any other
+    file in these folders (old pickles are never opened), are removed at its end (`prune`).
+    Nothing is read with pickle: a result that can't be read as expected is made again."""
 
     def __init__(self, folder: Path):
         self.folder = Path(folder)
         self.used: set[Path] = set()
 
     def key(self, kind: str, members: list[Instance], *params) -> Path:
-        h = hashlib.sha1(repr((CACHE_VERSION, params)).encode())
+        h = hashlib.sha1(repr((stamps.code_version(), params)).encode())
         for m in members:
             if not getattr(m, "_fp", None):
                 m._fp = m.fingerprint()
             h.update(m._fp.encode())
-        return self.folder / kind / f"{h.hexdigest()}.pkl"
+        return self.folder / kind / f"{h.hexdigest()}{'.npy' if kind == 'group' else '.npz'}"
 
     def get(self, path: Path):
+        """A kept grouping (labels array) or composite (composite, canvas), or None."""
         self.used.add(path)
         try:
-            with open(path, "rb") as f:
-                return pickle.load(f)
-        except (OSError, pickle.UnpicklingError, EOFError, ValueError):
+            if path.suffix == ".npy":
+                labels = np.load(path, allow_pickle=False)
+                return labels if labels.ndim == 1 else None
+            with np.load(path, allow_pickle=False) as z:
+                composite, canvas = z["composite"], _undump(z["canvas"])
+            return (composite, canvas) if composite.ndim == 2 and isinstance(canvas, dict) else None
+        except Exception:
             return None
 
     def put(self, path: Path, value) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as f:
-            pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
+        if path.suffix == ".npy":
+            _save(path, labels=value)
+        else:
+            composite, canvas = value
+            _save(path, composite=composite, canvas=_dump(canvas))
         self.used.add(path)
 
     def prune(self, kinds: tuple[str, ...] = ("group", "average")) -> None:
         for kind in kinds:
-            for path in (self.folder / kind).glob("*.pkl"):
-                if path not in self.used:
+            for path in (self.folder / kind).glob("*"):
+                if path not in self.used and path.is_file():
                     path.unlink(missing_ok=True)
 
 
-def _stamp(*paths: Path) -> str:
-    """The files as they are now (size and time), so a kept result is used only while they stay so."""
-    return ";".join(f"{p.name}:{p.stat().st_size}:{p.stat().st_mtime_ns}" if p.is_file() else f"{p.name}:-" for p in paths)
+def inputs_stamp(workspace: Path) -> str:
+    """What clusters.json is made from: the program's code and, for every page that has both,
+    its reading, its segmentation and the styles set in Review (their digests, by page name)."""
+    workspace = Path(workspace)
+    parts: list[str] = [stamps.code_version()]
+    for png in sorted((workspace / "pages").glob("*.png")):
+        ocr, seg = workspace / "ocr" / f"{png.stem}.ocr.json", workspace / "segment" / f"{png.stem}.seg.json"
+        if ocr.is_file() and seg.is_file():
+            parts += [png.stem, stamps.file_digest(ocr), stamps.file_digest(seg),
+                      stamps.file_digest(workspace / "corrections" / f"{png.stem}.json")]
+    return stamps.stamp(*parts)
+
+
+def _save_page(path: Path, stamp: str, instances: list[Instance], slants: dict) -> None:
+    names = [f.name for f in fields(Instance) if f.name != "crop"]
+    meta = {"stamp": stamp, "fields": names,
+            "instances": [{n: getattr(i, n) for n in names} for i in instances],
+            "shapes": [list(i.crop.shape) for i in instances],
+            "slants": [[line, word, a] for (line, word), a in slants.items()]}
+    crops = np.concatenate([i.crop.astype(np.float32, copy=False).ravel() for i in instances]) if instances \
+        else np.zeros(0, np.float32)
+    _save(path, meta=_dump(meta), crops=crops)
+
+
+def _load_page(path: Path, stamp: str):
+    """A page's kept (instances, slants) if it was made from this stamp and reads as expected, else None."""
+    try:
+        with np.load(path, allow_pickle=False) as z:
+            meta, crops = _undump(z["meta"]), z["crops"]
+        if meta["stamp"] != stamp or crops.dtype != np.float32 or crops.ndim != 1:
+            return None
+        names = [f.name for f in fields(Instance) if f.name != "crop"]
+        if meta["fields"] != names:
+            return None
+        instances, at = [], 0
+        for d, shape in zip(meta["instances"], meta["shapes"]):
+            n = int(shape[0]) * int(shape[1])
+            d["crop_origin"] = tuple(d["crop_origin"])
+            instances.append(Instance(**d, crop=crops[at:at + n].reshape(shape).copy()))
+            at += n
+        if len(instances) != len(meta["shapes"]) or at != len(crops):
+            return None
+        return instances, {(line, word): a for line, word, a in meta["slants"]}
+    except Exception:
+        return None
 
 
 def collect(workspace: Path) -> list[Instance]:
@@ -199,24 +272,18 @@ def collect(workspace: Path) -> list[Instance]:
     zones = running_lines([ocr for _, _, ocr in page_data])
     cache = workspace / "cluster" / "cache" / "pages"
     cache.mkdir(parents=True, exist_ok=True)
+    for old in cache.glob("*.pkl"):  # kept by an older version: never opened
+        old.unlink(missing_ok=True)
     per_page = []
     for k, (png, seg_path, ocr) in enumerate(page_data):
         labels_path = workspace / "segment" / f"{png.stem}.labels.png"
-        stamp = f"{CACHE_VERSION};" + _stamp(png, seg_path, labels_path, workspace / "ocr" / f"{png.stem}.ocr.json")
-        kept = cache / f"{png.stem}.pkl"
-        found = None
-        if kept.is_file():
-            try:
-                with open(kept, "rb") as f:
-                    data = pickle.load(f)
-                if data.get("stamp") == stamp:
-                    found = data["instances"], data["slants"]
-            except Exception:
-                found = None
+        stamp = stamps.stamp(stamps.code_version(), stamps.file_digest(png), stamps.file_digest(seg_path),
+                             stamps.file_digest(labels_path), stamps.file_digest(workspace / "ocr" / f"{png.stem}.ocr.json"))
+        kept = cache / f"{png.stem}.npz"
+        found = _load_page(kept, stamp)
         if found is None:
             found = _page_instances(png, seg_path, labels_path, ocr)
-            with open(kept, "wb") as f:
-                pickle.dump({"stamp": stamp, "instances": found[0], "slants": found[1]}, f, protocol=pickle.HIGHEST_PROTOCOL)
+            _save_page(kept, stamp, *found)
         if found[0]:
             per_page.append((k, *found))
     if not per_page:
@@ -426,6 +493,8 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
     for key, idx in sorted(by_key.items(), key=lambda kv: (ZONES.index(kv[0][3]), kv[0][1], kv[0][2], kv[0][0])):
         name = cache.key("group", [instances[i] for i in idx], threshold, min_size, max_linkage, seed) if cache else None
         labels = cache.get(name) if cache else None
+        if labels is not None and labels.shape != (len(idx),):
+            labels = None
         if labels is None:
             labels = _group_labels(instances, idx, threshold, min_size, max_linkage, seed)
             if cache:
@@ -728,6 +797,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
     out = workspace / "cluster"
     comp_dir = out / "composites"
     comp_dir.mkdir(parents=True, exist_ok=True)
+    inputs = inputs_stamp(workspace)  # taken first: a file changed meanwhile then shows as stale
     instances = collect(workspace)
     cache = Cache(out / "cache")
     groups = cluster_instances(instances, threshold=threshold, cache=cache)
@@ -767,7 +837,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
             ))
 
     summary = {
-        "version": RESULT_VERSION,
+        "inputs": inputs,
         "threshold": threshold,
         "instances": len(instances),
         "glyphs": [vars(g) for g in sorted(glyphs, key=lambda g: (g.style, g.size_class, g.text, -g.count))],

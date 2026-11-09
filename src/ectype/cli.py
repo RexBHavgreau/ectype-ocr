@@ -101,7 +101,8 @@ def cmd_substitute(args: argparse.Namespace) -> int:
     from .synth import find_font
 
     ws = Path(args.workspace)
-    s = substitute_workspace(ws, find_font(args.font), out_name=args.name, background_dpi=args.background_dpi)
+    s = substitute_workspace(ws, find_font(args.font), out_name=args.name, background_dpi=args.background_dpi,
+                              image=getattr(args, "page_image", "gray"))
     w = s["within_1px"] or {}
     print(f"{ws / 'substitute' / s['pdf']}: {s['bytes']:,} bytes; word ends within 1 px of the scan: "
           f"left {100 * w.get('left', 0):.1f}%, right {100 * w.get('right', 0):.1f}%")
@@ -138,7 +139,8 @@ def cmd_traced(args: argparse.Namespace) -> int:
     from .traced import traced_workspace
 
     ws = Path(args.workspace)
-    s = traced_workspace(ws, out_name=args.name, background_dpi=args.background_dpi)
+    s = traced_workspace(ws, out_name=args.name, background_dpi=args.background_dpi,
+                              image=getattr(args, "page_image", "gray"))
     w = s["within_1px"] or {}
     print(f"{ws / 'traced' / s['pdf']}: {s['bytes']:,} bytes ({s['bytes_per_page']:,} per page); "
           f"{s['words']} words as text, {s['fallback_words']} left to the image")
@@ -366,28 +368,17 @@ def cmd_run(args: argparse.Namespace) -> int:
         steps.append(("textlayer", cmd_textlayer, argparse.Namespace(workspace=str(ws), name=args.name, page_image=args.page_image)))
     elif args.mode == "substitute":
         steps.append(("substitute", cmd_substitute, argparse.Namespace(workspace=str(ws), font=args.font, name=args.name,
-                                                                       background_dpi=150)))
+                                                                       background_dpi=150, page_image=args.page_image)))
     else:
         steps += [
             ("cluster", cmd_cluster, argparse.Namespace(workspace=str(ws), threshold=0.25)),
             ("fonts", cmd_fonts, argparse.Namespace(workspace=str(ws), family=None, threshold=0.45)),
-            ("traced", cmd_traced, argparse.Namespace(workspace=str(ws), name=args.name, background_dpi=150)),
+            ("traced", cmd_traced, argparse.Namespace(workspace=str(ws), name=args.name, background_dpi=150,
+                                                           page_image=args.page_image)),
         ]
     for name, fn, ns in steps:
         print(f"== {name}")
         fn(ns)
-    return 0
-
-
-def cmd_review(args: argparse.Namespace) -> int:
-    from .review import serve
-
-    server = serve(Path(args.workspace), port=args.port)
-    print(f"Reviewing {args.workspace} at http://127.0.0.1:{args.port}/  (Ctrl+C to stop)")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
     return 0
 
 
@@ -398,10 +389,11 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
         return cmd_textlayer(argparse.Namespace(workspace=ws, name=args.name, page_image=args.page_image))
     cmd_segment(argparse.Namespace(workspace=ws, truth=None))
     if args.mode == "substitute":
-        return cmd_substitute(argparse.Namespace(workspace=ws, font=args.font, name=args.name, background_dpi=150))
+        return cmd_substitute(argparse.Namespace(workspace=ws, font=args.font, name=args.name, background_dpi=150,
+                                                 page_image=args.page_image))
     cmd_cluster(argparse.Namespace(workspace=ws, threshold=0.25))
     cmd_fonts(argparse.Namespace(workspace=ws, family=None, threshold=0.45))
-    return cmd_traced(argparse.Namespace(workspace=ws, name=args.name, background_dpi=150))
+    return cmd_traced(argparse.Namespace(workspace=ws, name=args.name, background_dpi=150, page_image=args.page_image))
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
@@ -500,6 +492,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--font", help="font file or family name (default: EB Garamond, else a system serif)")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
     p.add_argument("--background-dpi", type=float, default=150, help="resolution of the erased background image")
+    p.add_argument("--page-image", choices=["gray", "lossless"], default="gray", help="background as JPEG, or without loss (full resolution, larger)")
     p.set_defaults(func=cmd_substitute)
 
     p = sub.add_parser("cluster", help="group glyphs by style and average them: <workspace>/cluster")
@@ -517,6 +510,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("workspace")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
     p.add_argument("--background-dpi", type=float, default=150)
+    p.add_argument("--page-image", choices=["gray", "lossless"], default="gray", help="background as JPEG, or without loss (full resolution, larger)")
     p.set_defaults(func=cmd_traced)
 
     p = sub.add_parser("run", help="every stage, scan to PDF")
@@ -527,7 +521,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
     p.add_argument("--lang", default="eng", help="OCR languages, e.g. eng or eng+grc (see: ectype languages)")
-    p.add_argument("--page-image", choices=["gray", "bw"], default="gray", help="text mode: grayscale or black-and-white page images")
+    p.add_argument("--page-image", choices=["gray", "lossless", "bw"], default="gray",
+                   help="grayscale JPEG, lossless grayscale (larger), or black and white (text mode only)")
     p.add_argument("--keep-spreads", action="store_true")
     p.add_argument("--overrides", help="JSON of per-page preprocessing corrections")
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
@@ -536,7 +531,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("textlayer", help="build the text-layer PDF (the scan + invisible OCR text): <workspace>/textlayer")
     p.add_argument("workspace")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
-    p.add_argument("--page-image", choices=["gray", "bw"], default="gray", help="grayscale JPEG, or black and white (CCITT G4)")
+    p.add_argument("--page-image", choices=["gray", "lossless", "bw"], default="gray",
+                   help="grayscale JPEG, lossless grayscale (larger), or black and white (CCITT G4)")
     p.set_defaults(func=cmd_textlayer)
 
     p = sub.add_parser("languages", help="list the OCR languages, or download more")
@@ -555,15 +551,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-scan", action="store_true", help="facsimile: don't place the scan on a hidden layer")
     p.set_defaults(func=cmd_idml)
 
-    p = sub.add_parser("review", help="correct OCR in the browser; corrections become training data")
-    p.add_argument("workspace")
-    p.add_argument("--port", type=int, default=8765)
-    p.set_defaults(func=cmd_review)
-
     p = sub.add_parser("rebuild", help="after corrections: segment, cluster, fonts and the PDF again")
     p.add_argument("workspace")
     p.add_argument("--mode", choices=["traced", "substitute", "text"], default="traced")
-    p.add_argument("--page-image", choices=["gray", "bw"], default="gray")
+    p.add_argument("--page-image", choices=["gray", "lossless", "bw"], default="gray")
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
     p.set_defaults(func=cmd_rebuild)

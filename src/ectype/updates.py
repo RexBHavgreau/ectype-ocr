@@ -190,7 +190,8 @@ def download(asset: dict, folder: Path | None = None, progress: Callable[[float]
         part.unlink(missing_ok=True)
         raise UpdateError(f"The download didn't finish ({exc}). Nothing was changed; try again later.") from exc
     digest = (asset.get("digest") or "").lower()
-    if (total and got != total) or (digest.startswith("sha256:") and h.hexdigest() != digest[7:]):
+    # A release file with no SHA-256 digest on record is refused too: it can't be vouched for.
+    if (total and got != total) or not digest.startswith("sha256:") or h.hexdigest() != digest[7:]:
         part.unlink(missing_ok=True)
         raise UpdateError("The downloaded installer didn't match the release (it may have been damaged on the "
                           "way), so it was deleted. Nothing was changed; try again later.")

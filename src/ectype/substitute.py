@@ -24,7 +24,7 @@ from PIL import Image
 from . import report
 from .background import erase_text, smooth_paper
 from .ocr import OcrPage
-from .pdfwrite import FontMetrics, GlyphRun, PageSpec, subset_font, write_pdf
+from .pdfwrite import FontMetrics, GlyphRun, PageSpec, subset_font, workspace_meta, write_pdf
 from .preprocess import binarize
 from .scripts import is_rtl
 from .segment import X_LETTERS, Segmentation, fit_baselines
@@ -357,9 +357,14 @@ def _render(path: Path, index: int, dpi: float) -> np.ndarray:
 
 
 def substitute_workspace(workspace: Path, font: Path, out_name: str | None = None,
-                         background_dpi: float = 150, pages: list[str] | None = None, on_page=None) -> dict:
-    """Build <workspace>/substitute/<name>.pdf from pages, OCR and segmentation."""
+                         background_dpi: float = 150, pages: list[str] | None = None, image: str = "gray",
+                         on_page=None) -> dict:
+    """Build <workspace>/substitute/<name>.pdf from pages, OCR and segmentation. `image`: "gray"
+    (the background as JPEG at background_dpi) or "lossless" (full resolution, Flate)."""
     workspace = Path(workspace)
+    lossless = image == "lossless"
+    if lossless:
+        background_dpi = 0
     out = workspace / "substitute"
     out.mkdir(parents=True, exist_ok=True)
     names = [p.stem for p in sorted((workspace / "pages").glob("*.png")) if not pages or p.stem in pages]
@@ -446,7 +451,7 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
     for name, gray, dpi, ocr, seg, labels in loaded:
         h, w = gray.shape
         if ocr is None or not ocr.lines:
-            pages_out.append(PageSpec(w, h, dpi, background=gray, background_dpi=background_dpi))
+            pages_out.append(PageSpec(w, h, dpi, background=gray, background_dpi=background_dpi, lossless=lossless))
             text_only.append(PageSpec(w, h, dpi))
             rows.append({"page": name, "words": 0})
             all_placed.append([])
@@ -464,7 +469,7 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
         background = smooth_paper(background)
         ink_gray = float(np.median(gray[mask & (gray < 128)])) / 255 if (mask & (gray < 128)).any() else 0.1
         runs = [p.run for p in placed] + _hidden_runs(ocr, kept, hidden_cid, hidden.key)
-        pages_out.append(PageSpec(w, h, dpi, background=background, background_dpi=background_dpi,
+        pages_out.append(PageSpec(w, h, dpi, background=background, background_dpi=background_dpi, lossless=lossless,
                                   runs=runs, fill_gray=round(ink_gray, 3)))
         text_only.append(PageSpec(w, h, dpi, runs=runs))
         cv2.imwrite(str(out / f"{name}.background.png"), background)
@@ -476,8 +481,9 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
 
     pdf_name = (out_name or workspace.name) + ".pdf"
     fonts = [f.embedded for f in faces.values()] + [hidden]
-    write_pdf(out / pdf_name, pages_out, fonts)
-    write_pdf(out / "text-only.pdf", text_only, fonts)
+    title, lang = workspace_meta(workspace, out_name)
+    write_pdf(out / pdf_name, pages_out, fonts, title=title, lang=lang)
+    write_pdf(out / "text-only.pdf", text_only, fonts, title=title, lang=lang)
 
     doc = pdfium.PdfDocument(str(out / pdf_name))
     extracted = [doc[i].get_textpage().get_text_bounded() for i in range(len(doc))]

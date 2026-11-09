@@ -24,7 +24,7 @@ from PIL import Image
 
 from . import report
 from .ocr import OcrPage
-from .pdfwrite import EmbeddedFont, GlyphRun, PageSpec, write_pdf
+from .pdfwrite import EmbeddedFont, GlyphRun, PageSpec, workspace_meta, write_pdf
 from .preprocess import binarize
 from .scripts import is_rtl
 
@@ -87,8 +87,8 @@ def place_words(ocr: OcrPage, cid: dict[str, int], font_key: str = "F1") -> list
 def textlayer_workspace(workspace: Path, out_name: str | None = None, image: str = "gray", image_quality: int = 60,
                         on_page=None) -> dict:
     """Build <workspace>/textlayer/<name>.pdf from the page images and OCR. `image` is
-    "gray" (JPEG at the page's resolution) or "bw" (black and white, CCITT G4: about a
-    tenth of the size, for pages of plain text)."""
+    "gray" (JPEG at the page's resolution), "lossless" (the same gray, Flate coded, no
+    loss) or "bw" (black and white, CCITT G4: about a tenth of the size, for pages of plain text)."""
     workspace = Path(workspace)
     out = workspace / "textlayer"
     out.mkdir(parents=True, exist_ok=True)
@@ -112,10 +112,12 @@ def textlayer_workspace(workspace: Path, out_name: str | None = None, image: str
         if image == "bw":
             pages.append(PageSpec(w, h, dpi, bilevel=binarize(gray), runs=runs))
         else:
-            pages.append(PageSpec(w, h, dpi, background=gray, background_dpi=0, background_quality=image_quality, runs=runs))
+            pages.append(PageSpec(w, h, dpi, background=gray, background_dpi=0, background_quality=image_quality,
+                                  lossless=image == "lossless", runs=runs))
         rows.append({"page": name, "words": len(runs)})
     pdf_name = (out_name or workspace.name) + ".pdf"
-    write_pdf(out / pdf_name, pages, [font])
+    title, lang = workspace_meta(workspace, out_name)
+    write_pdf(out / pdf_name, pages, [font], title=title, lang=lang)
     summary = {"pdf": pdf_name, "image": image, "bytes": (out / pdf_name).stat().st_size, "words": sum(r["words"] for r in rows),
                "pages": rows}
     report.write_json(out / "textlayer.json", summary)

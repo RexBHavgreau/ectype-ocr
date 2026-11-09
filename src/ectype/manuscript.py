@@ -392,7 +392,11 @@ def read_workspace(ws: Path, settings, on_page: Callable[[int, int], None] | Non
                 one(page)
         else:
             with ThreadPoolExecutor(max_workers=len(made)) as ex:
-                list(ex.map(one, todo))
+                try:
+                    list(ex.map(one, todo))
+                except BaseException:  # stopped (or failed): pages not yet begun are dropped
+                    ex.shutdown(wait=True, cancel_futures=True)
+                    raise
     finally:
         for s in made:
             close = getattr(s, "close", None)

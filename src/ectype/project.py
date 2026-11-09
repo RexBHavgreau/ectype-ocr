@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import report
+from .stopping import StopFlag
 
 Progress = Callable[[str, str], None]  # (stage, message)
 
@@ -36,7 +37,7 @@ class Settings:
     split_spreads: bool = True
     font: str = ""  # substitute mode; empty = default serif
     lang: str = "eng"  # Tesseract languages, e.g. "eng+grc"
-    page_image: str = "gray"  # text mode: "gray" or "bw" (black and white, smallest)
+    page_image: str = "gray"  # "gray" (JPEG), "lossless" (gray, no loss) or "bw" (text layer only: black and white, smallest)
     declined_languages: list = field(default_factory=list)  # languages the user chose not to add when offered
     name: str = ""  # output file name without .pdf
     script: str = "print"  # "print", or "manuscript" (Manuscript Mode: manuscript.py)
@@ -367,9 +368,11 @@ class Project:
         return any((self.workspace / "corrections").glob("*.json"))
 
     def run(self, start: str = "preprocess", progress: Progress | None = None,
-            fraction: Callable[[float], None] | None = None) -> Path | None:
+            fraction: Callable[[float], None] | None = None, stop: StopFlag | None = None) -> Path | None:
         """Run the pipeline from `start` to the output PDF. Stages before it keep their results.
-        `fraction(f)` reports how much of the run is done, from 0 to 1, page by page."""
+        `fraction(f)` reports how much of the run is done, from 0 to 1, page by page. `stop`:
+        when requested, the run ends with Stopped at the next page (or stage); what was
+        finished stays."""
         progress = progress or (lambda stage, msg: None)
         fraction = fraction or (lambda f: None)
         stages = self.stages()
@@ -384,7 +387,12 @@ class Project:
         for stage in running:
             weight = STAGE_WEIGHT.get(stage, 10)
 
+            if stop:
+                stop.check()
+
             def on_page(done: int, total: int, stage=stage, weight=weight, before=before) -> None:
+                if stop:
+                    stop.check()
                 fraction((before + weight * done / max(1, total)) / whole)
                 if stage in ("ocr", "segment") or done == total:
                     progress(stage, f"page {done} of {total}")
@@ -440,13 +448,14 @@ class Project:
             elif stage == "traced":
                 from .traced import traced_workspace
 
-                out = traced_workspace(ws, out_name=s.name or None, on_page=on_page)
+                out = traced_workspace(ws, out_name=s.name or None, image=s.page_image, on_page=on_page)
                 msg = f"{out['bytes']:,} bytes; {out['words']} words as text, {out['fallback_words']} left as image"
             else:
                 from .substitute import substitute_workspace
                 from .synth import find_font
 
-                out = substitute_workspace(ws, find_font(s.font or None), out_name=s.name or None, on_page=on_page)
+                out = substitute_workspace(ws, find_font(s.font or None), out_name=s.name or None,
+                                           image=s.page_image, on_page=on_page)
                 msg = f"{out['bytes']:,} bytes"
             progress(stage, msg)
             before += weight
@@ -456,26 +465,22 @@ class Project:
     # -- IDML ---------------------------------------------------------------------
 
     def _stale(self, stage: str) -> bool:
-        """True when a stage's results are missing or older than the OCR they come from."""
-        ocr = [p.stat().st_mtime for p in (self.workspace / "ocr").glob("*.ocr.json")]
+        """True when a stage's results are missing, or were not made from what is there now: each
+        page's segmentation from its image, reading and the program's code (`segment.seg_fresh`);
+        the glyph groups from every page's reading, segmentation and Review styles
+        (`cluster.inputs_stamp`, kept in clusters.json)."""
+        ws = self.workspace
         if stage == "segment":
-            outs = list((self.workspace / "segment").glob("*.seg.json"))
-            if len(outs) < len(ocr):
-                return True
-        else:
-            from .cluster import RESULT_VERSION
+            from .segment import seg_fresh
 
-            outs = [self.workspace / "cluster" / "clusters.json"]
-            seg = [p.stat().st_mtime for p in (self.workspace / "segment").glob("*.seg.json")]
-            ocr = ocr + seg
-            if not outs[0].is_file():
-                return True
-            try:  # made by an older version (sizes in pixels): made again
-                if json.loads(outs[0].read_text(encoding="utf-8")).get("version", 1) < RESULT_VERSION:
-                    return True
-            except ValueError:
-                return True
-        return bool(ocr) and min(p.stat().st_mtime for p in outs) < max(ocr)
+            return any(not seg_fresh(ws, p.name.removesuffix(".ocr.json")) for p in (ws / "ocr").glob("*.ocr.json"))
+        from .cluster import inputs_stamp
+
+        try:
+            kept = json.loads((ws / "cluster" / "clusters.json").read_text(encoding="utf-8")).get("inputs")
+        except (OSError, ValueError, AttributeError):
+            return True
+        return not isinstance(kept, str) or kept != inputs_stamp(ws)
 
     def prepare_idml(self, progress: Progress | None = None, match_fonts: bool = True) -> dict:
         """What an IDML export needs beyond the OCR: segmentation and glyph styles (for

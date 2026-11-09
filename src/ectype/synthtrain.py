@@ -37,6 +37,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 
 from . import pool, texts
+from .stopping import Stopped
 
 SCRIPTS = {"hebrew": ("heb", "hebrew-bible", "Hebrew"), "greek": ("grc", "greek-nt", "Greek"),
            "latin": ("lat", "vulgate", "Latin"), "syriac": ("syr", "peshitta", "Syriac"),
@@ -175,6 +176,8 @@ def support(fonts: list[FontInfo], scripts: list[str], progress: Callable[[str],
     for script in scripts:
         try:
             needed[script] = needs(script, progress)[1]
+        except Stopped:
+            raise
         except Exception as exc:
             if failed is not None:
                 failed[script] = str(exc)
@@ -345,6 +348,8 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
         by_line = script == "transliteration"  # a font without some letters sets the lines it can
         try:
             passages, needed, _ = needs(script, say)
+        except Stopped:
+            raise
         except Exception as exc:  # its text couldn't be downloaded: the other scripts go on
             report["fonts"][script] = []
             report["skipped"][name] = f"its text couldn't be downloaded ({exc})"
