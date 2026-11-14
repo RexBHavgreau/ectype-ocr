@@ -65,6 +65,10 @@ def pdf_pages(workspace: Path, layout: Layout) -> list[int | None]:
 
 _MARKED_SCRIPTS = ((0x0590, 0x05FF), (0xFB1D, 0xFB4F), (0x0370, 0x03FF), (0x1F00, 0x1FFF), (0x0700, 0x074F),
                    (0x0600, 0x06FF), (0x0750, 0x077F))  # Hebrew, Greek, Syriac, Arabic
+# Marks that belong only to those scripts: dropped wherever they stand, even with no letter
+# before them (the OCR can begin a word with its points: "ִּמם").
+_SCRIPT_MARKS = ((0x0591, 0x05C7), (0x0610, 0x061A), (0x064B, 0x065F), (0x0670, 0x0670), (0x06D6, 0x06ED),
+                 (0x0730, 0x074A), (0x0342, 0x0345))
 
 
 def search_form(text: str) -> str:
@@ -78,7 +82,7 @@ def search_form(text: str) -> str:
     base = 0  # code point of the last character that isn't a combining mark
     for c in unicodedata.normalize("NFD", text):
         if unicodedata.combining(c) or unicodedata.category(c) == "Mn":
-            if any(lo <= base <= hi for lo, hi in _MARKED_SCRIPTS):
+            if any(lo <= base <= hi for lo, hi in _MARKED_SCRIPTS) or any(lo <= ord(c) <= hi for lo, hi in _SCRIPT_MARKS):
                 continue
         else:
             base = ord(c)

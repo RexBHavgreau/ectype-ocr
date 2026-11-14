@@ -398,6 +398,9 @@ plan in it, not only the menus and crash recorder):
   scripts (NFD first, NFC after), maqaf to a space; transliteration marks stay. On by default;
   `Settings.text_keep_marks` / box "Keep vowel points and accents" / `--keep-marks` keep every
   character as read. The OCR is unchanged; only the writing differs. The header says which.
+  Marks that belong only to those scripts (`_SCRIPT_MARKS`) go even with no letter before them:
+  the Treatise's OCR began a word with its points ("ִּמם" after a space). Tried on the 26
+  Treatise pages: 67 s for the folder command (eng+grc+heb), 62 page markers.
 - *Companion files*: first line `Ectype OCR text of "<scan>" (<langs>; …), <date>` marks a file as
   Ectype's (`is_ours`); only such a file is overwritten (redo); any other .txt is never touched.
   `Project.text_destination`: beside the scan with its name; if a foreign .txt is there, in

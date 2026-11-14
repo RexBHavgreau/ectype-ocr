@@ -408,3 +408,13 @@ def test_marks_removed_by_default_and_kept_on_request(tmp_path):
     assert [hex(ord(c)) for c in _read(tmp_path / "k.txt").strip()] == [hex(ord(c)) for c in f"In {BERESHIT} {BARA} and {GREEK_NFD} with ḥesed¹"]
     assert plaintext.header_line("T.pdf", "eng+grc+heb", "2026-11-14", keep_marks=False) == (
         'Ectype OCR text of "T.pdf" (eng+grc+heb; points and accents removed for searching), 2026-11-14')
+
+
+def test_search_form_drops_script_marks_with_no_letter_before_them():
+    """The Treatise's OCR read a word as its points first ("ִּמם" after a space): marks that
+    belong only to Hebrew (or Syriac, Arabic, Greek's perispomeni and iota subscript) go
+    wherever they stand; marks shared with Latin stay after a Latin letter."""
+    from ectype.plaintext import search_form
+
+    assert search_form("So after \u05b4\u05bcמם P") == "So after מם P"
+    assert search_form("a\u0342 e\u0301") == "a é"
