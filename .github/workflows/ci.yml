@@ -20,17 +20,17 @@ jobs:
             libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - name: Python packages
         run: pip install -e ".[dev,gui]"
-      # docx-to-idml: Reflow's converter (run from source) and its IDML checker, which
+      # Ectype IDML (docx-to-idml before 1.0.0): Reflow's converter (run from source) and its IDML checker, which
       # validates every export against Adobe's schema (jing, with the runner's Java).
-      - name: docx-to-idml
+      - name: Ectype IDML
         run: |
-          git clone --depth 1 https://github.com/RexBHavgreau/docx-to-idml ../docx-to-idml
-          pip install -r ../docx-to-idml/requirements-dev.txt
+          git clone --depth 1 https://github.com/RexBHavgreau/ectype-idml ../ectype-idml
+          pip install -r ../ectype-idml/requirements-dev.txt
       - name: Tests
         env:
           QT_QPA_PLATFORM: offscreen
-          ECTYPE_DOCX2IDML: python -m docx2idml
-          ECTYPE_DOCX2IDML_SOURCE: ${{ github.workspace }}/../docx-to-idml
+          ECTYPE_DOCX2IDML: python -m ectype_idml
+          ECTYPE_DOCX2IDML_SOURCE: ${{ github.workspace }}/../ectype-idml
           # Newer Java refuses XML elements with more than 200 attributes; InDesign's own
           # TextDefault and ParagraphStyle have more, so the IDML schema check (jing) needs no limit.
           JAVA_TOOL_OPTIONS: -Djdk.xml.elementAttributeLimit=0

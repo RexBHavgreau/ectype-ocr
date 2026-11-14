@@ -413,6 +413,14 @@ plan in it, not only the menus and crash recorder):
   `user_data_dir()/work/<name>-<id>.ectype`, text written beside the scan, work folder deleted
   (unless `--keep`); one failure doesn't stop the rest; Stop (`stopping.check()` in each page) leaves
   no .txt for the book in hand (the file is written last, atomically).
+- *docx-to-idml is now Ectype IDML* (Beaux renamed it at its 1.0.0, 2026-11-13; repo
+  github.com/RexBHavgreau/ectype-idml, package `ectype_idml`, program `Ectype-IDML-X.Y.Z.exe`,
+  settings `%APPDATA%\Ectype IDML`, which it also writes the old folder's program.json to while
+  that exists). Ectype found only the old names, so Reflow would have lost it once the old folder
+  went; CI's Reflow test failed ("No module named docx2idml"). `converter.settings_dirs` (new
+  first), `EXE_NAME`/`EXE_GLOBS` take both names, "Find Ectype IDML…"; ci.yml clones ectype-idml
+  and runs `python -m ectype_idml` (the env names ECTYPE_DOCX2IDML* stay). Its `convert` command
+  (API 1) is unchanged.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

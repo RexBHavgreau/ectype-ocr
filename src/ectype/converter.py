@@ -1,14 +1,17 @@
-"""Running docx-to-idml, the installed converter that lays out Reflow exports.
+"""Running Ectype IDML (called docx-to-idml before its 1.0.0), the installed converter that
+lays out Reflow exports.
 
-docx-to-idml (https://github.com/RexBHavgreau/docx-to-idml) is a separate program: Ectype
+Ectype IDML (https://github.com/RexBHavgreau/ectype-idml) is a separate program: Ectype
 writes a .docx, runs the converter's `convert` command, and reads its JSON result, as its
 docs/ENGINE.md describes (API version 1). The two programs share only files, and the
 converter updates itself, so Ectype always uses its latest layout without being rebuilt.
 
-The converter records where it is in program.json in its settings folder
-(%APPDATA%\\docx-to-idml on Windows, ~/.config/docx-to-idml elsewhere) every time it starts.
-ECTYPE_DOCX2IDML overrides that with a command line, e.g. "python -m docx2idml" to use a copy
-run from source (as the tests do).
+The converter records where it is in program.json in its settings folder every time it
+starts: %APPDATA%\\Ectype IDML (1.0.0 and later; it also writes the old folder while that
+exists) or %APPDATA%\\docx-to-idml (before), ~/.config/... elsewhere. Its program file is
+Ectype-IDML-X.Y.Z.exe, docx-to-idml-X.Y.Z.exe before 1.0.0. ECTYPE_DOCX2IDML overrides all
+this with a command line, e.g. "python -m ectype_idml" to use a copy run from source (as the
+tests do).
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from pathlib import Path
 from .resources import subprocess_flags
 
 API = 1
-DOWNLOAD = "https://github.com/RexBHavgreau/docx-to-idml/releases"
+DOWNLOAD = "https://github.com/RexBHavgreau/ectype-idml/releases"
 
 
 class ConverterMissing(RuntimeError):
@@ -40,26 +43,34 @@ class Program:
     api: int
 
 
-def settings_dir() -> Path:
+def _config_base() -> Path:
     if sys.platform == "win32":
-        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-    else:
-        base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "docx-to-idml"
+        return Path(os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming"))
+    return Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config"))
+
+
+def settings_dirs() -> list[Path]:
+    """The converter's settings folders, its current name first."""
+    return [_config_base() / "Ectype IDML", _config_base() / "docx-to-idml"]
+
+
+def settings_dir() -> Path:
+    return settings_dirs()[0]
 
 
 MIN_VERSION = (0, 8, 0)  # the first docx-to-idml with `convert` and program.json
-EXE_NAME = re.compile(r"^docx-to-idml-(\d+)\.(\d+)\.(\d+)\.exe$", re.IGNORECASE)
+EXE_NAME = re.compile(r"^(?:ectype-idml|docx-to-idml)-(\d+)\.(\d+)\.(\d+)\.exe$", re.IGNORECASE)
+EXE_GLOBS = ("Ectype-IDML-*.exe", "docx-to-idml-*.exe")
 
 
 def version_of(exe: Path) -> tuple[int, int, int] | None:
-    """The version in the .exe's name ("docx-to-idml-0.8.0.exe"), or None."""
+    """The version in the .exe's name ("Ectype-IDML-1.1.0.exe", "docx-to-idml-0.8.0.exe"), or None."""
     m = EXE_NAME.match(Path(exe).name)
     return tuple(int(g) for g in m.groups()) if m else None
 
 
 def search_places() -> list[Path]:
-    """Where a downloaded docx-to-idml .exe usually is: it is one file, kept wherever the user
+    """Where a downloaded Ectype IDML (docx-to-idml) .exe usually is: it is one file, kept wherever the user
     saved it, and saves its updates beside itself (Downloads, the desktop, Documents...)."""
     home = Path.home()
     places = [home / "Downloads", home / "Desktop", home / "Documents", home, home / "OneDrive" / "Desktop",
@@ -73,18 +84,21 @@ def search_places() -> list[Path]:
 
 
 def search() -> list[Path]:
-    """docx-to-idml .exes in the usual places (and folders in them named for it), newest first."""
+    """Ectype IDML / docx-to-idml .exes in the usual places (and folders in them named for it),
+    newest first."""
     found: dict[str, Path] = {}
     for place in search_places():
         try:
-            folders = [place] + [d for d in place.iterdir() if d.is_dir() and "docx" in d.name.lower()]
+            folders = [place] + [d for d in place.iterdir() if d.is_dir()
+                                 and ("docx" in d.name.lower() or "ectype idml" in d.name.lower().replace("-", " "))]
         except OSError:
             continue
         for folder in folders:
             try:
-                for f in folder.glob("docx-to-idml-*.exe"):
-                    if version_of(f) and f.is_file():
-                        found[str(f.resolve()).lower()] = f
+                for pattern in EXE_GLOBS:
+                    for f in folder.glob(pattern):
+                        if version_of(f) and f.is_file():
+                            found[str(f.resolve()).lower()] = f
             except OSError:
                 continue
     return sorted(found.values(), key=lambda f: version_of(f), reverse=True)
@@ -120,14 +134,14 @@ def find_program() -> Program | None:
     override = os.environ.get("ECTYPE_DOCX2IDML")
     if override:
         return Program(shlex.split(override, posix=sys.platform != "win32"), "from ECTYPE_DOCX2IDML", API)
-    path = settings_dir() / "program.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
-    exe = data.get("exe")
-    if exe and Path(exe).is_file():
-        return Program([exe], str(data.get("version", "")), int(data.get("api", API)))
+    for folder in settings_dirs():  # the current name's first; the old one for copies before 1.0.0
+        try:
+            data = json.loads((folder / "program.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        exe = data.get("exe") if isinstance(data, dict) else None
+        if exe and Path(exe).is_file():
+            return Program([exe], str(data.get("version", "")), int(data.get("api", API)))
     mine = _remembered()
     if mine is not None and (version_of(mine) or MIN_VERSION) >= MIN_VERSION:
         return _program(mine)
@@ -147,12 +161,12 @@ def too_old() -> Path | None:
 def missing_message() -> str:
     old = too_old()
     if old is not None:
-        return (f"Reflow is laid out by docx-to-idml 0.8.0 or later; the copy found ({old.name}) is older and "
+        return (f"Reflow is laid out by Ectype IDML (docx-to-idml 0.8.0 or later); the copy found ({old.name}) is older and "
                 "can't be run by other programs. Open it and update it (or download the latest from "
                 f"{DOWNLOAD}), then export again.")
-    return ("Reflow is laid out by docx-to-idml, which Ectype couldn't find (it looks where docx-to-idml says it is "
-            "when it starts, and in Downloads, the desktop and Documents). Open docx-to-idml once, or point Ectype "
-            f"to it in Export IDML (Find docx-to-idml…). Download: {DOWNLOAD}")
+    return ("Reflow is laid out by Ectype IDML (formerly docx-to-idml), which Ectype couldn't find (it looks where "
+            "Ectype IDML says it is when it starts, and in Downloads, the desktop and Documents). Open Ectype IDML "
+            f"once, or point Ectype to it in Export IDML (Find Ectype IDML…). Download: {DOWNLOAD}")
 
 
 def convert(docx: Path, out_dir: Path, name: str, profile: str | None = None, timeout: float = 1800) -> dict:
