@@ -454,6 +454,10 @@ plan in it, not only the menus and crash recorder):
 - **Ectype will be shared with others** (Beaux, after 0.7.3): so it must be safe for people
   who didn't build it (checked downloads, nothing a web page or a shared project folder can
   exploit); Windows remains the only platform.
+- Not for now: an XML export (ThML, CCEL's format, or TEI) beside the companion text files
+  (Beaux, 0.9.0: the files are for their own searching, and XML wouldn't add to the .txt). Also
+  discussed then, not decided: a SQLite full-text index ("Search the library" in Ectype) and a
+  "Combine text files" command; offer them only if Beaux asks about searching again.
 - An English known text for Train from fonts: only a maybe (corrections already teach plain
   English; special characters are Transliteration's).
 
