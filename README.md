@@ -36,6 +36,9 @@ Choose **Select PDF…** to pick the scanned book (a PDF, or page images), then 
 - **Traced:** fonts traced from the scan.
 - **Substitute:** a real font in place of the scan's type.
 - **Text layer only:** the scan with invisible, searchable OCR text over it. This is the fastest, with no glyph tracing. Its page image can be grayscale, or black and white for the smallest file.
+- **Plain text only (no PDF):** just the OCR text, as a `.txt` file beside the scan with the scan's name (`Treatise 01.pdf` gives `Treatise 01.txt`).
+
+**Export > Export text…** (Ctrl+T) saves the text as corrected in Review: paragraphs (lines joined, hyphens removed) or lines as on the page; with page markers like `{p. 172 · PDF 90}` (the printed page and the page of the PDF, to find it in a viewer); vowel points and accents are taken off by default so a search finds the words (a box keeps them). **Export > Make text files for a folder of scans…** does this for every PDF or page image in a folder: scans that already have a `.txt` are skipped, and a text file Ectype didn't write is never overwritten.
 
 **Languages** lists the installed OCR languages; tick as many as the book uses (English, Greek and Hebrew together, for instance). If the scan has words in a script none of them reads, the app says so after the run and offers to add the language. **Add languages…** at the bottom of that list downloads more from the Tesseract project's language data. They are stored in your user folder and shared by every project. Changing the languages reads the pages again on the next Run.
 
@@ -69,7 +72,7 @@ All reports are written to `reports/`, which git ignores.
 ectype run scan.pdf [-o workspace] [--mode traced|substitute] [--font …]
 ```
 
-This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute. `--mode text` runs just preprocess, ocr and the text layer (`--page-image gray|bw`). `--lang eng+grc` sets the OCR languages.
+This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute. `--mode text` runs just preprocess, ocr and the text layer (`--page-image gray|bw`); `--mode plaintext` runs preprocess, ocr and writes the text file beside the scan. `--lang eng+grc` sets the OCR languages.
 
 ```
 ectype languages [--all]              # installed OCR languages (--all: and those that can be added)
@@ -80,6 +83,8 @@ ectype train-scans letteris.pdf --text hebrew-bible --edition "Letteris 1866"   
 ectype train-all                      # all of it, from training.ini (what Train Hebrew and Greek.bat runs)
 ectype models                         # the trained models and pools; --remove, --remove-pool, --remove-legacy
 ectype textlayer reports/work-young   # the scan with an invisible OCR text layer
+ectype text reports/work-young [-o book.txt] [--lines] [--no-page-markers] [--keep-heads] [--keep-marks]   # the OCR text as a .txt
+ectype text-files scans/ [more folders or PDFs] [--lang eng+grc+heb] [--recursive] [--redo] [--keep] [--keep-marks]   # a .txt beside each scan
 ectype idml reports/work-young --mode reflow|facsimile [-o out/book.idml] [--page-markers] [--profile NAME]
 ```
 

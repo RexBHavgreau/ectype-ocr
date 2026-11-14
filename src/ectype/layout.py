@@ -42,6 +42,12 @@ class LWord:
     superscript: list[bool] = field(default_factory=list)  # per character of text
     bold: bool = False  # set in Review (not detected)
     smallcaps: bool = False  # set in Review (not detected)
+    raw: str = ""  # the OCR's own text when `text` had Unicode superscripts made plain; else empty
+
+    @property
+    def original(self) -> str:
+        """The word exactly as the OCR (and Review) gave it, Unicode superscripts included."""
+        return self.raw or self.text
 
 
 @dataclass
@@ -195,7 +201,7 @@ def build_layout(workspace: Path) -> Layout:
                 text, sup = plain_superscripts(w.text, sup)
                 bold = _majority([i[4] for i in letters], False)
                 smallcaps = _majority([i[5] for i in letters], False)
-                words.append(LWord(text, list(w.box), italic, style, sup, bold, smallcaps))
+                words.append(LWord(text, list(w.box), italic, style, sup, bold, smallcaps, w.text if text != w.text else ""))
             size_class = _majority(classes, None)
             if size_class is None:
                 ratio = relative_size(xh, page_xh, pt, doc_xh_pt)
@@ -389,7 +395,7 @@ def join_lines(lines: list[LLine], vocabulary: set[str] | None = None) -> list[L
     carry: LWord | None = None
     for line in lines:
         for k, w in enumerate(line.words):
-            w = LWord(w.text, list(w.box), w.italic, w.style, list(w.superscript), w.bold, w.smallcaps)
+            w = LWord(w.text, list(w.box), w.italic, w.style, list(w.superscript), w.bold, w.smallcaps, w.raw)
             if carry is not None and k == 0 and w.text[:1].islower():
                 head = carry.text[:-1]
                 tail = re.split(r"\W", w.text, maxsplit=1)[0]
@@ -399,7 +405,9 @@ def join_lines(lines: list[LLine], vocabulary: set[str] | None = None) -> list[L
                             or ((head + tail).lower() not in vocabulary and head.lower() in vocabulary and tail.lower() in vocabulary))
                 text = (carry.text if keep else head) + w.text
                 sup = (carry.superscript if keep else carry.superscript[:-1]) + w.superscript
-                out[-1] = LWord(text, carry.box, carry.italic, carry.style, sup, carry.bold, carry.smallcaps)
+                raw = (carry.original if keep else carry.original[:-1]) + w.original
+                out[-1] = LWord(text, carry.box, carry.italic, carry.style, sup, carry.bold, carry.smallcaps,
+                                raw if raw != text else "")
                 carry = None
                 continue
             carry = None

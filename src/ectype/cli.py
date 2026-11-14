@@ -204,6 +204,28 @@ def cmd_idml(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_text(args: argparse.Namespace) -> int:
+    from .project import Project
+
+    ws = Path(args.workspace)
+    project = Project(ws)
+    dest = Path(args.output) if args.output else None
+    out = project.write_text(dest, form="lines" if args.lines else "paragraphs", page_markers=not args.no_page_markers,
+                             keep_heads=args.keep_heads, keep_marks=args.keep_marks)
+    print(f"{out['text']}: {out['pages']} pages, {out['paragraphs']} paragraphs, {out['notes']} notes, "
+          f"{out['chars']:,} characters")
+    return 0
+
+
+def cmd_text_files(args: argparse.Namespace) -> int:
+    from .textfiles import make_text_files, summary_text
+
+    result = make_text_files([Path(i) for i in args.inputs], lang=args.lang, recursive=args.recursive, redo=args.redo,
+                             keep=args.keep, keep_marks=args.keep_marks, progress=lambda stage, msg: print(f"{stage}: {msg}", flush=True))
+    print(summary_text(result))
+    return 1 if result["failed"] and not result["done"] else 0
+
+
 def cmd_train(args: argparse.Namespace) -> int:
     """Train the OCR languages' models from their pools, with this project's corrections added
     (or, with --lang and no workspace, just those languages)."""
@@ -357,14 +379,23 @@ def cmd_update(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     """Every stage, scan to PDF, in one workspace."""
     ws = Path(args.output) if args.output else _default_out("work", Path(args.input))
+    if args.mode == "plaintext":  # the project remembers the scan, so the text goes beside it
+        from .project import Project
+
+        project = Project(ws, Path(args.input))
+        project.settings.mode = "plaintext"
+        project.set_languages(args.lang.split("+"))
     steps = [
         ("preprocess", cmd_preprocess, argparse.Namespace(input=args.input, output=str(ws), keep_spreads=args.keep_spreads,
                                                           overrides=args.overrides, pages=args.pages, no_deskew=False, dpi=300)),
         ("ocr", cmd_ocr, argparse.Namespace(workspace=str(ws), engine="tesseract", lang=args.lang)),
     ]
-    if args.mode != "text":
+    if args.mode not in ("text", "plaintext"):
         steps.append(("segment", cmd_segment, argparse.Namespace(workspace=str(ws), truth=None)))
-    if args.mode == "text":
+    if args.mode == "plaintext":
+        steps.append(("plaintext", cmd_text, argparse.Namespace(workspace=str(ws), output=None, lines=False,
+                                                                no_page_markers=False, keep_heads=False)))
+    elif args.mode == "text":
         steps.append(("textlayer", cmd_textlayer, argparse.Namespace(workspace=str(ws), name=args.name, page_image=args.page_image)))
     elif args.mode == "substitute":
         steps.append(("substitute", cmd_substitute, argparse.Namespace(workspace=str(ws), font=args.font, name=args.name,
@@ -385,6 +416,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_rebuild(args: argparse.Namespace) -> int:
     """After corrections: segmentation through the output PDF again."""
     ws = str(args.workspace)
+    if args.mode == "plaintext":
+        return cmd_text(argparse.Namespace(workspace=ws, output=None, lines=False, no_page_markers=False, keep_heads=False))
     if args.mode == "text":
         return cmd_textlayer(argparse.Namespace(workspace=ws, name=args.name, page_image=args.page_image))
     cmd_segment(argparse.Namespace(workspace=ws, truth=None))
@@ -516,8 +549,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("run", help="every stage, scan to PDF")
     p.add_argument("input", help="scanned PDF or page image")
     p.add_argument("-o", "--output", help="workspace folder (default reports/work-<name>)")
-    p.add_argument("--mode", choices=["traced", "substitute", "text"], default="traced",
-                   help="text: just the scan with an invisible OCR text layer (no tracing)")
+    p.add_argument("--mode", choices=["traced", "substitute", "text", "plaintext"], default="traced",
+                   help="text: just the scan with an invisible OCR text layer (no tracing); "
+                        "plaintext: no PDF, the OCR text as a .txt file")
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
     p.add_argument("--lang", default="eng", help="OCR languages, e.g. eng or eng+grc (see: ectype languages)")
@@ -551,9 +585,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-scan", action="store_true", help="facsimile: don't place the scan on a hidden layer")
     p.set_defaults(func=cmd_idml)
 
+    p = sub.add_parser("text", help="export the OCR text as a plain text file: <workspace>/plaintext/<name>.txt")
+    p.add_argument("workspace")
+    p.add_argument("-o", "--output", help="the .txt path (default: beside the scan, with its name)")
+    p.add_argument("--lines", action="store_true", help="every line as printed, page by page (default: paragraphs, lines joined)")
+    p.add_argument("--no-page-markers", action="store_true", help="don't mark where each page begins ({p. 172 · PDF 90})")
+    p.add_argument("--keep-marks", action="store_true",
+                   help="keep vowel points, accents and breathings as read (default: removed, for searching)")
+    p.add_argument("--keep-heads", action="store_true", help="keep running heads and page numbers")
+    p.set_defaults(func=cmd_text)
+
+    p = sub.add_parser("text-files", help="make a text file beside each scan (a PDF or image) in folders, with its name")
+    p.add_argument("inputs", nargs="+", help="folders, or scans")
+    p.add_argument("--lang", default="eng", help="OCR languages, e.g. eng+grc+heb (see: ectype languages)")
+    p.add_argument("--recursive", action="store_true", help="also the folders inside the folders")
+    p.add_argument("--redo", action="store_true", help="make the text again for scans that have one Ectype wrote")
+    p.add_argument("--keep-marks", action="store_true",
+                   help="keep vowel points, accents and breathings as read (default: removed, for searching)")
+    p.add_argument("--keep", action="store_true", help="keep each book's work folder (page images, OCR) instead of deleting it")
+    p.set_defaults(func=cmd_text_files)
+
     p = sub.add_parser("rebuild", help="after corrections: segment, cluster, fonts and the PDF again")
     p.add_argument("workspace")
-    p.add_argument("--mode", choices=["traced", "substitute", "text"], default="traced")
+    p.add_argument("--mode", choices=["traced", "substitute", "text", "plaintext"], default="traced")
     p.add_argument("--page-image", choices=["gray", "lossless", "bw"], default="gray")
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
