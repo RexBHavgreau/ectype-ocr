@@ -37,7 +37,7 @@ from .project import Project
 PAGE_IMAGES = [("gray", "Page image: grayscale (JPEG)"), ("lossless", "Page image: grayscale, lossless (larger)"),
                ("bw", "Page image: black and white (smallest)")]
 MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
-         ("text", "Text layer only (the scan + OCR)")]
+         ("text", "Text layer only (the scan + OCR)"), ("plaintext", "Plain text only (no PDF)")]
 
 LOW_CONF = 70.0
 COLOURS = {"low": QColor(220, 40, 40), "suspect": QColor(232, 137, 12), "fixed": QColor(26, 152, 80),
@@ -847,7 +847,8 @@ class ReviewTab(QWidget):
             self.output.show_image(image)
         else:
             self.output.scene().clear()
-            self.output.scene().addText("Run to see the output here.")
+            self.output.scene().addText("Plain text mode makes no PDF." if self.project.settings.mode == "plaintext"
+                                        and not self.project.manuscript() else "Run to see the output here.")
         self.scan.fit()
         self.output.fit()
         self.edit.clear()
@@ -1771,6 +1772,94 @@ class FontTable(QTableWidget):
         return out
 
 
+class TextDialog(QDialog):
+    """Export text: paragraphs or lines as on the page, page markers, running heads. The choices
+    start from the project's saved ones."""
+
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export text")
+        layout = QVBoxLayout(self)
+        self.paragraphs = QRadioButton("Paragraphs (lines joined, hyphens removed)")
+        self.lines = QRadioButton("Lines as on the page")
+        group = QButtonGroup(self)
+        group.addButton(self.paragraphs)
+        group.addButton(self.lines)
+        (self.lines if settings.text_form == "lines" else self.paragraphs).setChecked(True)
+        self.markers = QCheckBox("Mark where each page begins, {p. 12 · PDF 14}")
+        self.markers.setChecked(settings.text_page_markers)
+        self.heads = QCheckBox("Keep running heads and page numbers")
+        self.heads.setChecked(settings.text_keep_heads)
+        self.marks = QCheckBox("Keep vowel points and accents (Hebrew, Greek) as printed")
+        self.marks.setToolTip("Off: the points, accents and breathings are taken off so a search finds the words; "
+                              "the letters stay.")
+        self.marks.setChecked(settings.text_keep_marks)
+        for w in (self.paragraphs, self.lines, self.markers, self.heads, self.marks):
+            layout.addWidget(w)
+        note = QLabel("The text is the OCR's, as corrected in Review, saved as UTF-8 (Word and Notepad open it "
+                      "with Hebrew and Greek intact).")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        buttons.addButton("Continue", QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def choices(self) -> dict:
+        return {"form": "lines" if self.lines.isChecked() else "paragraphs", "page_markers": self.markers.isChecked(),
+                "keep_heads": self.heads.isChecked(),
+                "keep_marks": self.marks.isChecked()}
+
+
+class TextFilesDialog(QDialog):
+    """Make text files for a folder of scans: the folder, its subfolders, redoing, the languages."""
+
+    def __init__(self, lang_names: str, folder: str = "", keep_marks: bool = False, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Make text files for a folder of scans")
+        self.resize(560, 260)
+        layout = QVBoxLayout(self)
+        intro = QLabel("A text file is made beside each scan (a PDF or page image) with the scan's name: "
+                       "Treatise 01.pdf gets Treatise 01.txt, with the page markers {p. 172 · PDF 90} to find the "
+                       "page in the PDF. Scans that have one are left alone; a text file Ectype didn't write is "
+                       "never overwritten.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        row = QHBoxLayout()
+        self.folder = QLineEdit(folder)
+        browse = QPushButton("Choose folder…")
+        browse.clicked.connect(self._browse)
+        row.addWidget(self.folder, 1)
+        row.addWidget(browse)
+        layout.addLayout(row)
+        self.recursive = QCheckBox("Include the folders inside it")
+        self.redo = QCheckBox("Make them again where Ectype already made one")
+        self.marks = QCheckBox("Keep vowel points and accents (Hebrew, Greek) as printed")
+        self.marks.setChecked(keep_marks)
+        layout.addWidget(self.recursive)
+        layout.addWidget(self.redo)
+        layout.addWidget(self.marks)
+        langs = QLabel(f"Languages read: {lang_names} (change them under Languages)")
+        langs.setWordWrap(True)
+        layout.addWidget(langs)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.go = buttons.addButton("Make text files", QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.folder.textChanged.connect(self._sync)
+        self._sync()
+
+    def _sync(self) -> None:
+        self.go.setEnabled(bool(self.folder.text().strip()) and Path(self.folder.text().strip()).is_dir())
+
+    def _browse(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "The folder of scans", self.folder.text())
+        if path:
+            self.folder.setText(path)
+
+
 class IdmlDialog(QDialog):
     """Reflow or facsimile, and their options, asked before anything is prepared (the layout,
     and for Facsimile the font matching, take a while; they used to come first, and a damaged
@@ -1800,7 +1889,7 @@ class IdmlDialog(QDialog):
         self.status = QLabel()
         self.status.setOpenExternalLinks(True)
         self.status.setWordWrap(True)
-        self.find = QPushButton("Find docx-to-idml…")
+        self.find = QPushButton("Find Ectype IDML…")
         self.find.setToolTip("Point to the docx-to-idml program (docx-to-idml-0.8.0.exe or later) if Ectype didn't find it")
         self.find.clicked.connect(self._find_converter)
         row = QHBoxLayout()
@@ -1861,22 +1950,22 @@ class IdmlDialog(QDialog):
             self.find.setVisible(False)
             return
         old = converter.too_old()
-        self.status.setText(f"The docx-to-idml found ({old.name}) is older than 0.8.0, which other programs need: "
+        self.status.setText(f"The converter found ({old.name}) is older than docx-to-idml 0.8.0, which other programs need: "
                             f'open it and update it, or <a href="{converter.DOWNLOAD}">download the latest</a>.' if old
-                            else "Ectype couldn't find docx-to-idml. Open it once (it then tells Ectype where it is), "
-                            f'point to it with Find docx-to-idml…, or <a href="{converter.DOWNLOAD}">download it</a>.')
+                            else "Ectype couldn't find Ectype IDML (formerly docx-to-idml). Open it once (it then tells Ectype where it is), "
+                            f'point to it with Find Ectype IDML…, or <a href="{converter.DOWNLOAD}">download it</a>.')
         self.find.setVisible(True)
 
     def _find_converter(self) -> None:
         from . import converter
 
-        path, _ = QFileDialog.getOpenFileName(self, "Find docx-to-idml", str(Path.home() / "Downloads"),
-                                              "docx-to-idml (docx-to-idml-*.exe);;Programs (*.exe)")
+        path, _ = QFileDialog.getOpenFileName(self, "Find Ectype IDML", str(Path.home() / "Downloads"),
+                                              "Ectype IDML (Ectype-IDML-*.exe docx-to-idml-*.exe);;Programs (*.exe)")
         if not path:
             return
         v = converter.version_of(Path(path))
         if v is not None and v < converter.MIN_VERSION:
-            QMessageBox.warning(self, "Find docx-to-idml", f"{Path(path).name} is older than 0.8.0, which other programs "
+            QMessageBox.warning(self, "Find Ectype IDML", f"{Path(path).name} is older than 0.8.0, which other programs "
                                 "need. Open it and update it, then point to the new copy.")
             return
         converter.remember(Path(path))
@@ -2366,6 +2455,8 @@ class MainWindow(QMainWindow):
         action("train", "Train OCR model…", self.train_model)
         action("export", "Export PDF…", self.export, "Ctrl+E")
         action("export_idml", "Export IDML…", self.export_idml)
+        action("export_text", "Export text…", self.export_text, "Ctrl+T")
+        action("text_files", "Make text files for a folder of scans…", self.make_text_files, button=False)
         from .gui_manuscript import ManuscriptReviewTab
 
         self.tabs = QTabWidget()
@@ -2408,6 +2499,9 @@ class MainWindow(QMainWindow):
         export_menu = self.menuBar().addMenu("&Export")
         export_menu.addAction(self.actions["export"])
         export_menu.addAction(self.actions["export_idml"])
+        export_menu.addAction(self.actions["export_text"])
+        export_menu.addSeparator()
+        export_menu.addAction(self.actions["text_files"])
         training_menu = self.menuBar().addMenu("&Training")
         training_menu.addAction(self.actions["train"])
         training_menu.addSeparator()
@@ -2526,7 +2620,9 @@ class MainWindow(QMainWindow):
         self.actions["train_fonts"].setEnabled(not self.project.manuscript())
         self.actions["train_book"].setEnabled(self.project.manuscript())
         self.actions["export"].setEnabled(has_pdf)
-        self.actions["export_idml"].setEnabled(any((self.project.workspace / "ocr").glob("*.ocr.json")))
+        has_ocr = any((self.project.workspace / "ocr").glob("*.ocr.json"))
+        self.actions["export_idml"].setEnabled(has_ocr)
+        self.actions["export_text"].setEnabled(has_ocr)
         if self.project.manuscript():
             n = self.project.manuscript_corrections()
             self.actions["train"].setText(f"Train OCR model ({n} lines)…" if n else "Train OCR model…")
@@ -2558,6 +2654,7 @@ class MainWindow(QMainWindow):
             self.project.save_settings()
         if settings.page_image not in dict(PAGE_IMAGES):
             settings.page_image = "gray"
+        self.page_image.setEnabled(self.project.manuscript() or settings.mode != "plaintext")  # no PDF, no page image
         bw_row = self.page_image.findData("bw")
         self.page_image.model().item(bw_row).setEnabled(bool(bw_ok))
         self.page_image.blockSignals(True)
@@ -2668,6 +2765,81 @@ class MainWindow(QMainWindow):
             return
         self._start(lambda progress: self.project.export_idml(Path(path), options, prepared, progress),
                     self._idml_done, "Exporting IDML")
+
+    def export_text(self) -> None:
+        """Choose what the text holds, then where to save it; the layout is built off the
+        interface thread."""
+        s = self.project.settings
+        dialog = TextDialog(s, self)
+        if not dialog.exec():
+            return
+        choices = dialog.choices()
+        default = str(self.project.text_destination()[0])
+        path, _ = QFileDialog.getSaveFileName(self, "Export text", default, "Text (*.txt)")
+        if not path:
+            return
+        s.text_form, s.text_page_markers, s.text_keep_heads = choices["form"], choices["page_markers"], choices["keep_heads"]
+        s.text_keep_marks = choices["keep_marks"]
+        self.project.save_settings()
+        self._start(lambda progress: self.project.write_text(Path(path)), self._text_done, "Exporting text")
+
+    def make_text_files(self) -> None:
+        """A text file beside every scan in a folder that has none (textfiles.py), through the
+        progress window; Stop works between pages, and a book stopped midway leaves no text."""
+        from .textfiles import make_text_files
+
+        scan = self.project.settings.source
+        dialog = TextFilesDialog(", ".join(languages.name(c) for c in self.project.languages()),
+                                 str(Path(scan).parent) if scan else "",
+                                 self.project.settings.text_keep_marks, self)
+        if not dialog.exec():
+            return
+        folder, lang = Path(dialog.folder.text().strip()), self.project.settings.lang
+        recursive, redo = dialog.recursive.isChecked(), dialog.redo.isChecked()
+        marks = dialog.marks.isChecked()
+        self.project.settings.text_keep_marks = marks
+        self.project.save_settings()
+        self._start(lambda progress: dict(make_text_files([folder], lang, recursive, redo, progress=progress, keep_marks=marks),
+                                          folder=str(folder)),
+                    self._text_files_done, "Making text files", measured=True)
+
+    def _text_files_done(self, result: dict) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from .textfiles import summary_text
+
+        text = summary_text(result)
+        self._log(text)
+        self.statusBar().showMessage(text.splitlines()[0])
+        box = QMessageBox(self)
+        box.setWindowTitle("Make text files")
+        box.setText(text.splitlines()[0])
+        box.setInformativeText("The text files are beside their scans." if result["done"] else "")
+        box.setDetailedText(text)
+        opener = box.addButton("Open folder", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if box.clickedButton() is opener:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(result["folder"]))
+
+    def _text_done(self, out: dict) -> None:
+        """Where the text went, and a way to open its folder."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        path = Path(out["text"])
+        self.statusBar().showMessage(f"Saved {path}")
+        self._log(f"Text saved: {path} ({out['chars']:,} characters, {out['paragraphs']} paragraphs, {out['notes']} notes)")
+        box = QMessageBox(self)
+        box.setWindowTitle("Export text")
+        box.setText(f"The text is saved:\n{path}")
+        box.setInformativeText(f"{out['pages']} pages, {out['chars']:,} characters.")
+        opener = box.addButton("Open folder", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if box.clickedButton() is opener:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
     def _idml_done(self, out: dict) -> None:
         """Where the IDML went (its own folder inside the one chosen), a way to open that folder,

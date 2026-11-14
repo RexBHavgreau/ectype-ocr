@@ -229,6 +229,35 @@ def test_converter_found_without_program_json(tmp_path, monkeypatch):
     assert converter.find_program().command == [str(elsewhere.resolve())], "the copy the user pointed to"
 
 
+def test_converter_found_under_its_new_name(tmp_path, monkeypatch):
+    """docx-to-idml became Ectype IDML at 1.0.0 (Ectype-IDML-X.Y.Z.exe, %APPDATA%\\Ectype IDML):
+    its program.json in the new folder comes first, the old folder's still counts, and a copy
+    under the new name is found in the usual places and is newer than any under the old one."""
+    from ectype import converter
+
+    monkeypatch.delenv("ECTYPE_DOCX2IDML", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "appdata"))
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "ectype"))
+    downloads = tmp_path / "Downloads"
+    (downloads / "Ectype IDML").mkdir(parents=True)
+    monkeypatch.setattr(converter, "search_places", lambda: [downloads])
+    (downloads / "docx-to-idml-0.9.0.exe").write_text("")
+    (downloads / "Ectype IDML" / "Ectype-IDML-1.1.0.exe").write_text("")
+    assert converter.version_of(Path("Ectype-IDML-1.1.0.exe")) == (1, 1, 0)
+    assert converter.find_program().command == [str(downloads / "Ectype IDML" / "Ectype-IDML-1.1.0.exe")]
+    old_dir, new_dir = tmp_path / "appdata" / "docx-to-idml", tmp_path / "appdata" / "Ectype IDML"
+    old_dir.mkdir(parents=True)
+    old_exe = downloads / "docx-to-idml-0.9.0.exe"
+    (old_dir / "program.json").write_text(json.dumps({"exe": str(old_exe), "version": "0.9.0", "api": 1}))
+    assert converter.find_program().command == [str(old_exe)], "the old folder's program.json"
+    new_dir.mkdir()
+    new_exe = tmp_path / "Ectype-IDML-1.2.0.exe"
+    new_exe.write_text("")
+    (new_dir / "program.json").write_text(json.dumps({"exe": str(new_exe), "version": "1.2.0", "api": 1}))
+    assert converter.find_program().command == [str(new_exe)], "the new folder's comes first"
+
+
 def test_project_prepares_idml_once(analysed):
     ws, _ = analysed
     project = Project(ws)

@@ -379,6 +379,49 @@ plan in it, not only the menus and crash recorder):
   first Manuscript Mode language) sets /Lang, Info Title/Producer/Creator, XMP and
   DisplayDocTitle; no tagging claimed.
 
+**0.9.0** (on the branch; plain text is a new feature, so a minor version; Beaux wants companion
+.txt files beside PDF scans so a search finds the right book and page):
+- *Plain text* (`plaintext.py`): `write_text(workspace, dest, layout, form, page_markers, keep_heads,
+  header, keep_marks)` walks the layout as `docx.write_docx` does (page order, a paragraph split by a
+  page break joined, headings alone, running heads and folios left out, notes gathered under "Notes"),
+  forms "paragraphs" and "lines". Words are `LWord.original` (new `raw` field, kept through
+  `join_lines`; `build_layout` still flattens ¹ ᵃ for Word/InDesign), in the OCR's order (logical, also
+  for right-to-left lines), no normalisation unless searching. UTF-8 with BOM, CRLF, `.part` then replace.
+  With `keep_heads` a paragraph is not joined across a page break (the heads stand between).
+  `build_layout` works with OCR only (checked on Treatise pages): no segmentation means no
+  size classes, so headings and notes-by-size are not found; notes by place still are.
+- *Markers* `{p. 172 · PDF 90}` / `{PDF 90}` (`page_marker`; PDF page from `pdf_pages`, which reads
+  `preprocess/preprocess.json`: a split spread's halves share a number; image scans have none and
+  fall back to docx's `{p. N}` / `{page N}`). On by default; same marker on notes and in lines form.
+- *Search form* (Beaux: the files are for machine searching): `search_form` removes Hebrew points
+  and accents, Greek accents and breathings, Syriac and Arabic vowel marks after letters of those
+  scripts (NFD first, NFC after), maqaf to a space; transliteration marks stay. On by default;
+  `Settings.text_keep_marks` / box "Keep vowel points and accents" / `--keep-marks` keep every
+  character as read. The OCR is unchanged; only the writing differs. The header says which.
+  Marks that belong only to those scripts (`_SCRIPT_MARKS`) go even with no letter before them:
+  the Treatise's OCR began a word with its points ("ִּמם" after a space). Tried on the 26
+  Treatise pages: 67 s for the folder command (eng+grc+heb), 62 page markers.
+- *Companion files*: first line `Ectype OCR text of "<scan>" (<langs>; …), <date>` marks a file as
+  Ectype's (`is_ours`); only such a file is overwritten (redo); any other .txt is never touched.
+  `Project.text_destination`: beside the scan with its name; if a foreign .txt is there, in
+  `<workspace>/plaintext/` (no second copy otherwise).
+- *App*: Export menu **Export text…** (Ctrl+T; `TextDialog`, choices kept in Settings, runs through
+  `_start`) and **Make text files for a folder of scans…** (`TextFilesDialog`, menu only);
+  mode "Plain text only (no PDF)" (`STAGES_PLAINTEXT`: preprocess, ocr, plaintext; `output_pdf()` is
+  None there, `run` returns the text file).
+- *Batch* (`textfiles.py`, `ectype text-files`): per scan, preprocess + OCR in a temporary
+  `user_data_dir()/work/<name>-<id>.ectype`, text written beside the scan, work folder deleted
+  (unless `--keep`); one failure doesn't stop the rest; Stop (`stopping.check()` in each page) leaves
+  no .txt for the book in hand (the file is written last, atomically).
+- *docx-to-idml is now Ectype IDML* (Beaux renamed it at its 1.0.0, 2026-11-13; repo
+  github.com/RexBHavgreau/ectype-idml, package `ectype_idml`, program `Ectype-IDML-X.Y.Z.exe`,
+  settings `%APPDATA%\Ectype IDML`, which it also writes the old folder's program.json to while
+  that exists). Ectype found only the old names, so Reflow would have lost it once the old folder
+  went; CI's Reflow test failed ("No module named docx2idml"). `converter.settings_dirs` (new
+  first), `EXE_NAME`/`EXE_GLOBS` take both names, "Find Ectype IDML…"; ci.yml clones ectype-idml
+  and runs `python -m ectype_idml` (the env names ECTYPE_DOCX2IDML* stay). Its `convert` command
+  (API 1) is unchanged.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
@@ -411,6 +454,10 @@ plan in it, not only the menus and crash recorder):
 - **Ectype will be shared with others** (Beaux, after 0.7.3): so it must be safe for people
   who didn't build it (checked downloads, nothing a web page or a shared project folder can
   exploit); Windows remains the only platform.
+- Not for now: an XML export (ThML, CCEL's format, or TEI) beside the companion text files
+  (Beaux, 0.9.0: the files are for their own searching, and XML wouldn't add to the .txt). Also
+  discussed then, not decided: a SQLite full-text index ("Search the library" in Ectype) and a
+  "Combine text files" command; offer them only if Beaux asks about searching again.
 - An English known text for Train from fonts: only a maybe (corrections already teach plain
   English; special characters are Transliteration's).
 

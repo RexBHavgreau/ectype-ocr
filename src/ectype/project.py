@@ -22,18 +22,19 @@ Progress = Callable[[str, str], None]  # (stage, message)
 STAGES_TRACED = ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
 STAGES_SUBSTITUTE = ["preprocess", "ocr", "segment", "substitute"]
 STAGES_TEXT = ["preprocess", "ocr", "textlayer"]
-STAGES = {"traced": STAGES_TRACED, "substitute": STAGES_SUBSTITUTE, "text": STAGES_TEXT}
+STAGES_PLAINTEXT = ["preprocess", "ocr", "plaintext"]  # no PDF: the OCR text as a .txt file (plaintext.py)
+STAGES = {"traced": STAGES_TRACED, "substitute": STAGES_SUBSTITUTE, "text": STAGES_TEXT, "plaintext": STAGES_PLAINTEXT}
 STAGES_MANUSCRIPT = ["preprocess", "read", "textlayer"]  # Kraken's lines read with the hands, a searchable PDF
 # Rough share of a run's time per stage, for the progress bar (OCR takes the most).
 STAGE_WEIGHT = {"preprocess": 12, "ocr": 50, "read": 75, "segment": 12, "cluster": 8, "fonts": 6, "traced": 12,
-                "substitute": 12, "textlayer": 10}
+                "substitute": 12, "textlayer": 10, "plaintext": 3}
 OUTPUT_FOLDER = {"traced": "traced", "substitute": "substitute", "text": "textlayer"}
 
 
 @dataclass
 class Settings:
     source: str = ""
-    mode: str = "traced"  # "traced", "substitute" or "text" (the scan with an invisible text layer)
+    mode: str = "traced"  # "traced", "substitute", "text" (the scan with an invisible text layer) or "plaintext" (no PDF)
     split_spreads: bool = True
     font: str = ""  # substitute mode; empty = default serif
     lang: str = "eng"  # Tesseract languages, e.g. "eng+grc"
@@ -45,6 +46,10 @@ class Settings:
     hands: dict = field(default_factory=dict)  # Manuscript Mode: language -> its hands (ids) to read with, in order
     hand_reading: str = "unsure"  # several hands: "every" line with every hand, or others only on "unsure" lines
     sample: list = field(default_factory=list)  # "Train for this book": the pages chosen to correct first
+    text_form: str = "paragraphs"  # Export text: "paragraphs" (lines joined) or "lines" (as on the page)
+    text_page_markers: bool = True  # Export text: "{p. 12 · PDF 14}" where each page begins
+    text_keep_heads: bool = False  # Export text: keep running heads and page numbers
+    text_keep_marks: bool = False  # Export text: keep vowel points and accents as read (else removed, for searching)
 
 
 class Project:
@@ -128,10 +133,52 @@ class Project:
         return OcrPage.from_json(json.loads(path.read_text(encoding="utf-8"))) if path.is_file() else None
 
     def output_pdf(self) -> Path | None:
+        if self.settings.mode == "plaintext" and not self.manuscript():
+            return None  # this mode makes no PDF
         folder = "textlayer" if self.manuscript() else OUTPUT_FOLDER.get(self.settings.mode, "traced")
         name = (self.settings.name or self.workspace.name) + ".pdf"
         path = self.workspace / folder / name
         return path if path.is_file() else None
+
+    def text_destination(self) -> tuple[Path, str]:
+        """Where the Plain text mode writes: beside the scan with its name (Treatise 01.pdf ->
+        Treatise 01.txt), unless a text file Ectype didn't write is already there; then in
+        <workspace>/plaintext/, with the reason. (No scan: there too.)"""
+        from .plaintext import companion, default_path, is_ours
+
+        fallback = default_path(self.workspace, self.settings.name or self.workspace.name)
+        if self.settings.source and Path(self.settings.source).parent.is_dir():
+            beside = companion(Path(self.settings.source))
+            if not beside.exists() or is_ours(beside):
+                return beside, ""
+            return fallback, f"{beside.name} is already there and wasn't written by Ectype, so the text is in {fallback}"
+        return fallback, ""
+
+    def output_text(self) -> Path | None:
+        """The plain text the Plain text mode's run wrote, if it is there."""
+        path = self.text_destination()[0]
+        return path if path.is_file() else None
+
+    def write_text(self, dest: Path | None = None, layout=None, form: str | None = None,
+                   page_markers: bool | None = None, keep_heads: bool | None = None,
+                   keep_marks: bool | None = None) -> dict:
+        """The book's OCR text (as corrected in Review) as a .txt file at dest (default
+        `text_destination`), in the saved text choices unless given, led by the line that marks it
+        as Ectype's (plaintext.header_line)."""
+        from .plaintext import header_line, write_text
+
+        s = self.settings
+        note = ""
+        if dest is None:
+            dest, note = self.text_destination()
+        scan = Path(s.source).name if s.source else (s.name or self.workspace.name)
+        keep = s.text_keep_marks if keep_marks is None else keep_marks
+        out = write_text(self.workspace, Path(dest), layout, form=form or s.text_form, keep_marks=keep,
+                         page_markers=s.text_page_markers if page_markers is None else page_markers,
+                         keep_heads=s.text_keep_heads if keep_heads is None else keep_heads,
+                         header=header_line(scan, s.lang, keep_marks=keep))
+        out["note"] = note
+        return out
 
     def corrected(self, page: str) -> set[tuple[int, int]]:
         path = self.workspace / "corrections" / f"{page}.json"
@@ -440,6 +487,10 @@ class Project:
                 out = build_workspace_fonts(ws, family=f"Ectype {s.name or ws.name}")
                 bad = [st["style"] for st in out["styles"] if st["validation"]["ots"] not in ("pass", "not installed")]
                 msg = f"{len(out['styles'])} fonts" + (f"; validation problems in styles {bad}" if bad else ", all valid")
+            elif stage == "plaintext":
+                out = self.write_text()
+                msg = (f"{out['chars']:,} characters, {out['paragraphs']} paragraphs, {out['notes']} notes: {out['text']}"
+                       + (f" ({out['note']})" if out["note"] else ""))
             elif stage == "textlayer":
                 from .textlayer import textlayer_workspace
 
@@ -460,7 +511,7 @@ class Project:
             progress(stage, msg)
             before += weight
             fraction(before / whole)
-        return self.output_pdf()
+        return self.output_text() if s.mode == "plaintext" and not self.manuscript() else self.output_pdf()
 
     # -- IDML ---------------------------------------------------------------------
 
