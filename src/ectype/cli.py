@@ -192,7 +192,9 @@ def cmd_idml(args: argparse.Namespace) -> int:
     options = IdmlOptions(mode=args.mode, include_scan=not args.no_scan, page_markers=args.page_markers,
                           check_below=0.0 if args.no_check_ocr else 70.0, profile=args.profile)
     try:
-        out = project.export_idml(dest, options, progress=lambda stage, msg: print(f"{stage}: {msg}"))
+        progress = _ConsoleProgress()
+        out = project.export_idml(dest, options, progress=progress)
+        progress.end_line()
     except ConverterMissing as exc:
         print(exc)
         return 1
@@ -204,10 +206,49 @@ def cmd_idml(args: argparse.Namespace) -> int:
     return 0
 
 
+class _ConsoleProgress:
+    """Progress for a console: stage messages as lines; ("fraction", "0.42") as one percentage
+    kept up to date on a single line (only in a terminal; left out when output goes to a file)."""
+
+    def __init__(self) -> None:
+        self.open = False
+
+    def __call__(self, stage: str, msg: str) -> None:
+        if stage == "fraction":
+            if sys.stdout.isatty():
+                try:
+                    print(f"\r  {float(msg) * 100:5.1f}% done", end="", flush=True)
+                    self.open = True
+                except ValueError:
+                    pass
+            return
+        self.end_line()
+        print(f"{stage}: {msg}", flush=True)
+
+    def end_line(self) -> None:
+        if self.open:
+            print(flush=True)
+            self.open = False
+
+
+def _language_note(lang: str) -> None:
+    from . import languages
+
+    names = ", ".join(languages.name(c) for c in languages.split(lang))
+    print(f"Reading in: {names} ({lang}). For a book in other languages give --lang, e.g. --lang spa "
+          "(Spanish) or --lang eng+grc+heb; `ectype languages --all` lists them.", flush=True)
+
+
 def cmd_text(args: argparse.Namespace) -> int:
     from .project import Project
 
     ws = Path(args.workspace)
+    if ws.is_file():  # a scan, not a project folder: its own project if it has one, else read it now
+        project = Project.for_scan(ws)
+        if not any((project.workspace / "ocr").glob("*.ocr.json")):
+            args.inputs, args.recursive, args.redo, args.keep = [str(ws)], False, True, False
+            return cmd_text_files(args)
+        ws = project.workspace
     project = Project(ws)
     dest = Path(args.output) if args.output else None
     out = project.write_text(dest, form="lines" if args.lines else "paragraphs", page_markers=not args.no_page_markers,
@@ -220,8 +261,16 @@ def cmd_text(args: argparse.Namespace) -> int:
 def cmd_text_files(args: argparse.Namespace) -> int:
     from .textfiles import make_text_files, summary_text
 
-    result = make_text_files([Path(i) for i in args.inputs], lang=args.lang, recursive=args.recursive, redo=args.redo,
-                             keep=args.keep, keep_marks=args.keep_marks, progress=lambda stage, msg: print(f"{stage}: {msg}", flush=True))
+    _language_note(args.lang)
+    progress = _ConsoleProgress()
+    try:
+        result = make_text_files([Path(i) for i in args.inputs], lang=args.lang, recursive=args.recursive,
+                                 redo=args.redo, keep=args.keep, keep_marks=args.keep_marks, progress=progress)
+    except ValueError as exc:  # a language not installed
+        progress.end_line()
+        print(exc)
+        return 2
+    progress.end_line()
     print(summary_text(result))
     return 1 if result["failed"] and not result["done"] else 0
 
@@ -474,8 +523,37 @@ def cmd_credits() -> int:
     return 1
 
 
+GUIDE = """\
+Each command has its own options (--lang, --page-markers, ...). To see them, put --help after
+the command:   ectype text --help      ectype text-files --help      ectype run --help
+
+Options go after the command and what it works on. Put a path with spaces in quotes.
+
+Examples:
+  Text files beside every scan in a folder (and its subfolders), read in Spanish:
+    ectype text-files "D:\\Library" --recursive --lang spa
+  A text file for one scan, read in English, Greek and Hebrew:
+    ectype text "D:\\Library\\Treatise.pdf" --lang eng+grc+heb
+  Keep Hebrew points and accents and Greek accents in the text:
+    ectype text-files "D:\\Library" --keep-marks
+  Make the text files again (only those Ectype made are replaced):
+    ectype text-files "D:\\Library" --redo --lang spa
+  A whole book, scan to PDF:
+    ectype run "D:\\Library\\Treatise.pdf" --lang eng+grc+heb
+  Languages: what is installed, what can be added, and adding some:
+    ectype languages      ectype languages --all      ectype languages --add spa lat
+
+Language codes join with +: eng (English), spa (Spanish), lat (Latin), grc (ancient Greek),
+heb (Hebrew), syr (Syriac), deu (German), fra (French), ita (Italian). Without --lang a scan is
+read as English.
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ectype", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="ectype", formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Ectype OCR from the command line. Type a command, then what it works on, then its options.",
+        epilog=GUIDE)
     parser.add_argument("--version", action="version", version=f"ectype {__version__}")
     parser.add_argument("--credits", action="store_true", help="show credits and exit")
     sub = parser.add_subparsers(dest="command")
@@ -585,8 +663,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-scan", action="store_true", help="facsimile: don't place the scan on a hidden layer")
     p.set_defaults(func=cmd_idml)
 
-    p = sub.add_parser("text", help="export the OCR text as a plain text file: <workspace>/plaintext/<name>.txt")
-    p.add_argument("workspace")
+    p = sub.add_parser("text", help="a text file of a book: from its project folder (corrections included), "
+                                    "or from a scan, read now (as text-files does for one scan)")
+    p.add_argument("workspace", help="a project folder, or a scan (PDF or page image)")
+    p.add_argument("--lang", default="eng", help="for a scan read now: OCR languages, e.g. spa or eng+grc+heb")
+    p.add_argument("--page-markers", action="store_true", help="mark where each page begins (the default)")
     p.add_argument("-o", "--output", help="the .txt path (default: beside the scan, with its name)")
     p.add_argument("--lines", action="store_true", help="every line as printed, page by page (default: paragraphs, lines joined)")
     p.add_argument("--no-page-markers", action="store_true", help="don't mark where each page begins ({p. 172 · PDF 90})")

@@ -422,6 +422,19 @@ plan in it, not only the menus and crash recorder):
   and runs `python -m ectype_idml` (the env names ECTYPE_DOCX2IDML* stay). Its `convert` command
   (API 1) is unchanged.
 
+**0.9.1** (fixes, from Beaux's first command-line use of 0.9.0 on a Spanish book):
+- *`ectype text "<book>.pdf" --page-markers` was refused*: `text` took only a project folder and
+  the markers had only `--no-page-markers` (my own example to Beaux was wrong). `text` now takes a
+  scan too (its `<scan>.ectype` project if it has readings, else read now as `text-files` does,
+  redo on) with `--lang`; `--page-markers` is accepted (the default).
+- *The console filled with "fraction: 0.0013" lines* (progress meant for the app's bar):
+  `cli._ConsoleProgress` shows one percentage updated in place, and only in a terminal.
+- *A Spanish book read as English* (no `--lang`; default eng): `text-files` says which languages
+  it reads in and how to choose others (`_language_note`); a language not installed is refused at
+  once with the command to add it (`textfiles.check_languages`).
+- *`ectype --help` didn't say commands have their own options* (Beaux: "I have no idea where to
+  put them"): `cli.GUIDE`, an epilog with how to get a command's options and worked examples.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

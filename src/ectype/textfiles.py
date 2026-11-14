@@ -87,12 +87,25 @@ def make_text_file(scan: Path, lang: str, keep: bool = False, keep_marks: bool =
                 pass
 
 
+def check_languages(lang: str) -> None:
+    """Refuse at once, in plain words, a language that isn't installed (rather than failing on
+    every book)."""
+    from . import languages
+
+    have = set(languages.installed())
+    missing = [c for c in languages.split(lang) if c not in have]
+    if missing:
+        names = ", ".join(f"{languages.name(c)} ({c})" for c in missing)
+        raise ValueError(f"Not installed: {names}. Add it first: ectype languages --add {' '.join(missing)}")
+
+
 def make_text_files(inputs: list[Path], lang: str = "eng", recursive: bool = False, redo: bool = False,
                     keep: bool = False, progress: Progress | None = None, keep_marks: bool = False) -> dict:
     """A text file beside every scan that has none. Returns {"done": [(scan, txt)], "skipped":
     [(scan, why)], "failed": [(scan, why)]}. `progress(stage, message)`: "books" lines, the stage
     lines of each book, and ("fraction", "0.42") for the whole."""
     progress = progress or (lambda stage, msg: None)
+    check_languages(lang)
     scans = find_scans(inputs, recursive)
     result: dict = {"done": [], "skipped": [], "failed": []}
     total = max(1, len(scans))

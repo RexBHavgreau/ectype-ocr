@@ -418,3 +418,29 @@ def test_search_form_drops_script_marks_with_no_letter_before_them():
 
     assert search_form("So after \u05b4\u05bcמם P") == "So after מם P"
     assert search_form("a\u0342 e\u0301") == "a é"
+
+
+def test_cli_text_of_a_scan_as_beaux_typed_it(tmp_path, capsys, monkeypatch):
+    """Beaux (0.9.0): `ectype text "<book>.pdf" --page-markers` was refused (text took only a
+    project folder, and markers are the default), and text-files filled the console with
+    "fraction: 0.0013" lines. Now `text` reads a scan with no project as text-files does, the
+    flag is accepted, and progress is a percentage on one line (none when not a terminal)."""
+    from ectype import cli
+
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    monkeypatch.setattr(textfiles, "work_root", lambda: tmp_path / "work")
+    pdf = _pdf(tmp_path / "Book.pdf", 1)
+    assert cli.main(["text", str(pdf), "--page-markers"]) == 0
+    out = capsys.readouterr().out
+    assert "fraction" not in out and "Reading in: English (eng)" in out
+    assert (tmp_path / "Book.txt").is_file() and plaintext.is_ours(tmp_path / "Book.txt")
+
+
+def test_cli_refuses_a_language_not_installed(tmp_path, capsys):
+    from ectype import cli
+
+    pdf = _pdf(tmp_path / "Libro.pdf", 2)
+    assert cli.main(["text-files", str(pdf), "--lang", "eng+xyz"]) == 2
+    out = capsys.readouterr().out
+    assert "Not installed:" in out and "ectype languages --add xyz" in out
+    assert not (tmp_path / "Libro.txt").exists()
