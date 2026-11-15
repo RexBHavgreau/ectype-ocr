@@ -508,6 +508,9 @@ plan in it, not only the menus and crash recorder):
   goes on); text/plaintext runs finish and say it; `text-files` lists such books in its summary
   ("NEEDS grc: …"). The Data folder window suggests D:\ProgramData when it exists (Beaux keeps
   program data there; a non-empty folder gets an "Ectype OCR" folder inside).
+- *`ectype textlayer "<book>.pdf" --lang …` was refused* (Beaux guessed the step's name):
+  `cli._as_run` (before argparse) turns `textlayer`/`traced`/`substitute` given a scan into
+  `run <scan> --mode text|traced|substitute`, saying so; given a project folder they are the steps.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

@@ -151,3 +151,16 @@ def test_the_app_run_stops_for_a_missing_language(tmp_path, monkeypatch):
         project.run(progress=lambda stage, msg: stages.append(stage))
     assert caught.value.codes == ["grc"] and "segment" not in stages
     project.run("segment")  # "Not now": the run goes on from there
+
+
+def test_a_pdf_making_step_given_a_scan_runs_it(tmp_path, capsys, monkeypatch):
+    """Beaux: `ectype textlayer "<book>.pdf" --lang eng+grc+heb+lat` was refused ("unrecognized
+    arguments"): textlayer is a step on a project folder. Given a scan it is now `run --mode text`."""
+    from ectype import cli
+
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    pdf = _pdf(tmp_path / "Treatise.pdf", 7)
+    assert cli._as_run(["textlayer", str(pdf), "--lang", "eng"]) == ["run", str(pdf), "--mode", "text", "--lang", "eng"]
+    assert cli._as_run(["textlayer", str(tmp_path / "Treatise.ectype")])[0] == "textlayer"  # a folder: the step
+    assert cli.main(["textlayer", str(pdf), "--lang", "eng"]) == 0
+    assert (tmp_path / "Treatise - OCR.pdf").is_file()

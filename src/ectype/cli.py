@@ -928,6 +928,7 @@ def main(argv: list[str] | None = None) -> int:
         if stream is not None and hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
     parser = build_parser()
+    argv = _as_run(list(sys.argv[1:] if argv is None else argv))
     args = parser.parse_args(argv)
     if args.credits:
         return cmd_credits()
@@ -947,6 +948,19 @@ def main(argv: list[str] | None = None) -> int:
         if os.environ.get("ECTYPE_DEBUG"):
             raise
         return _report_failure(args, exc)
+
+
+# The step that makes each kind of PDF, given a scan instead of a project folder, is taken as
+# `run` in that mode (Beaux, 0.11: `ectype textlayer "<book>.pdf" --lang …` was refused).
+STEP_MODES = {"textlayer": "text", "traced": "traced", "substitute": "substitute"}
+
+
+def _as_run(argv: list[str]) -> list[str]:
+    if len(argv) >= 2 and argv[0] in STEP_MODES and Path(argv[1]).is_file() and "--mode" not in argv:
+        mode = STEP_MODES[argv[0]]
+        print(f"(A scan, not a project folder: doing it as `ectype run … --mode {mode}`.)")
+        return ["run", argv[1], "--mode", mode, *argv[2:]]
+    return argv
 
 
 def _wrong_target(args: argparse.Namespace) -> str | None:
