@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from . import report, stamps
+from . import imagefiles, report, stamps
 from .ocr import OcrPage
 from .preprocess import binarize
 from .scripts import is_rtl
@@ -702,12 +702,12 @@ def _segment_one(png: Path, workspace: Path, truth_root: Path | None, force: boo
     gray = np.asarray(Image.open(png).convert("L"))
     if not force and seg_fresh(workspace, png.stem):
         seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
-        labels = cv2.imread(str(labels_path), cv2.IMREAD_UNCHANGED).astype(np.int32)
+        labels = imagefiles.imread(str(labels_path), cv2.IMREAD_UNCHANGED).astype(np.int32)
     else:
         seg_stamp_path(workspace, png.stem).unlink(missing_ok=True)  # until the result is whole again
         seg, labels = segment_page(gray, ocr)
         report.write_json(seg_path, seg.to_json())
-        cv2.imwrite(str(labels_path), labels.astype(np.uint16 if labels.max() < 65536 else np.uint32))
+        imagefiles.imwrite(str(labels_path), labels.astype(np.uint16 if labels.max() < 65536 else np.uint32))
         view = draw_overlay(gray, seg, labels)
         for b in no_ink_boxes(seg, ocr):
             cv2.rectangle(view, (b[0], b[1]), (b[2] - 1, b[3] - 1), (230, 30, 30), 2)

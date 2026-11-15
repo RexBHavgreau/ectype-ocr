@@ -23,7 +23,7 @@ import numpy as np
 import pikepdf
 from PIL import Image, ImageDraw, ImageFont
 
-from . import report
+from . import imagefiles, report
 
 DEFAULT_TEXT = """\
 Of the many questions which the reader of an old book must ask, the first is whether the page in hand says what its author wrote. A careful scan preserves the shape of every letter, but the text it carries cannot be searched, copied, or quoted until each figure on the page has been identified and tied to the ink that forms it.
@@ -190,7 +190,7 @@ def make_page(
     labels[clean > 160] = 0  # label only pixels that actually carry ink
     scan, transform = _degrade(clean, degrade, seed)
     Image.fromarray(clean).save(out_dir / "clean.png", dpi=(dpi, dpi))
-    cv2.imwrite(str(out_dir / "labels.png"), labels)
+    imagefiles.imwrite(str(out_dir / "labels.png"), labels)
     Image.fromarray(scan).save(out_dir / "scan.png", dpi=(dpi, dpi))
     _write_image_pdf(out_dir / "scan.pdf", scan, dpi, degrade.jpeg_quality)
 
@@ -239,7 +239,7 @@ def _stamp(labels: np.ndarray, font: ImageFont.FreeTypeFont, ch: str, x: float, 
 
 def scan_labels(out_dir: Path, truth: dict) -> np.ndarray:
     """The character label map carried onto scan.png with the page's degradation transform."""
-    labels = cv2.imread(str(Path(out_dir) / "labels.png"), cv2.IMREAD_UNCHANGED)
+    labels = imagefiles.imread(str(Path(out_dir) / "labels.png"), cv2.IMREAD_UNCHANGED)
     w, h = truth["size_px"]
     return cv2.warpAffine(labels, np.array(truth["transform"], np.float64), (w, h), flags=cv2.INTER_NEAREST, borderValue=0)
 

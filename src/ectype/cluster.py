@@ -36,7 +36,7 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import pdist
 from rapidfuzz import fuzz
 
-from . import report, stamps
+from . import imagefiles, report, stamps
 from .ocr import OcrPage
 from .segment import Segmentation, fit_baselines, line_x_heights
 
@@ -341,7 +341,7 @@ def _page_instances(png: Path, seg_path: Path, labels_path: Path, ocr: OcrPage) 
     instances: list[Instance] = []
     kernel = np.ones((3, 3), np.uint8)
     gray = np.asarray(Image.open(png).convert("L"))
-    labels = cv2.imread(str(labels_path), cv2.IMREAD_UNCHANGED).astype(np.int32)
+    labels = imagefiles.imread(str(labels_path), cv2.IMREAD_UNCHANGED).astype(np.int32)
     paper = float(np.percentile(gray, 90))
     text = labels > 0
     ink_level = float(np.percentile(gray[text], 5)) if text.any() else 0.0

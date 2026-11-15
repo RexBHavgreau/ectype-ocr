@@ -427,14 +427,19 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Every stage, scan to PDF, in one workspace."""
-    ws = Path(args.output) if args.output else _default_out("work", Path(args.input))
-    if args.mode == "plaintext":  # the project remembers the scan, so the text goes beside it
-        from .project import Project
+    """Every stage, scan to PDF, in the book's project folder (beside the scan, as the app has
+    it, unless -o), and the PDF copied beside the scan ("<name> - OCR.pdf")."""
+    from .project import Project, beside_scan
 
-        project = Project(ws, Path(args.input))
-        project.settings.mode = "plaintext"
-        project.set_languages(args.lang.split("+"))
+    scan = Path(args.input)
+    ws = Path(args.output) if args.output else scan.with_name(scan.stem + ".ectype")
+    args.name = args.name or scan.stem
+    project = Project(ws, scan)  # remembers the scan and the choices, so the app can open it
+    project.settings.mode = args.mode
+    project.settings.name = args.name
+    project.settings.page_image = args.page_image
+    project.set_languages(args.lang.split("+"))
+    project.save_settings()
     steps = [
         ("preprocess", cmd_preprocess, argparse.Namespace(input=args.input, output=str(ws), keep_spreads=args.keep_spreads,
                                                           overrides=args.overrides, pages=args.pages, no_deskew=False, dpi=300)),
@@ -444,7 +449,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         steps.append(("segment", cmd_segment, argparse.Namespace(workspace=str(ws), truth=None)))
     if args.mode == "plaintext":
         steps.append(("plaintext", cmd_text, argparse.Namespace(workspace=str(ws), output=None, lines=False,
-                                                                no_page_markers=False, keep_heads=False)))
+                                                                no_page_markers=False, keep_heads=False,
+                                                                keep_marks=False, lang=args.lang)))
     elif args.mode == "text":
         steps.append(("textlayer", cmd_textlayer, argparse.Namespace(workspace=str(ws), name=args.name, page_image=args.page_image)))
     elif args.mode == "substitute":
@@ -460,6 +466,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     for name, fn, ns in steps:
         print(f"== {name}")
         fn(ns)
+    pdf = Project(ws).output_pdf()
+    if pdf is not None:
+        print(f"PDF: {beside_scan(pdf, scan)}")
     return 0
 
 

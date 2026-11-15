@@ -43,7 +43,8 @@ def project(tmp_path_factory):
     p = Project.for_scan(_spread_pdf(root))
     stages, fractions = [], []
     p.run(progress=lambda stage, msg: stages.append(stage), fraction=fractions.append)
-    assert list(dict.fromkeys(stages)) == ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
+    assert list(dict.fromkeys(stages)) == ["preprocess", "ocr", "segment", "cluster", "fonts", "traced", "pdf"]
+    assert (root / "book - OCR.pdf").is_file(), "the PDF is put beside the scan"
     assert fractions[0] == 0 and fractions[-1] == 1 and fractions == sorted(fractions), "the progress bar only moves on"
     assert len(fractions) > 8, "page by page within stages"
     return p

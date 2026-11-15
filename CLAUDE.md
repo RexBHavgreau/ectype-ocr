@@ -444,6 +444,17 @@ plan in it, not only the menus and crash recorder):
   failure into "Ectype stopped: …" with the traceback in `<user folder>/logs/last-command-error.txt`
   (ECTYPE_DEBUG=1 shows it raw). The step commands are marked "(a step, on a project folder)" in
   `--help`, and GUIDE says which they are.
+- *Traced mode stopped on "Tratado de la Oración"* (Beaux, Windows): cv2.imread/imwrite take
+  the path in the old ANSI code page, so a path with ó returned None ("'NoneType' object has no
+  attribute 'astype'" in `cluster._page_instances`). Every OpenCV image read/write goes through
+  `imagefiles.imread/imwrite` (np.fromfile + cv2.imdecode; imencode + tofile through .part); a
+  test fails if cv2.imread/imwrite comes back. **Lesson**: never hand OpenCV a path on Windows.
+- *The PDF goes beside the scan* (Beaux: "The OCR'd PDF should just go next to the current one"):
+  `project.beside_scan` copies it as "<scan> - OCR.pdf" (never the scan; a same-named file
+  Ectype didn't make, judged by its Producer `made_by_ectype`, is kept and the next free name
+  taken), called by `Project.run` (the app; progress stage "pdf") and `ectype run`, whose project
+  folder is now `<scan>.ectype` beside the scan (was reports/work-…) with its settings saved, so
+  the app can open it. `run --mode plaintext` had crashed (cmd_text's new args); fixed, tested.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

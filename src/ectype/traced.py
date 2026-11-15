@@ -23,7 +23,7 @@ import numpy as np
 import pypdfium2 as pdfium
 from PIL import Image
 
-from . import report
+from . import imagefiles, report
 from .background import erase_text, smooth_paper
 from .fontbuild import UNITS_PER_EM, XH_UNITS, build_workspace_fonts
 from .ocr import OcrPage
@@ -146,7 +146,7 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
             continue
         seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
         ocr = OcrPage.from_json(json.loads(ocr_path.read_text(encoding="utf-8")))
-        labels = cv2.imread(str(workspace / "segment" / f"{name}.labels.png"), cv2.IMREAD_UNCHANGED).astype(np.int32)
+        labels = imagefiles.imread(str(workspace / "segment" / f"{name}.labels.png"), cv2.IMREAD_UNCHANGED).astype(np.int32)
         runs, drawn, placed, fallback = place_page(seg, ocr, cluster_by_page.get(name, {}), glyph_of)
         drawn_ids = {u.id for u in drawn}
         drawn_seg = Segmentation(seg.size_px, seg.components, [u for u in seg.units if u.id in drawn_ids], seg.unassigned)
@@ -157,7 +157,7 @@ def traced_workspace(workspace: Path, out_name: str | None = None, background_dp
         pages_out.append(PageSpec(w, h, dpi, background=background, background_dpi=background_dpi, lossless=lossless,
                                   runs=runs, fill_gray=round(ink_gray, 3)))
         text_only.append(PageSpec(w, h, dpi, runs=[r for r in runs if not r.invisible]))
-        cv2.imwrite(str(out / f"{name}.background.png"), background)
+        imagefiles.imwrite(str(out / f"{name}.background.png"), background)
         placed_all.append(placed)
         loaded.append((name, gray, dpi, ocr))
         rows.append({"page": name, "words": len(placed), "fallback": fallback,

@@ -52,6 +52,38 @@ class Settings:
     text_keep_marks: bool = False  # Export text: keep vowel points and accents as read (else removed, for searching)
 
 
+def made_by_ectype(pdf: Path) -> bool:
+    """True for a PDF Ectype wrote (its Producer, set since 0.8.0), so it may be replaced."""
+    import pikepdf
+
+    try:
+        with pikepdf.open(pdf) as doc:
+            return str(doc.docinfo.get("/Producer", "")).startswith("Ectype OCR")
+    except Exception:  # noqa: BLE001 - unreadable: not ours to replace
+        return False
+
+
+def beside_scan(pdf: Path, scan: Path) -> Path:
+    """Copy the finished PDF beside the scan as "<scan name> - OCR.pdf". The scan itself is never
+    touched, and a file of that name Ectype didn't make is kept: the copy then takes the next free
+    name ("… - OCR (2).pdf"). Written through a temporary file, so a failure leaves nothing half."""
+    import shutil
+
+    pdf, scan = Path(pdf), Path(scan)
+    n = 1
+    while True:
+        dest = scan.with_name(f"{scan.stem} - OCR{'' if n == 1 else f' ({n})'}.pdf")
+        if dest.resolve() != scan.resolve() and (not dest.exists() or made_by_ectype(dest)):
+            break
+        n += 1
+    if dest.resolve() == pdf.resolve():
+        return dest
+    part = dest.with_name(dest.name + ".part")
+    shutil.copyfile(pdf, part)
+    part.replace(dest)
+    return dest
+
+
 class Project:
     def __init__(self, workspace: Path, source: Path | None = None):
         self.workspace = Path(workspace)
@@ -511,7 +543,26 @@ class Project:
             progress(stage, msg)
             before += weight
             fraction(before / whole)
-        return self.output_text() if s.mode == "plaintext" and not self.manuscript() else self.output_pdf()
+        if s.mode == "plaintext" and not self.manuscript():
+            return self.output_text()
+        pdf = self.output_pdf()
+        placed = self.place_pdf(pdf) if pdf is not None else None
+        if placed is not None:
+            progress("pdf", f"saved beside the scan: {placed}")
+        return placed or pdf
+
+    def place_pdf(self, pdf: Path) -> Path | None:
+        """A copy of the finished PDF beside the scan (Beaux: "The OCR'd PDF should just go next
+        to the current one"), or None when there is no scan folder to put it in."""
+        if not self.settings.source:
+            return None
+        scan = Path(self.settings.source)
+        if not scan.parent.is_dir():
+            return None
+        try:
+            return beside_scan(pdf, scan)
+        except OSError:
+            return None
 
     # -- IDML ---------------------------------------------------------------------
 

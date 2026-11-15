@@ -21,7 +21,7 @@ import numpy as np
 import pypdfium2 as pdfium
 from PIL import Image
 
-from . import report
+from . import imagefiles, report
 from .background import erase_text, smooth_paper
 from .ocr import OcrPage
 from .pdfwrite import FontMetrics, GlyphRun, PageSpec, subset_font, workspace_meta, write_pdf
@@ -381,7 +381,7 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
         if ocr_path.is_file() and seg_path.is_file():
             ocr = OcrPage.from_json(json.loads(ocr_path.read_text(encoding="utf-8")))
             seg = Segmentation.from_json(json.loads(seg_path.read_text(encoding="utf-8")))
-            labels = cv2.imread(str(workspace / "segment" / f"{name}.labels.png"), cv2.IMREAD_UNCHANGED).astype(np.int32)
+            labels = imagefiles.imread(str(workspace / "segment" / f"{name}.labels.png"), cv2.IMREAD_UNCHANGED).astype(np.int32)
             text += ocr.text()
         else:
             ocr = seg = labels = None
@@ -472,7 +472,7 @@ def substitute_workspace(workspace: Path, font: Path, out_name: str | None = Non
         pages_out.append(PageSpec(w, h, dpi, background=background, background_dpi=background_dpi, lossless=lossless,
                                   runs=runs, fill_gray=round(ink_gray, 3)))
         text_only.append(PageSpec(w, h, dpi, runs=runs))
-        cv2.imwrite(str(out / f"{name}.background.png"), background)
+        imagefiles.imwrite(str(out / f"{name}.background.png"), background)
         all_placed.append(placed)
         rows.append({"page": name, "words": len(placed),
                      "size_pt": round(float(np.median([p.run.size_px for p in placed])) * 72 / dpi, 2) if placed else None,

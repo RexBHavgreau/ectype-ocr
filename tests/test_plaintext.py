@@ -478,3 +478,51 @@ def test_a_step_command_given_a_scan_says_what_to_use(tmp_path, capsys, monkeypa
     out = capsys.readouterr().out
     assert out.startswith("Ectype stopped: something broke") and "Traceback" not in out
     assert (tmp_path / "data" / "logs" / "last-command-error.txt").is_file()
+
+
+def test_cli_run_puts_the_pdf_beside_the_scan(tmp_path, capsys, monkeypatch):
+    """Beaux: "The OCR'd PDF should just go next to the current one." `ectype run` keeps its
+    project folder beside the scan (as the app does) and copies the PDF there as "<name> - OCR.pdf";
+    the scan is untouched, a file of that name Ectype didn't make is kept, a later run replaces
+    Ectype's own. The Plain text mode runs from the command line too."""
+    from ectype import cli
+    from ectype.project import Project, made_by_ectype
+
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    pdf = _pdf(tmp_path / "Libro.pdf", 3)
+    original = pdf.read_bytes()
+    assert cli.main(["run", str(pdf), "--mode", "text"]) == 0
+    out = tmp_path / "Libro - OCR.pdf"
+    assert out.is_file() and made_by_ectype(out) and pdf.read_bytes() == original
+    assert f"PDF: {out}" in capsys.readouterr().out
+    assert Project(tmp_path / "Libro.ectype").settings.mode == "text"
+    assert cli.main(["run", str(pdf), "--mode", "text"]) == 0  # Ectype's own copy is replaced
+    assert not (tmp_path / "Libro - OCR (2).pdf").exists()
+    out.write_bytes(b"%PDF-1.4 someone else's")  # not Ectype's: kept
+    assert cli.main(["run", str(pdf), "--mode", "text"]) == 0
+    assert out.read_bytes() == b"%PDF-1.4 someone else's" and made_by_ectype(tmp_path / "Libro - OCR (2).pdf")
+    assert cli.main(["run", str(pdf), "--mode", "plaintext"]) == 0
+    assert plaintext.is_ours(tmp_path / "Libro.txt")
+
+
+def test_images_are_read_and_written_whatever_letters_the_path_holds(tmp_path):
+    """Beaux (0.9.0, Windows): "Tratado de la Oración" stopped traced mode: cv2.imread can't open
+    a path with letters outside the old code page and returned None. Every image goes through
+    imagefiles, which opens the file in Python; no cv2.imread/imwrite is left in the program."""
+    import re
+
+    import numpy as np
+
+    from ectype import imagefiles
+
+    labels = (np.arange(60, dtype=np.uint16).reshape(6, 10) * 1000)
+    path = tmp_path / "Tratado de la Oración ܐ" / "p001.labels.png"
+    path.parent.mkdir()
+    assert imagefiles.imwrite(path, labels)
+    back = imagefiles.imread(path)
+    assert back.dtype == np.uint16 and (back == labels).all()
+    assert imagefiles.imread(tmp_path / "missing.png") is None
+    src = Path(imagefiles.__file__).parent
+    left = [f.name for f in src.glob("*.py") if f.name != "imagefiles.py"
+            and re.search(r"cv2\.im(read|write)\(", f.read_text(encoding="utf-8"))]
+    assert left == []
