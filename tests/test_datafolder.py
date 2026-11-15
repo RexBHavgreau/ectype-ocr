@@ -135,3 +135,20 @@ def test_gui_menu(home):
     w.close()
     w.deleteLater()
     app.processEvents()
+
+
+def test_progress_is_not_a_line_per_file(tmp_path, monkeypatch):
+    """Beaux's data is about 2 million small files: a progress line per file would flood the
+    app's Log and the console. Reports come at most about once a second, and the last one."""
+    from ectype import datafolder, resources
+
+    monkeypatch.delenv("ECTYPE_DATA_DIR", raising=False)
+    monkeypatch.setattr(resources, "default_data_dir", lambda: tmp_path / "default")
+    src = tmp_path / "default" / "pool"
+    src.mkdir(parents=True)
+    for k in range(300):
+        (src / f"line{k}.gt.txt").write_text(str(k), encoding="utf-8")
+    said = []
+    datafolder.move_data(tmp_path / "D" / "Ectype OCR", lambda stage, msg: said.append((stage, msg)))
+    copies = [m for s, m in said if s == "move" and m.startswith("copied")]
+    assert 1 <= len(copies) < 10 and copies[-1].startswith("copied 300 of 300 files")

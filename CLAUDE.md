@@ -462,6 +462,10 @@ plan in it, not only the menus and crash recorder):
   everything, checks sizes (bytes for files under 1 MB), writes the pointer, and only then deletes the old
   copies (files in use are left and listed; `crash/running-*.txt` are never copied). A failure or Stop before the
   pointer removes the partial copy. The app closes afterwards (paths were read at start).
+  Progress is reported at most once a second (`datafolder.EVERY`): Beaux's data is ~2 million small
+  files, and a line per file would flood the Log and the console. Before this, Beaux could move
+  it by hand: move the folder, `setx ECTYPE_DATA_DIR "D:\Ectype OCR"` (the mover then refuses, by
+  design, and says to remove that setting).
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

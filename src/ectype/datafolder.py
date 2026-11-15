@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 
 from . import resources, stopping
@@ -17,6 +18,7 @@ from . import resources, stopping
 MARGIN = 1 << 30  # room to spare on the new drive
 SMALL = 1 << 20  # files under this size are compared byte for byte
 GB = 1e9
+EVERY = 1.0  # seconds between progress reports: the data can be ~2 million small files
 
 
 def pointer_path() -> Path:
@@ -143,6 +145,7 @@ def move_data(dest: Path, progress=None) -> dict:
     copied: list[Path] = []
     n = len(entries)
     done_bytes = 0
+    last = 0.0
     try:
         dest.mkdir(parents=True, exist_ok=True)
         for i, (f, rel) in enumerate(entries, 1):
@@ -157,8 +160,11 @@ def move_data(dest: Path, progress=None) -> dict:
                 continue  # vanished since the count
             copied.append(target)
             done_bytes += target.stat().st_size
-            progress("move", f"copied {i:,} of {n:,} files, {done_bytes / GB:.1f} of {total / GB:.1f} GB")
-            progress("fraction", f"{(done_bytes / total if total else i / max(n, 1)) * 0.9:.4f}")
+            now = time.monotonic()
+            if now - last >= EVERY or i == n:  # not a line per file: that would flood the Log
+                last = now
+                progress("move", f"copied {i:,} of {n:,} files, {done_bytes / GB:.1f} of {total / GB:.1f} GB")
+                progress("fraction", f"{(done_bytes / total if total else i / max(n, 1)) * 0.9:.4f}")
         progress("move", "checking the copy")
         for f, rel in entries:
             stopping.check()
