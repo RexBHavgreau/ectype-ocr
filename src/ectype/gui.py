@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__, crashlog, languages, stopping, updates
-from .project import Project
+from .project import LanguagesMissing, Project, found_words
 
 PAGE_IMAGES = [("gray", "Page image: grayscale (JPEG)"), ("lossless", "Page image: grayscale, lossless (larger)"),
                ("bw", "Page image: black and white (smallest)")]
@@ -52,6 +52,7 @@ class Worker(QThread):
     done = Signal(str)
     failed = Signal(str)
     stopped = Signal()
+    languages_needed = Signal()  # read, and a script none of the languages reads: ask before going on
 
     def __init__(self, project: Project, start: str):
         super().__init__()
@@ -66,6 +67,8 @@ class Worker(QThread):
             self.done.emit(str(pdf or ""))
         except stopping.Stopped:
             self.stopped.emit()
+        except LanguagesMissing:
+            self.languages_needed.emit()
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -1477,7 +1480,8 @@ class DataFolderDialog(QDialog):
 
     def suggestion(self) -> str:
         if sys.platform == "win32" and Path("D:\\").exists() and not str(self.where).upper().startswith("D:"):
-            return "D:\\Ectype OCR"
+            # Beaux keeps program data in D:\ProgramData: offer that when it is there
+            return "D:\\ProgramData" if Path("D:\\ProgramData").is_dir() else "D:\\Ectype OCR"
         return str(self.where.parent)
 
     def choose(self) -> None:
@@ -3154,6 +3158,7 @@ class MainWindow(QMainWindow):
         self.worker.done.connect(self._finished)
         self.worker.failed.connect(self._failed)
         self.worker.stopped.connect(self._stopped)
+        self.worker.languages_needed.connect(self._languages_needed)
         self.worker.start()
 
     def _finished(self, pdf: str) -> None:
@@ -3167,14 +3172,26 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.review_stack)
         self.offer_languages()
 
-    def offer_languages(self) -> None:
+    def _languages_needed(self) -> None:
+        """The run stopped after reading: a script none of the languages reads. Offer the language
+        before the slow stages; if the person declines, go on with them."""
+        if self.worker is not None:
+            self.worker.wait()  # its run has ended; a new one may start
+        self._close_progress()
+        self._log("Stopped after reading: the book has words in a script the OCR languages don't read.")
+        self._enable()
+        self.offer_languages(otherwise=lambda: self.run("segment"))
+
+    def offer_languages(self, otherwise=None) -> None:
         """Words in a script none of the OCR languages covers (Greek or Hebrew in an English
-        book): offer to add the languages, downloading them if needed, and read the pages again."""
+        book): offer to add the languages, downloading them if needed, and read the pages again.
+        `otherwise`: what to do if the person declines (go on with the run that stopped)."""
         codes = self.project.language_suggestions()
         if not codes:
+            if otherwise:
+                otherwise()
             return
-        unread = self.project.unread_scripts()
-        found = ", ".join(f"{script} ({n} words)" for script, n in unread.items())
+        found = found_words(self.project.missing_languages()[1])
         names = ", ".join(languages.name(c) for c in codes)
         missing = [c for c in codes if c not in languages.installed()]
         box = QMessageBox(self)
@@ -3188,7 +3205,12 @@ class MainWindow(QMainWindow):
         box.exec()
         if box.clickedButton() is never:
             self.project.decline_languages(codes)
-        elif box.clickedButton() is add:
+            if otherwise:
+                otherwise()
+        elif box.clickedButton() is not add:  # "Not now"
+            if otherwise:
+                otherwise()
+        else:
             def work(progress):
                 if missing:
                     languages.download(missing, lambda code, got, total: progress(

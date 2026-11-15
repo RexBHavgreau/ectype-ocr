@@ -562,13 +562,40 @@ def _run_in(args: argparse.Namespace, scan: Path, ws: Path) -> int:
             ("traced", cmd_traced, argparse.Namespace(workspace=str(ws), name=args.name, background_dpi=150,
                                                            page_image=args.page_image)),
         ]
+    missing = None
     for name, fn, ns in steps:
         print(f"== {name}")
         fn(ns)
+        if name == "ocr":
+            missing = Project(ws).missing_languages()
+            if missing and args.mode in ("traced", "substitute") and not args.anyway:
+                print(_missing_message(args, scan, *missing, stopped=True))
+                return 3
     pdf = Project(ws).output_pdf()
     if pdf is not None:
         print(f"PDF: {beside_scan(pdf, scan)}")
+    if missing:  # text and plaintext runs finish (cheap), then say what to do
+        print(_missing_message(args, scan, *missing, stopped=False))
     return 0
+
+
+def _missing_message(args: argparse.Namespace, scan: Path, codes: list[str], found: dict[str, int],
+                     stopped: bool) -> str:
+    """Thomson's Athanasius read as English only went on for hours on misread Greek."""
+    from . import languages
+    from .project import found_words
+
+    lang = "+".join(dict.fromkeys(args.lang.split("+") + codes))
+    mode = f" --mode {args.mode}" if args.mode != "traced" else ""
+    lines = [("Stopped after reading the pages: " if stopped else "Note: ")
+             + f"this book has {found_words(found)} that {args.lang} doesn't read."]
+    absent = [c for c in codes if c not in languages.installed()]
+    if absent:
+        lines.append(f"  ectype languages --add {' '.join(absent)}")
+    lines.append(f'  ectype run "{scan}" --lang {lang}{mode}')
+    if stopped:
+        lines.append("Or, to go on without it anyway, run the same command with --anyway.")
+    return "\n".join(lines)
 
 
 def cmd_rebuild(args: argparse.Namespace) -> int:
@@ -745,6 +772,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("run", help="every stage, scan to PDF")
     p.add_argument("input", help="scanned PDF or page image")
     p.add_argument("-o", "--output", help="project folder (default: Ectype's projects folder; text and plaintext keep nothing)")
+    p.add_argument("--anyway", action="store_true",
+                   help="go on to the slow steps even if the book has a script the languages don't read")
     p.add_argument("--keep", action="store_true",
                    help="keep the project for correcting in Review (text and plaintext modes delete it otherwise)")
     p.add_argument("--mode", choices=["traced", "substitute", "text", "plaintext"], default="traced",

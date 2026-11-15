@@ -103,3 +103,51 @@ def test_free_space_lists_projects_and_keeps_them(tmp_path, data):
     freespace.remove_leftovers()
     freespace.remove_font_lines()
     assert (ws / "pages" / "p001.png").is_file()
+
+
+def test_a_run_stops_before_the_slow_steps_when_a_script_isnt_read(tmp_path, capsys, monkeypatch):
+    """Beaux (0.9.0): Thomson's Athanasius, Greek and English, read as English only, went on to
+    build 39,468 glyph styles and a fonts stage of hours. A traced run now stops after reading,
+    naming the language and the commands; --anyway goes on; a text run finishes and says so."""
+    from ectype import cli
+    from ectype.project import Project
+
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    monkeypatch.setattr(Project, "missing_languages", lambda self: (["grc"], {"Greek": 1416}))
+    pdf = _pdf(tmp_path / "Athanasius.pdf", 4)
+    assert cli.main(["run", str(pdf)]) == 3
+    out = capsys.readouterr().out
+    assert "== segment" not in out
+    assert "Stopped after reading the pages: this book has Greek (1,416 words) that eng doesn't read." in out
+    assert f'ectype run "{pdf}" --lang eng+grc' in out and "--anyway" in out
+    assert cli.main(["run", str(pdf), "--mode", "text"]) == 0
+    out = capsys.readouterr().out
+    assert "Note: this book has Greek (1,416 words)" in out and f'--lang eng+grc --mode text' in out
+    assert (tmp_path / "Athanasius - OCR.pdf").is_file()
+
+
+def test_the_folder_command_says_which_books_need_another_language(tmp_path, monkeypatch):
+    from ectype import textfiles
+    from ectype.project import Project
+
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    monkeypatch.setattr(Project, "missing_languages", lambda self: (["grc"], {"Greek": 1416}))
+    _pdf(tmp_path / "Athanasius.pdf", 5)
+    result = textfiles.make_text_files([tmp_path], lang="eng")
+    assert [s.name for s, _ in result["needs"]] == ["Athanasius.pdf"]
+    assert "NEEDS grc: Athanasius.pdf" in textfiles.summary_text(result)
+
+
+def test_the_app_run_stops_for_a_missing_language(tmp_path, monkeypatch):
+    import pytest
+
+    from ectype.project import LanguagesMissing, Project
+
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    monkeypatch.setattr(Project, "missing_languages", lambda self: (["grc"], {"Greek": 1416}))
+    project = Project.for_scan(_pdf(tmp_path / "Athanasius.pdf", 6))
+    stages = []
+    with pytest.raises(LanguagesMissing) as caught:
+        project.run(progress=lambda stage, msg: stages.append(stage))
+    assert caught.value.codes == ["grc"] and "segment" not in stages
+    project.run("segment")  # "Not now": the run goes on from there

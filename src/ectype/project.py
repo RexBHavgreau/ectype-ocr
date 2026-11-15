@@ -143,6 +143,20 @@ def _new_project_folder(scan: Path) -> Path:
     return projects_dir() / name
 
 
+class LanguagesMissing(Exception):
+    """The pages were read and hold a script none of the chosen languages reads (Greek in a book
+    read as English only): stop before the slow stages, which would build on misreadings (Beaux,
+    Thomson's Athanasius: 39,468 glyph "styles" and a fonts stage of hours)."""
+
+    def __init__(self, codes: list[str], found: dict[str, int]):
+        self.codes, self.found = codes, found
+        super().__init__("This book has " + found_words(found) + " that the chosen languages don't read.")
+
+
+def found_words(found: dict[str, int]) -> str:
+    return ", ".join(f"{script} ({n:,} words)" for script, n in found.items())
+
+
 class Project:
     def __init__(self, workspace: Path, source: Path | None = None):
         self.workspace = Path(workspace)
@@ -441,6 +455,16 @@ class Project:
         return [lang for lang in suggest(self.unread_scripts(), self.languages(), pages)
                 if lang not in self.settings.declined_languages]
 
+    def missing_languages(self) -> tuple[list[str], dict[str, int]] | None:
+        """(languages to add, {script: words} they would read), or None when nothing is missing."""
+        from .scripts import SUGGEST
+
+        codes = self.language_suggestions()
+        if not codes:
+            return None
+        found = {script: n for script, n in self.unread_scripts().items() if SUGGEST.get(script) in codes}
+        return codes, found
+
     def decline_languages(self, codes: list[str]) -> None:
         self.settings.declined_languages = sorted(set(self.settings.declined_languages) | set(codes))
         self.save_settings()
@@ -561,6 +585,11 @@ class Project:
                     msg += f"; words in scripts the OCR languages don't cover: {found}"
                     if out["suggest_languages"]:
                         msg += "; add " + ", ".join(name(c) for c in out["suggest_languages"])
+                if s.mode in ("traced", "substitute") and not self.manuscript():
+                    missing = self.missing_languages()
+                    if missing:
+                        progress(stage, msg)
+                        raise LanguagesMissing(*missing)
             elif stage == "read":
                 from . import updates
                 from .manuscript import read_workspace

@@ -497,6 +497,17 @@ plan in it, not only the menus and crash recorder):
 - *Free up space* lists "Book projects" with their size and never removes them
   (`freespace.report()["projects"]`). tests/conftest.py points ECTYPE_DATA_DIR at a throwaway
   folder for the whole test session.
+- *Wrong languages caught early* (Beaux: Thomson's Athanasius, Greek and English facing pages,
+  run with no --lang: misread Greek made 39,468 glyph "styles", and the fonts stage would have
+  taken hours; Russian, Arabic and Hindi were also suggested). `scripts.suggest` offers the most
+  frequent missing script and any other found at least half as often (`DOMINANT`): misread Greek
+  also counts as Cyrillic/Arabic/Devanagari. After OCR, traced and substitute runs raise
+  `project.LanguagesMissing` (`Project.missing_languages`) before segment: the app's Worker emits
+  `languages_needed`, the window offers the language (`offer_languages(otherwise=...)`: Not now /
+  Not for this book go on from "segment"); `ectype run` stops with the commands (exit 3; `--anyway`
+  goes on); text/plaintext runs finish and say it; `text-files` lists such books in its summary
+  ("NEEDS grc: …"). The Data folder window suggests D:\ProgramData when it exists (Beaux keeps
+  program data there; a non-empty folder gets an "Ectype OCR" folder inside).
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
