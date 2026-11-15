@@ -456,3 +456,25 @@ def test_a_tesseract_failure_is_said_in_plain_words():
     assert said.startswith("Tesseract has no reading data for Spanish (spa)") and "ectype languages --add spa" in said
     assert tesseract_failure("Error in pixReadStream\nImage file cannot be read\n", "eng") == \
         "Tesseract failed: Error in pixReadStream Image file cannot be read"
+
+
+def test_a_step_command_given_a_scan_says_what_to_use(tmp_path, capsys, monkeypatch):
+    """Beaux (0.9.0): `ectype ocr "<book>.pdf" --lang spa` ended in a Python traceback. A step
+    command given a scan says what to use instead; any other failure is one line and a file."""
+    from ectype import cli
+
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
+    pdf = tmp_path / "Libro.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    assert cli.main(["ocr", str(pdf), "--lang", "spa"]) == 2
+    out = capsys.readouterr().out
+    assert "works on a book's project folder" in out and f'ectype text "{pdf}" --lang spa' in out
+    assert "Traceback" not in out
+    assert cli.main(["ocr", str(tmp_path / "missing")]) == 2
+    assert "No such folder" in capsys.readouterr().out
+    (tmp_path / "empty.ectype").mkdir()
+    monkeypatch.setattr(cli, "cmd_ocr", lambda args: (_ for _ in ()).throw(RuntimeError("something broke")))
+    assert cli.main(["ocr", str(tmp_path / "empty.ectype")]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("Ectype stopped: something broke") and "Traceback" not in out
+    assert (tmp_path / "data" / "logs" / "last-command-error.txt").is_file()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -543,6 +544,9 @@ Examples:
   Languages: what is installed, what can be added, and adding some:
     ectype languages      ectype languages --all      ectype languages --add spa lat
 
+preprocess, ocr, segment, cluster, fonts, traced, substitute and textlayer are single steps on a
+book's project folder (the .ectype folder Ectype makes); for a scan use text, text-files or run.
+
 Language codes join with +: eng (English), spa (Spanish), lat (Latin), grc (ancient Greek),
 heb (Hebrew), syr (Syriac), deu (German), fra (French), ita (Italian). Without --lang a scan is
 read as English.
@@ -577,7 +581,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="register B onto A: best quarter turn, then affine fit (for turned, deskewed or rescaled output such as Acrobat's)")
     p.set_defaults(func=cmd_compare)
 
-    p = sub.add_parser("preprocess", help="orient, split spreads and deskew a scan into one image per book page")
+    p = sub.add_parser("preprocess", help="(a step, on a project folder) orient, split spreads and deskew a scan into one image per book page")
     p.add_argument("input", help="scanned PDF or page image")
     p.add_argument("-o", "--output", help="workspace folder (default reports/work-<name>); pages go to <workspace>/pages")
     p.add_argument("--keep-spreads", action="store_true", help="don't split two-page spreads")
@@ -587,18 +591,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dpi", type=float, default=300, help="render resolution for pages that aren't a single image")
     p.set_defaults(func=cmd_preprocess)
 
-    p = sub.add_parser("ocr", help="OCR <workspace>/pages into <workspace>/ocr")
+    p = sub.add_parser("ocr", help="(a step, on a project folder) OCR <workspace>/pages into <workspace>/ocr")
     p.add_argument("workspace")
     p.add_argument("--engine", default="tesseract", help="tesseract (default) or kraken")
     p.add_argument("--lang", help="engine language(s), e.g. eng or eng+grc (default: the project's, else eng)")
     p.set_defaults(func=cmd_ocr)
 
-    p = sub.add_parser("segment", help="tie OCR characters to their ink: <workspace>/segment")
+    p = sub.add_parser("segment", help="(a step, on a project folder) tie OCR characters to their ink: <workspace>/segment")
     p.add_argument("workspace")
     p.add_argument("--truth", help="synthetic truth folder (default <workspace>/truth if present)")
     p.set_defaults(func=cmd_segment)
 
-    p = sub.add_parser("substitute", help="build the substitute-mode PDF: <workspace>/substitute")
+    p = sub.add_parser("substitute", help="(a step, on a project folder) build the substitute-mode PDF: <workspace>/substitute")
     p.add_argument("workspace")
     p.add_argument("--font", help="font file or family name (default: EB Garamond, else a system serif)")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
@@ -606,18 +610,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--page-image", choices=["gray", "lossless"], default="gray", help="background as JPEG, or without loss (full resolution, larger)")
     p.set_defaults(func=cmd_substitute)
 
-    p = sub.add_parser("cluster", help="group glyphs by style and average them: <workspace>/cluster")
+    p = sub.add_parser("cluster", help="(a step, on a project folder) group glyphs by style and average them: <workspace>/cluster")
     p.add_argument("workspace")
     p.add_argument("--threshold", type=float, default=0.25, help="shape distance (1 - correlation) that splits a group")
     p.set_defaults(func=cmd_cluster)
 
-    p = sub.add_parser("fonts", help="trace composites and build one font per style: <workspace>/fonts")
+    p = sub.add_parser("fonts", help="(a step, on a project folder) trace composites and build one font per style: <workspace>/fonts")
     p.add_argument("workspace")
     p.add_argument("--family", help="font family name (default: Ectype <workspace>)")
     p.add_argument("--threshold", type=float, default=0.45, help="coverage at which a composite pixel counts as ink")
     p.set_defaults(func=cmd_fonts)
 
-    p = sub.add_parser("traced", help="build the traced-mode PDF: <workspace>/traced")
+    p = sub.add_parser("traced", help="(a step, on a project folder) build the traced-mode PDF: <workspace>/traced")
     p.add_argument("workspace")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
     p.add_argument("--background-dpi", type=float, default=150)
@@ -640,7 +644,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
     p.set_defaults(func=cmd_run)
 
-    p = sub.add_parser("textlayer", help="build the text-layer PDF (the scan + invisible OCR text): <workspace>/textlayer")
+    p = sub.add_parser("textlayer", help="(a step, on a project folder) build the text-layer PDF (the scan + invisible OCR text): <workspace>/textlayer")
     p.add_argument("workspace")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
     p.add_argument("--page-image", choices=["gray", "lossless", "bw"], default="gray",
@@ -775,7 +779,55 @@ def main(argv: list[str] | None = None) -> int:
     if not args.command:
         parser.print_help()
         return 2
-    return args.func(args)
+    refusal = _wrong_target(args)
+    if refusal:
+        print(refusal)
+        return 2
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+        return 130
+    except Exception as exc:  # said in a line, with the details kept in a file, not a Python traceback
+        if os.environ.get("ECTYPE_DEBUG"):
+            raise
+        return _report_failure(args, exc)
+
+
+def _wrong_target(args: argparse.Namespace) -> str | None:
+    """A step command given a scan instead of a book's project folder (Beaux, 0.9.0: `ectype ocr
+    "<book>.pdf"` ended in a Python traceback), or a project folder that isn't there."""
+    ws = getattr(args, "workspace", None)
+    if not ws or args.command == "text":
+        return None
+    path = Path(ws)
+    if path.is_file():
+        return (f"`ectype {args.command}` works on a book's project folder (the folder Ectype makes for it), "
+                f"not on a scan.\nFor a scan, use:\n"
+                f'  ectype text "{path}" --lang spa        (a text file beside it)\n'
+                f'  ectype run "{path}" --lang spa         (a PDF; its project folder is "{path.stem}.ectype" '
+                f"beside it)\nPut the book's languages after --lang (eng, spa, lat, grc, heb, … joined with +).")
+    if not path.exists():
+        return f"No such folder: {path}"
+    return None
+
+
+def _report_failure(args: argparse.Namespace, exc: BaseException) -> int:
+    import traceback
+
+    from .resources import user_data_dir
+
+    message = str(exc).strip().splitlines()[-1] if str(exc).strip() else type(exc).__name__
+    print(f"Ectype stopped: {message}")
+    try:
+        log = user_data_dir() / "logs" / "last-command-error.txt"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text(f"ectype {' '.join(sys.argv[1:])}\n\n" + "".join(traceback.format_exception(exc)),
+                       encoding="utf-8", newline="\n")
+        print(f"The details are in {log} (send that file if you need help).")
+    except OSError:
+        pass
+    return 1
 
 
 if __name__ == "__main__":

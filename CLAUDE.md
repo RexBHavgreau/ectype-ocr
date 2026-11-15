@@ -438,6 +438,12 @@ plan in it, not only the menus and crash recorder):
   installed, "returned non-zero exit status 1"): `TesseractEngine.recognize` no longer uses
   `check=True`; `ocr.tesseract_failure` says a missing language in plain words with the command
   to add it, else Tesseract's own last lines (`EngineUnavailable`).
+- *`ectype ocr "<book>.pdf"` ended in a Python traceback* (Beaux: the step commands take a
+  project folder): `cli._wrong_target` refuses a scan given to a command that takes a workspace
+  (all but `text`) and says to use `text`/`run`, and a missing folder; `cli.main` turns any other
+  failure into "Ectype stopped: …" with the traceback in `<user folder>/logs/last-command-error.txt`
+  (ECTYPE_DEBUG=1 shows it raw). The step commands are marked "(a step, on a project folder)" in
+  `--help`, and GUIDE says which they are.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
