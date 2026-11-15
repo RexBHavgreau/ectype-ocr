@@ -32,7 +32,7 @@ Kraken, the second engine, is optional: `pip install torch --index-url https://d
 ectype gui [scan.pdf | project folder]       # or: ectype-gui
 ```
 
-Choose **Select PDF…** to pick the scanned book (a PDF, or page images), then press **Run**. The toolbar shows the selected PDF and its page count, and the Spreads tab previews it until it has been read. The project folder is created beside the scan (`<scan>.ectype/`). The toolbar chooses what Run makes:
+Choose **Select PDF…** to pick the scanned book (a PDF, or page images), then press **Run**. The toolbar shows the selected PDF and its page count, and the Spreads tab previews it until it has been read. The book's project folder (page images, readings, corrections) is kept in Ectype's data folder (`projects/`, which moves with it if you move the data folder); only the results, such as the PDF, go beside the scan. A project made by an earlier version beside the scan is still used. The toolbar chooses what Run makes:
 - **Traced:** fonts traced from the scan.
 - **Substitute:** a real font in place of the scan's type.
 - **Text layer only:** the scan with invisible, searchable OCR text over it. This is the fastest, with no glyph tracing. Its page image can be grayscale, or black and white for the smallest file.
@@ -69,10 +69,10 @@ Everything the app does is also available on the command line.
 All reports are written to `reports/`, which git ignores.
 
 ```
-ectype run scan.pdf [-o workspace] [--mode traced|substitute] [--font …]
+ectype run scan.pdf [-o workspace] [--mode traced|substitute] [--font …] [--keep]
 ```
 
-This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute. `--mode text` runs just preprocess, ocr and the text layer (`--page-image gray|bw`); `--mode plaintext` runs preprocess, ocr and writes the text file beside the scan. `--lang eng+grc` sets the OCR languages.
+This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute. `--mode text` runs just preprocess, ocr and the text layer (`--page-image gray|bw`); `--mode plaintext` runs preprocess, ocr and writes the text file beside the scan. Text and plaintext runs work in a temporary folder and keep nothing but the result (`--keep` keeps the project for Review); traced and substitute runs keep their project in Ectype's projects folder. `--lang eng+grc` sets the OCR languages.
 
 ```
 ectype languages [--all]              # installed OCR languages (--all: and those that can be added)

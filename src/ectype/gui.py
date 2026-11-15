@@ -1378,6 +1378,11 @@ class FreeSpaceDialog(QDialog):
                   "when needed", r["cache"]["bytes"], "cache", None, True)
         self._add(f"Leftovers of stopped runs: {r['leftovers']['bytes'] / 1e9:.1f} GB", r["leftovers"]["bytes"],
                   "leftovers", None, True)
+        books = r.get("projects", {"bytes": 0, "folders": 0})
+        projects = QLabel(f"Book projects: {books['bytes'] / 1e9:.1f} GB in {books['folders']} books — your books' "
+                          "projects, with their corrections: not removed here")
+        projects.setWordWrap(True)
+        self.layout_.addWidget(projects)
         synthetic = {lang: by["synthetic"] for lang, by in r["pool"].items() if by["synthetic"]["lines"]}
         if synthetic:
             self.layout_.addWidget(QLabel("<b>Lines set from fonts</b>"))

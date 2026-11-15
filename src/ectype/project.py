@@ -9,6 +9,7 @@ file `ectype preprocess --overrides` reads.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -84,6 +85,64 @@ def beside_scan(pdf: Path, scan: Path) -> Path:
     return dest
 
 
+def projects_dir() -> Path:
+    """Where the book projects are kept: in Ectype's data folder (moves with it), so the folders
+    of scans hold only results."""
+    from .resources import user_data_dir
+
+    return user_data_dir() / "projects"
+
+
+def _scan_key(scan: Path) -> str:
+    return os.path.normcase(str(Path(scan).resolve()))
+
+
+def _read_index() -> dict[str, str]:
+    path = projects_dir() / "index.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in data.items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _write_index(index: dict[str, str]) -> None:
+    folder = projects_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    part = folder / "index.json.part"
+    part.write_text(json.dumps(index, indent=1, ensure_ascii=False), encoding="utf-8")
+    part.replace(folder / "index.json")
+
+
+def find_for_scan(scan: Path) -> Path | None:
+    """The scan's existing project folder (an older one beside the scan, else the one in the
+    projects folder), or None. Creates nothing."""
+    scan = Path(scan)
+    beside = scan.with_name(scan.stem + ".ectype")
+    if (beside / "project.json").is_file():
+        return beside
+    name = _read_index().get(_scan_key(scan))
+    if name and (projects_dir() / name).is_dir():
+        return projects_dir() / name
+    return None
+
+
+def _new_project_folder(scan: Path) -> Path:
+    """A new folder in the projects folder named for the scan ("<name> (2).ectype" if another
+    scan's project has the name), recorded in the index."""
+    index = _read_index()
+    taken = set(index.values())
+    n = 1
+    while True:
+        name = f"{scan.stem}{'' if n == 1 else f' ({n})'}.ectype"
+        if name not in taken and not (projects_dir() / name).exists():
+            break
+        n += 1
+    index[_scan_key(scan)] = name
+    _write_index(index)
+    return projects_dir() / name
+
+
 class Project:
     def __init__(self, workspace: Path, source: Path | None = None):
         self.workspace = Path(workspace)
@@ -97,9 +156,15 @@ class Project:
 
     @classmethod
     def for_scan(cls, scan: Path) -> "Project":
-        """A project whose workspace sits beside the scan: <scan name>.ectype/."""
+        """The scan's project: an older one beside the scan keeps working; otherwise the one
+        recorded in Ectype's projects folder, or a new folder there (see `find_for_scan`)."""
         scan = Path(scan)
-        return cls(scan.with_name(scan.stem + ".ectype"), scan)
+        found = find_for_scan(scan)
+        return cls(found if found is not None else _new_project_folder(scan), scan)
+
+    @staticmethod
+    def find_for_scan(scan: Path) -> Path | None:
+        return find_for_scan(scan)
 
     # -- settings and overrides -------------------------------------------------
 

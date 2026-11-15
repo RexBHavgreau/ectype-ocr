@@ -479,6 +479,25 @@ plan in it, not only the menus and crash recorder):
   Corrections, aligned and confident lines, models, texts and settings are never touched.
   Progress is throttled to once a second (millions of files).
 
+**0.11.0** (on the branch; book projects leave the scans' folders):
+- *Projects in the data folder* (Beaux keeps scans in library folders such as D:\Library and doesn't
+  want `.ectype` folders there; they asked for "a folder in the same directory as the Ectype
+  app", which is Program Files: Windows doesn't let programs write there and updates replace
+  it, so they go in the data folder instead, and Beaux was told). `project.projects_dir()` =
+  `user_data_dir()/projects`, so Data folder… moves them with everything else.
+  `Project.for_scan`: an older `<scan>.ectype` beside the scan (with project.json) is used as
+  before, never moved; else the folder named in `projects/index.json` (scan's resolved path,
+  `os.path.normcase` -> folder name); else a new `<stem>.ectype` (`<stem> (2).ectype` … if another
+  scan's project has the name), indexed. `Project.find_for_scan` looks without creating (used by
+  `ectype text`). Only results (PDF "<name> - OCR.pdf", .txt) go beside the scan.
+- *Results-only runs keep nothing*: `ectype run --mode text|plaintext` works in a temporary folder
+  under `textfiles.work_root()` and deletes it (try/finally, so also on failure or Ctrl+C) unless
+  `--keep` (then it is the book's project in `projects/`, openable in Review) or `-o`. Traced and
+  substitute keep their project. A stopped text run starts over (cheap).
+- *Free up space* lists "Book projects" with their size and never removes them
+  (`freespace.report()["projects"]`). tests/conftest.py points ECTYPE_DATA_DIR at a throwaway
+  folder for the whole test session.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

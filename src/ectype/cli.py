@@ -250,6 +250,8 @@ def cmd_free_space(args: argparse.Namespace) -> int:
         print(f"Ectype's data is in {r['folder']} ({_gb(r['total']['bytes'])} in all)")
         print(f"  Prepared copies of training lines: {_gb(r['cache']['bytes'])} (made again when needed)   [--cache]")
         print(f"  Leftovers of stopped runs: {_gb(r['leftovers']['bytes'])}   [--cache]")
+        print(f"  Book projects: {_gb(r['projects']['bytes'])} in {r['projects']['folders']} books "
+              "(your books' projects, with their corrections: not removed here)")
         for lang, by in r["pool"].items():
             synth, corr = by["synthetic"], by["correction"]
             print(f"  {lang}: lines set from fonts {synth['lines']:,} ({_gb(synth['bytes'])})   [--font-lines {lang}];"
@@ -316,11 +318,11 @@ def cmd_text(args: argparse.Namespace) -> int:
 
     ws = Path(args.workspace)
     if ws.is_file():  # a scan, not a project folder: its own project if it has one, else read it now
-        project = Project.for_scan(ws)
-        if not any((project.workspace / "ocr").glob("*.ocr.json")):
+        found = Project.find_for_scan(ws)  # looking never makes a project folder
+        if found is None or not any((found / "ocr").glob("*.ocr.json")):
             args.inputs, args.recursive, args.redo, args.keep = [str(ws)], False, True, False
             return cmd_text_files(args)
-        ws = project.workspace
+        ws = found
     project = Project(ws)
     dest = Path(args.output) if args.output else None
     out = project.write_text(dest, form="lines" if args.lines else "paragraphs", page_markers=not args.no_page_markers,
@@ -498,12 +500,38 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Every stage, scan to PDF, in the book's project folder (beside the scan, as the app has
-    it, unless -o), and the PDF copied beside the scan ("<name> - OCR.pdf")."""
-    from .project import Project, beside_scan
+    """Every stage, scan to PDF, and the PDF copied beside the scan ("<name> - OCR.pdf"). Traced
+    and substitute runs keep the book's project folder (in Ectype's projects folder, as the app
+    has it, unless -o) for correcting in Review; text and plaintext runs work in a temporary
+    folder and delete it, unless --keep or -o."""
+    import shutil
+    import uuid
+
+    from .project import Project
+    from .textfiles import work_root
 
     scan = Path(args.input)
-    ws = Path(args.output) if args.output else scan.with_name(scan.stem + ".ectype")
+    temporary = args.mode in ("text", "plaintext") and not args.output and not args.keep
+    if temporary:
+        ws = work_root() / f"{scan.stem[:40]}-{uuid.uuid4().hex[:8]}.ectype"
+    elif args.output:
+        ws = Path(args.output)
+    else:
+        ws = Project.for_scan(scan).workspace
+    try:
+        return _run_in(args, scan, ws)
+    finally:
+        if temporary:
+            shutil.rmtree(ws, ignore_errors=True)
+            try:
+                ws.parent.rmdir()
+            except OSError:
+                pass
+
+
+def _run_in(args: argparse.Namespace, scan: Path, ws: Path) -> int:
+    from .project import Project, beside_scan
+
     args.name = args.name or scan.stem
     project = Project(ws, scan)  # remembers the scan and the choices, so the app can open it
     project.settings.mode = args.mode
@@ -629,7 +657,9 @@ Examples:
     ectype languages      ectype languages --all      ectype languages --add spa lat
 
 preprocess, ocr, segment, cluster, fonts, traced, substitute and textlayer are single steps on a
-book's project folder (the .ectype folder Ectype makes); for a scan use text, text-files or run.
+book's project folder (the .ectype folder Ectype keeps in its data folder); for a scan use text,
+text-files or run. `run --mode text` and `--mode plaintext` keep nothing but the result beside
+the scan (add --keep to keep the project for Review); traced and substitute runs keep it.
 
 Language codes join with +: eng (English), spa (Spanish), lat (Latin), grc (ancient Greek),
 heb (Hebrew), syr (Syriac), deu (German), fra (French), ita (Italian). Without --lang a scan is
@@ -714,7 +744,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("run", help="every stage, scan to PDF")
     p.add_argument("input", help="scanned PDF or page image")
-    p.add_argument("-o", "--output", help="workspace folder (default reports/work-<name>)")
+    p.add_argument("-o", "--output", help="project folder (default: Ectype's projects folder; text and plaintext keep nothing)")
+    p.add_argument("--keep", action="store_true",
+                   help="keep the project for correcting in Review (text and plaintext modes delete it otherwise)")
     p.add_argument("--mode", choices=["traced", "substitute", "text", "plaintext"], default="traced",
                    help="text: just the scan with an invisible OCR text layer (no tracing); "
                         "plaintext: no PDF, the OCR text as a .txt file")
@@ -899,8 +931,8 @@ def _wrong_target(args: argparse.Namespace) -> str | None:
         return (f"`ectype {args.command}` works on a book's project folder (the folder Ectype makes for it), "
                 f"not on a scan.\nFor a scan, use:\n"
                 f'  ectype text "{path}" --lang spa        (a text file beside it)\n'
-                f'  ectype run "{path}" --lang spa         (a PDF; its project folder is "{path.stem}.ectype" '
-                f"beside it)\nPut the book's languages after --lang (eng, spa, lat, grc, heb, … joined with +).")
+                f'  ectype run "{path}" --lang spa         (a PDF beside it; the project folder is kept in '
+                f"Ectype's data folder)\nPut the book's languages after --lang (eng, spa, lat, grc, heb, … joined with +).")
     if not path.exists():
         return f"No such folder: {path}"
     return None
