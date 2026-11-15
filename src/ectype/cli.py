@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -192,7 +193,9 @@ def cmd_idml(args: argparse.Namespace) -> int:
     options = IdmlOptions(mode=args.mode, include_scan=not args.no_scan, page_markers=args.page_markers,
                           check_below=0.0 if args.no_check_ocr else 70.0, profile=args.profile)
     try:
-        out = project.export_idml(dest, options, progress=lambda stage, msg: print(f"{stage}: {msg}"))
+        progress = _ConsoleProgress()
+        out = project.export_idml(dest, options, progress=progress)
+        progress.end_line()
     except ConverterMissing as exc:
         print(exc)
         return 1
@@ -204,10 +207,120 @@ def cmd_idml(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_data_folder(args: argparse.Namespace) -> int:
+    from . import datafolder
+    from .resources import user_data_dir
+
+    if args.move:
+        progress = _ConsoleProgress()
+        try:
+            result = datafolder.move_data(Path(args.move), progress)
+        except ValueError as exc:
+            progress.end_line()
+            print(exc)
+            return 2
+        except Exception as exc:  # copying or checking failed: nothing was changed
+            progress.end_line()
+            print(f"Nothing was moved: {exc}")
+            return 1
+        progress.end_line()
+        print(f"Ectype's data is now in {result['dest']} ({result['files']:,} files, {result['bytes'] / 1e9:.1f} GB).")
+        if result["left"]:
+            print("These old files could not be deleted (in use); delete them yourself later:")
+            for name in result["left"]:
+                print(f"  {name}")
+        return 0
+    folder = user_data_dir()
+    files, size = datafolder.size_of(folder)
+    print(f"Ectype's data is in {folder}")
+    print(f"  {files:,} files, {size / 1e9:.1f} GB")
+    return 0
+
+
+def _gb(n: int) -> str:
+    return f"{n / 1e9:.1f} GB"
+
+
+def cmd_free_space(args: argparse.Namespace) -> int:
+    from . import freespace
+
+    asked = args.cache or args.font_lines is not None
+    if not asked:
+        r = freespace.report()
+        print(f"Ectype's data is in {r['folder']} ({_gb(r['total']['bytes'])} in all)")
+        print(f"  Prepared copies of training lines: {_gb(r['cache']['bytes'])} (made again when needed)   [--cache]")
+        print(f"  Leftovers of stopped runs: {_gb(r['leftovers']['bytes'])}   [--cache]")
+        for lang, by in r["pool"].items():
+            synth, corr = by["synthetic"], by["correction"]
+            print(f"  {lang}: lines set from fonts {synth['lines']:,} ({_gb(synth['bytes'])})   [--font-lines {lang}];"
+                  f" your corrections {corr['lines']:,} ({_gb(corr['bytes'])}, never removed)")
+        print("Lines set from fonts are made again by Training -> Train from fonts (this can take hours).")
+        print("To free space:  ectype free-space --cache      ectype free-space --font-lines [LANG ...]")
+        return 0
+    progress = _ConsoleProgress()
+    freed = 0
+    if args.cache:
+        n = freespace.remove_cache(progress) + freespace.remove_leftovers(progress)
+        progress.end_line()
+        print(f"Removed prepared copies and leftovers: {_gb(n)} freed.")
+        freed += n
+    if args.font_lines is not None:
+        langs = args.font_lines or None
+        result = freespace.remove_font_lines(langs, progress)
+        progress.end_line()
+        for lang in (langs or []):
+            if lang not in result:
+                print(f"No training pool for {lang}.")
+        for lang, r in result.items():
+            print(f"Removed {r['lines']:,} lines set from fonts in {lang}: {_gb(r['bytes'])} freed.")
+            freed += r["bytes"]
+    print(f"Freed {_gb(freed)} in all. Your corrections were not touched.")
+    return 0
+
+
+class _ConsoleProgress:
+    """Progress for a console: stage messages as lines; ("fraction", "0.42") as one percentage
+    kept up to date on a single line (only in a terminal; left out when output goes to a file)."""
+
+    def __init__(self) -> None:
+        self.open = False
+
+    def __call__(self, stage: str, msg: str) -> None:
+        if stage == "fraction":
+            if sys.stdout.isatty():
+                try:
+                    print(f"\r  {float(msg) * 100:5.1f}% done", end="", flush=True)
+                    self.open = True
+                except ValueError:
+                    pass
+            return
+        self.end_line()
+        print(f"{stage}: {msg}", flush=True)
+
+    def end_line(self) -> None:
+        if self.open:
+            print(flush=True)
+            self.open = False
+
+
+def _language_note(lang: str) -> None:
+    from . import languages
+
+    names = ", ".join(languages.name(c) for c in languages.split(lang))
+    print(f"Reading in: {names} ({lang}). For a book in other languages give --lang, e.g. --lang spa "
+          "(Spanish) or --lang eng+grc+heb; `ectype languages --all` lists them.", flush=True)
+
+
 def cmd_text(args: argparse.Namespace) -> int:
     from .project import Project
 
     ws = Path(args.workspace)
+    if ws.is_file():  # a scan, not a project folder: its own project if it has one, else read it now
+        project = Project.for_scan(ws)
+        if not any((project.workspace / "ocr").glob("*.ocr.json")):
+            args.inputs, args.recursive, args.redo, args.keep = [str(ws)], False, True, False
+            return cmd_text_files(args)
+        ws = project.workspace
     project = Project(ws)
     dest = Path(args.output) if args.output else None
     out = project.write_text(dest, form="lines" if args.lines else "paragraphs", page_markers=not args.no_page_markers,
@@ -220,8 +333,16 @@ def cmd_text(args: argparse.Namespace) -> int:
 def cmd_text_files(args: argparse.Namespace) -> int:
     from .textfiles import make_text_files, summary_text
 
-    result = make_text_files([Path(i) for i in args.inputs], lang=args.lang, recursive=args.recursive, redo=args.redo,
-                             keep=args.keep, keep_marks=args.keep_marks, progress=lambda stage, msg: print(f"{stage}: {msg}", flush=True))
+    _language_note(args.lang)
+    progress = _ConsoleProgress()
+    try:
+        result = make_text_files([Path(i) for i in args.inputs], lang=args.lang, recursive=args.recursive,
+                                 redo=args.redo, keep=args.keep, keep_marks=args.keep_marks, progress=progress)
+    except ValueError as exc:  # a language not installed
+        progress.end_line()
+        print(exc)
+        return 2
+    progress.end_line()
     print(summary_text(result))
     return 1 if result["failed"] and not result["done"] else 0
 
@@ -377,14 +498,19 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Every stage, scan to PDF, in one workspace."""
-    ws = Path(args.output) if args.output else _default_out("work", Path(args.input))
-    if args.mode == "plaintext":  # the project remembers the scan, so the text goes beside it
-        from .project import Project
+    """Every stage, scan to PDF, in the book's project folder (beside the scan, as the app has
+    it, unless -o), and the PDF copied beside the scan ("<name> - OCR.pdf")."""
+    from .project import Project, beside_scan
 
-        project = Project(ws, Path(args.input))
-        project.settings.mode = "plaintext"
-        project.set_languages(args.lang.split("+"))
+    scan = Path(args.input)
+    ws = Path(args.output) if args.output else scan.with_name(scan.stem + ".ectype")
+    args.name = args.name or scan.stem
+    project = Project(ws, scan)  # remembers the scan and the choices, so the app can open it
+    project.settings.mode = args.mode
+    project.settings.name = args.name
+    project.settings.page_image = args.page_image
+    project.set_languages(args.lang.split("+"))
+    project.save_settings()
     steps = [
         ("preprocess", cmd_preprocess, argparse.Namespace(input=args.input, output=str(ws), keep_spreads=args.keep_spreads,
                                                           overrides=args.overrides, pages=args.pages, no_deskew=False, dpi=300)),
@@ -394,7 +520,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         steps.append(("segment", cmd_segment, argparse.Namespace(workspace=str(ws), truth=None)))
     if args.mode == "plaintext":
         steps.append(("plaintext", cmd_text, argparse.Namespace(workspace=str(ws), output=None, lines=False,
-                                                                no_page_markers=False, keep_heads=False)))
+                                                                no_page_markers=False, keep_heads=False,
+                                                                keep_marks=False, lang=args.lang)))
     elif args.mode == "text":
         steps.append(("textlayer", cmd_textlayer, argparse.Namespace(workspace=str(ws), name=args.name, page_image=args.page_image)))
     elif args.mode == "substitute":
@@ -410,6 +537,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     for name, fn, ns in steps:
         print(f"== {name}")
         fn(ns)
+    pdf = Project(ws).output_pdf()
+    if pdf is not None:
+        print(f"PDF: {beside_scan(pdf, scan)}")
     return 0
 
 
@@ -474,8 +604,44 @@ def cmd_credits() -> int:
     return 1
 
 
+GUIDE = """\
+Each command has its own options (--lang, --page-markers, ...). To see them, put --help after
+the command:   ectype text --help      ectype text-files --help      ectype run --help
+
+Options go after the command and what it works on. Put a path with spaces in quotes.
+
+Examples:
+  Text files beside every scan in a folder (and its subfolders), read in Spanish:
+    ectype text-files "D:\\Library" --recursive --lang spa
+  A text file for one scan, read in English, Greek and Hebrew:
+    ectype text "D:\\Library\\Treatise.pdf" --lang eng+grc+heb
+  Keep Hebrew points and accents and Greek accents in the text:
+    ectype text-files "D:\\Library" --keep-marks
+  Make the text files again (only those Ectype made are replaced):
+    ectype text-files "D:\\Library" --redo --lang spa
+  A whole book, scan to PDF:
+    ectype run "D:\\Library\\Treatise.pdf" --lang eng+grc+heb
+  Where Ectype keeps its data (models, training), and moving it to another drive:
+    ectype data-folder      ectype data-folder --move "D:\\Ectype OCR"
+  See what takes space in Ectype's data folder, and free some (your corrections are never removed):
+    ectype free-space      ectype free-space --cache      ectype free-space --font-lines heb grc
+  Languages: what is installed, what can be added, and adding some:
+    ectype languages      ectype languages --all      ectype languages --add spa lat
+
+preprocess, ocr, segment, cluster, fonts, traced, substitute and textlayer are single steps on a
+book's project folder (the .ectype folder Ectype makes); for a scan use text, text-files or run.
+
+Language codes join with +: eng (English), spa (Spanish), lat (Latin), grc (ancient Greek),
+heb (Hebrew), syr (Syriac), deu (German), fra (French), ita (Italian). Without --lang a scan is
+read as English.
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ectype", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="ectype", formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Ectype OCR from the command line. Type a command, then what it works on, then its options.",
+        epilog=GUIDE)
     parser.add_argument("--version", action="version", version=f"ectype {__version__}")
     parser.add_argument("--credits", action="store_true", help="show credits and exit")
     sub = parser.add_subparsers(dest="command")
@@ -499,7 +665,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="register B onto A: best quarter turn, then affine fit (for turned, deskewed or rescaled output such as Acrobat's)")
     p.set_defaults(func=cmd_compare)
 
-    p = sub.add_parser("preprocess", help="orient, split spreads and deskew a scan into one image per book page")
+    p = sub.add_parser("preprocess", help="(a step, on a project folder) orient, split spreads and deskew a scan into one image per book page")
     p.add_argument("input", help="scanned PDF or page image")
     p.add_argument("-o", "--output", help="workspace folder (default reports/work-<name>); pages go to <workspace>/pages")
     p.add_argument("--keep-spreads", action="store_true", help="don't split two-page spreads")
@@ -509,18 +675,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dpi", type=float, default=300, help="render resolution for pages that aren't a single image")
     p.set_defaults(func=cmd_preprocess)
 
-    p = sub.add_parser("ocr", help="OCR <workspace>/pages into <workspace>/ocr")
+    p = sub.add_parser("ocr", help="(a step, on a project folder) OCR <workspace>/pages into <workspace>/ocr")
     p.add_argument("workspace")
     p.add_argument("--engine", default="tesseract", help="tesseract (default) or kraken")
     p.add_argument("--lang", help="engine language(s), e.g. eng or eng+grc (default: the project's, else eng)")
     p.set_defaults(func=cmd_ocr)
 
-    p = sub.add_parser("segment", help="tie OCR characters to their ink: <workspace>/segment")
+    p = sub.add_parser("segment", help="(a step, on a project folder) tie OCR characters to their ink: <workspace>/segment")
     p.add_argument("workspace")
     p.add_argument("--truth", help="synthetic truth folder (default <workspace>/truth if present)")
     p.set_defaults(func=cmd_segment)
 
-    p = sub.add_parser("substitute", help="build the substitute-mode PDF: <workspace>/substitute")
+    p = sub.add_parser("substitute", help="(a step, on a project folder) build the substitute-mode PDF: <workspace>/substitute")
     p.add_argument("workspace")
     p.add_argument("--font", help="font file or family name (default: EB Garamond, else a system serif)")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
@@ -528,18 +694,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--page-image", choices=["gray", "lossless"], default="gray", help="background as JPEG, or without loss (full resolution, larger)")
     p.set_defaults(func=cmd_substitute)
 
-    p = sub.add_parser("cluster", help="group glyphs by style and average them: <workspace>/cluster")
+    p = sub.add_parser("cluster", help="(a step, on a project folder) group glyphs by style and average them: <workspace>/cluster")
     p.add_argument("workspace")
     p.add_argument("--threshold", type=float, default=0.25, help="shape distance (1 - correlation) that splits a group")
     p.set_defaults(func=cmd_cluster)
 
-    p = sub.add_parser("fonts", help="trace composites and build one font per style: <workspace>/fonts")
+    p = sub.add_parser("fonts", help="(a step, on a project folder) trace composites and build one font per style: <workspace>/fonts")
     p.add_argument("workspace")
     p.add_argument("--family", help="font family name (default: Ectype <workspace>)")
     p.add_argument("--threshold", type=float, default=0.45, help="coverage at which a composite pixel counts as ink")
     p.set_defaults(func=cmd_fonts)
 
-    p = sub.add_parser("traced", help="build the traced-mode PDF: <workspace>/traced")
+    p = sub.add_parser("traced", help="(a step, on a project folder) build the traced-mode PDF: <workspace>/traced")
     p.add_argument("workspace")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
     p.add_argument("--background-dpi", type=float, default=150)
@@ -562,7 +728,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
     p.set_defaults(func=cmd_run)
 
-    p = sub.add_parser("textlayer", help="build the text-layer PDF (the scan + invisible OCR text): <workspace>/textlayer")
+    p = sub.add_parser("textlayer", help="(a step, on a project folder) build the text-layer PDF (the scan + invisible OCR text): <workspace>/textlayer")
     p.add_argument("workspace")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
     p.add_argument("--page-image", choices=["gray", "lossless", "bw"], default="gray",
@@ -585,8 +751,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-scan", action="store_true", help="facsimile: don't place the scan on a hidden layer")
     p.set_defaults(func=cmd_idml)
 
-    p = sub.add_parser("text", help="export the OCR text as a plain text file: <workspace>/plaintext/<name>.txt")
-    p.add_argument("workspace")
+    p = sub.add_parser("text", help="a text file of a book: from its project folder (corrections included), "
+                                    "or from a scan, read now (as text-files does for one scan)")
+    p.add_argument("workspace", help="a project folder, or a scan (PDF or page image)")
+    p.add_argument("--lang", default="eng", help="for a scan read now: OCR languages, e.g. spa or eng+grc+heb")
+    p.add_argument("--page-markers", action="store_true", help="mark where each page begins (the default)")
     p.add_argument("-o", "--output", help="the .txt path (default: beside the scan, with its name)")
     p.add_argument("--lines", action="store_true", help="every line as printed, page by page (default: paragraphs, lines joined)")
     p.add_argument("--no-page-markers", action="store_true", help="don't mark where each page begins ({p. 172 · PDF 90})")
@@ -604,6 +773,16 @@ def build_parser() -> argparse.ArgumentParser:
                    help="keep vowel points, accents and breathings as read (default: removed, for searching)")
     p.add_argument("--keep", action="store_true", help="keep each book's work folder (page images, OCR) instead of deleting it")
     p.set_defaults(func=cmd_text_files)
+
+    p = sub.add_parser("data-folder", help="show where Ectype keeps its data and how big it is; --move puts it elsewhere")
+    p.add_argument("--move", metavar="FOLDER", help="move all of it to this (empty or new) folder, e.g. \"D:\\Ectype OCR\"")
+    p.set_defaults(func=cmd_data_folder)
+
+    p = sub.add_parser("free-space", help="show what takes space in Ectype's data folder; --cache and --font-lines free some")
+    p.add_argument("--cache", action="store_true", help="remove prepared copies of training lines and leftovers of stopped runs")
+    p.add_argument("--font-lines", nargs="*", metavar="LANG",
+                   help="remove lines set from fonts (all languages, or those named); Train from fonts makes them again")
+    p.set_defaults(func=cmd_free_space)
 
     p = sub.add_parser("rebuild", help="after corrections: segment, cluster, fonts and the PDF again")
     p.add_argument("workspace")
@@ -694,7 +873,55 @@ def main(argv: list[str] | None = None) -> int:
     if not args.command:
         parser.print_help()
         return 2
-    return args.func(args)
+    refusal = _wrong_target(args)
+    if refusal:
+        print(refusal)
+        return 2
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+        return 130
+    except Exception as exc:  # said in a line, with the details kept in a file, not a Python traceback
+        if os.environ.get("ECTYPE_DEBUG"):
+            raise
+        return _report_failure(args, exc)
+
+
+def _wrong_target(args: argparse.Namespace) -> str | None:
+    """A step command given a scan instead of a book's project folder (Beaux, 0.9.0: `ectype ocr
+    "<book>.pdf"` ended in a Python traceback), or a project folder that isn't there."""
+    ws = getattr(args, "workspace", None)
+    if not ws or args.command == "text":
+        return None
+    path = Path(ws)
+    if path.is_file():
+        return (f"`ectype {args.command}` works on a book's project folder (the folder Ectype makes for it), "
+                f"not on a scan.\nFor a scan, use:\n"
+                f'  ectype text "{path}" --lang spa        (a text file beside it)\n'
+                f'  ectype run "{path}" --lang spa         (a PDF; its project folder is "{path.stem}.ectype" '
+                f"beside it)\nPut the book's languages after --lang (eng, spa, lat, grc, heb, … joined with +).")
+    if not path.exists():
+        return f"No such folder: {path}"
+    return None
+
+
+def _report_failure(args: argparse.Namespace, exc: BaseException) -> int:
+    import traceback
+
+    from .resources import user_data_dir
+
+    message = str(exc).strip().splitlines()[-1] if str(exc).strip() else type(exc).__name__
+    print(f"Ectype stopped: {message}")
+    try:
+        log = user_data_dir() / "logs" / "last-command-error.txt"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text(f"ectype {' '.join(sys.argv[1:])}\n\n" + "".join(traceback.format_exception(exc)),
+                       encoding="utf-8", newline="\n")
+        print(f"The details are in {log} (send that file if you need help).")
+    except OSError:
+        pass
+    return 1
 
 
 if __name__ == "__main__":

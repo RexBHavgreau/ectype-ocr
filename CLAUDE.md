@@ -422,6 +422,63 @@ plan in it, not only the menus and crash recorder):
   and runs `python -m ectype_idml` (the env names ECTYPE_DOCX2IDML* stay). Its `convert` command
   (API 1) is unchanged.
 
+**0.9.1** (fixes, from Beaux's first command-line use of 0.9.0 on a Spanish book):
+- *`ectype text "<book>.pdf" --page-markers` was refused*: `text` took only a project folder and
+  the markers had only `--no-page-markers` (my own example to Beaux was wrong). `text` now takes a
+  scan too (its `<scan>.ectype` project if it has readings, else read now as `text-files` does,
+  redo on) with `--lang`; `--page-markers` is accepted (the default).
+- *The console filled with "fraction: 0.0013" lines* (progress meant for the app's bar):
+  `cli._ConsoleProgress` shows one percentage updated in place, and only in a terminal.
+- *A Spanish book read as English* (no `--lang`; default eng): `text-files` says which languages
+  it reads in and how to choose others (`_language_note`); a language not installed is refused at
+  once with the command to add it (`textfiles.check_languages`).
+- *`ectype --help` didn't say commands have their own options* (Beaux: "I have no idea where to
+  put them"): `cli.GUIDE`, an epilog with how to get a command's options and worked examples.
+- *A failed Tesseract run showed only its command line* (Beaux: `--lang spa` with Spanish not
+  installed, "returned non-zero exit status 1"): `TesseractEngine.recognize` no longer uses
+  `check=True`; `ocr.tesseract_failure` says a missing language in plain words with the command
+  to add it, else Tesseract's own last lines (`EngineUnavailable`).
+- *`ectype ocr "<book>.pdf"` ended in a Python traceback* (Beaux: the step commands take a
+  project folder): `cli._wrong_target` refuses a scan given to a command that takes a workspace
+  (all but `text`) and says to use `text`/`run`, and a missing folder; `cli.main` turns any other
+  failure into "Ectype stopped: …" with the traceback in `<user folder>/logs/last-command-error.txt`
+  (ECTYPE_DEBUG=1 shows it raw). The step commands are marked "(a step, on a project folder)" in
+  `--help`, and GUIDE says which they are.
+- *Traced mode stopped on "Tratado de la Oración"* (Beaux, Windows): cv2.imread/imwrite take
+  the path in the old ANSI code page, so a path with ó returned None ("'NoneType' object has no
+  attribute 'astype'" in `cluster._page_instances`). Every OpenCV image read/write goes through
+  `imagefiles.imread/imwrite` (np.fromfile + cv2.imdecode; imencode + tofile through .part); a
+  test fails if cv2.imread/imwrite comes back. **Lesson**: never hand OpenCV a path on Windows.
+- *The PDF goes beside the scan* (Beaux: "The OCR'd PDF should just go next to the current one"):
+  `project.beside_scan` copies it as "<scan> - OCR.pdf" (never the scan; a same-named file
+  Ectype didn't make, judged by its Producer `made_by_ectype`, is kept and the next free name
+  taken), called by `Project.run` (the app; progress stage "pdf") and `ectype run`, whose project
+  folder is now `<scan>.ectype` beside the scan (was reports/work-…) with its settings saved, so
+  the app can open it. `run --mode plaintext` had crashed (cmd_text's new args); fixed, tested.
+
+- *Data folder can move* (Beaux found 20+ GB in `%LOCALAPPDATA%\Ectype OCR` on C:): Settings → **Data folder…**
+  / `ectype data-folder [--move D:\...]` (`datafolder.py`). `resources.user_data_dir()`: ECTYPE_DATA_DIR,
+  else the pointer `default_data_dir()/location.json` (read on every call), else the default. The move copies
+  everything, checks sizes (bytes for files under 1 MB), writes the pointer, and only then deletes the old
+  copies (files in use are left and listed; `crash/running-*.txt` are never copied). A failure or Stop before the
+  pointer removes the partial copy. The app closes afterwards (paths were read at start).
+  Progress is reported at most once a second (`datafolder.EVERY`): Beaux's data is ~2 million small
+  files, and a line per file would flood the Log and the console. Before this, Beaux could move
+  it by hand: move the folder, `setx ECTYPE_DATA_DIR "D:\Ectype OCR"` (the mover then refuses, by
+  design, and says to remove that setting).
+
+**0.10.0** (on the branch; Beaux found 20+ GB in the data folder, mostly training material):
+- *Free up space* (`freespace.py`; Settings menu and the Data folder window → `FreeSpaceDialog`,
+  run through `MainWindow.free_space` / `_start`; `ectype free-space`, `--cache`,
+  `--font-lines [LANG ...]`). `report()` only stats files. `remove_cache` deletes
+  `training-cache/` (made again when training); `remove_leftovers` deletes `work/` folders not
+  touched for an hour; `remove_font_lines` deletes the pool's **"synthetic" items only**, one font
+  (book) at a time through `pool.Writer`, index saved after each (a Stop leaves the pool
+  consistent), and the font's `books.json` record when none of its lines remain. Train from
+  fonts remakes them: `synthtrain.font_done` needs the record's stamp **and** images present.
+  Corrections, aligned and confident lines, models, texts and settings are never touched.
+  Progress is throttled to once a second (millions of files).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

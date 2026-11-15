@@ -418,3 +418,111 @@ def test_search_form_drops_script_marks_with_no_letter_before_them():
 
     assert search_form("So after \u05b4\u05bcמם P") == "So after מם P"
     assert search_form("a\u0342 e\u0301") == "a é"
+
+
+def test_cli_text_of_a_scan_as_beaux_typed_it(tmp_path, capsys, monkeypatch):
+    """Beaux (0.9.0): `ectype text "<book>.pdf" --page-markers` was refused (text took only a
+    project folder, and markers are the default), and text-files filled the console with
+    "fraction: 0.0013" lines. Now `text` reads a scan with no project as text-files does, the
+    flag is accepted, and progress is a percentage on one line (none when not a terminal)."""
+    from ectype import cli
+
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    monkeypatch.setattr(textfiles, "work_root", lambda: tmp_path / "work")
+    pdf = _pdf(tmp_path / "Book.pdf", 1)
+    assert cli.main(["text", str(pdf), "--page-markers"]) == 0
+    out = capsys.readouterr().out
+    assert "fraction" not in out and "Reading in: English (eng)" in out
+    assert (tmp_path / "Book.txt").is_file() and plaintext.is_ours(tmp_path / "Book.txt")
+
+
+def test_cli_refuses_a_language_not_installed(tmp_path, capsys):
+    from ectype import cli
+
+    pdf = _pdf(tmp_path / "Libro.pdf", 2)
+    assert cli.main(["text-files", str(pdf), "--lang", "eng+xyz"]) == 2
+    out = capsys.readouterr().out
+    assert "Not installed:" in out and "ectype languages --add xyz" in out
+    assert not (tmp_path / "Libro.txt").exists()
+
+
+def test_a_tesseract_failure_is_said_in_plain_words():
+    """Beaux (0.9.0): a book read with --lang spa, Spanish not installed, failed with Tesseract's
+    whole command line. Its own reason is said instead, with the command to add the language."""
+    from ectype.ocr import tesseract_failure
+
+    said = tesseract_failure("Error opening data file /x/spa.traineddata\n"
+                             "Failed loading language 'spa'\nTesseract couldn't load any languages!\n", "spa")
+    assert said.startswith("Tesseract has no reading data for Spanish (spa)") and "ectype languages --add spa" in said
+    assert tesseract_failure("Error in pixReadStream\nImage file cannot be read\n", "eng") == \
+        "Tesseract failed: Error in pixReadStream Image file cannot be read"
+
+
+def test_a_step_command_given_a_scan_says_what_to_use(tmp_path, capsys, monkeypatch):
+    """Beaux (0.9.0): `ectype ocr "<book>.pdf" --lang spa` ended in a Python traceback. A step
+    command given a scan says what to use instead; any other failure is one line and a file."""
+    from ectype import cli
+
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
+    pdf = tmp_path / "Libro.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    assert cli.main(["ocr", str(pdf), "--lang", "spa"]) == 2
+    out = capsys.readouterr().out
+    assert "works on a book's project folder" in out and f'ectype text "{pdf}" --lang spa' in out
+    assert "Traceback" not in out
+    assert cli.main(["ocr", str(tmp_path / "missing")]) == 2
+    assert "No such folder" in capsys.readouterr().out
+    (tmp_path / "empty.ectype").mkdir()
+    monkeypatch.setattr(cli, "cmd_ocr", lambda args: (_ for _ in ()).throw(RuntimeError("something broke")))
+    assert cli.main(["ocr", str(tmp_path / "empty.ectype")]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("Ectype stopped: something broke") and "Traceback" not in out
+    assert (tmp_path / "data" / "logs" / "last-command-error.txt").is_file()
+
+
+def test_cli_run_puts_the_pdf_beside_the_scan(tmp_path, capsys, monkeypatch):
+    """Beaux: "The OCR'd PDF should just go next to the current one." `ectype run` keeps its
+    project folder beside the scan (as the app does) and copies the PDF there as "<name> - OCR.pdf";
+    the scan is untouched, a file of that name Ectype didn't make is kept, a later run replaces
+    Ectype's own. The Plain text mode runs from the command line too."""
+    from ectype import cli
+    from ectype.project import Project, made_by_ectype
+
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    pdf = _pdf(tmp_path / "Libro.pdf", 3)
+    original = pdf.read_bytes()
+    assert cli.main(["run", str(pdf), "--mode", "text"]) == 0
+    out = tmp_path / "Libro - OCR.pdf"
+    assert out.is_file() and made_by_ectype(out) and pdf.read_bytes() == original
+    assert f"PDF: {out}" in capsys.readouterr().out
+    assert Project(tmp_path / "Libro.ectype").settings.mode == "text"
+    assert cli.main(["run", str(pdf), "--mode", "text"]) == 0  # Ectype's own copy is replaced
+    assert not (tmp_path / "Libro - OCR (2).pdf").exists()
+    out.write_bytes(b"%PDF-1.4 someone else's")  # not Ectype's: kept
+    assert cli.main(["run", str(pdf), "--mode", "text"]) == 0
+    assert out.read_bytes() == b"%PDF-1.4 someone else's" and made_by_ectype(tmp_path / "Libro - OCR (2).pdf")
+    assert cli.main(["run", str(pdf), "--mode", "plaintext"]) == 0
+    assert plaintext.is_ours(tmp_path / "Libro.txt")
+
+
+def test_images_are_read_and_written_whatever_letters_the_path_holds(tmp_path):
+    """Beaux (0.9.0, Windows): "Tratado de la Oración" stopped traced mode: cv2.imread can't open
+    a path with letters outside the old code page and returned None. Every image goes through
+    imagefiles, which opens the file in Python; no cv2.imread/imwrite is left in the program."""
+    import re
+
+    import numpy as np
+
+    from ectype import imagefiles
+
+    labels = (np.arange(60, dtype=np.uint16).reshape(6, 10) * 1000)
+    path = tmp_path / "Tratado de la Oración ܐ" / "p001.labels.png"
+    path.parent.mkdir()
+    assert imagefiles.imwrite(path, labels)
+    back = imagefiles.imread(path)
+    assert back.dtype == np.uint16 and (back == labels).all()
+    assert imagefiles.imread(tmp_path / "missing.png") is None
+    src = Path(imagefiles.__file__).parent
+    left = [f.name for f in src.glob("*.py") if f.name != "imagefiles.py"
+            and re.search(r"cv2\.im(read|write)\(", f.read_text(encoding="utf-8"))]
+    assert left == []

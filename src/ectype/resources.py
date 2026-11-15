@@ -8,6 +8,7 @@ Languages downloaded from the app live in the user's own folder (`user_data_dir`
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -44,16 +45,35 @@ def tesseract_cmd() -> str | None:
     return None
 
 
-def user_data_dir() -> Path:
-    """The user's own Ectype folder (downloaded languages); ECTYPE_DATA_DIR overrides it."""
-    if os.environ.get("ECTYPE_DATA_DIR"):
-        return Path(os.environ["ECTYPE_DATA_DIR"])
+def default_data_dir() -> Path:
+    """Where Ectype keeps its data unless the person moved it (see datafolder.py)."""
     home = Path.home()
     if sys.platform == "win32":
         return Path(os.environ.get("LOCALAPPDATA", home)) / "Ectype OCR"
     if sys.platform == "darwin":
         return home / "Library" / "Application Support" / "Ectype OCR"
     return Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share")) / "ectype"
+
+
+def moved_data_dir() -> Path | None:
+    """The folder `location.json` (in the default folder) names, if it names an existing one.
+    Read at every call: the file is tiny, and a move takes effect at once."""
+    try:
+        text = (default_data_dir() / "location.json").read_text(encoding="utf-8-sig")
+        target = json.loads(text).get("data_dir")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if isinstance(target, str) and target and Path(target).is_dir():
+        return Path(target)
+    return None
+
+
+def user_data_dir() -> Path:
+    """The user's own Ectype folder (downloaded languages, models, training pools). ECTYPE_DATA_DIR
+    overrides it; else the folder the person moved it to; else the default."""
+    if os.environ.get("ECTYPE_DATA_DIR"):
+        return Path(os.environ["ECTYPE_DATA_DIR"])
+    return moved_data_dir() or default_data_dir()
 
 
 def user_tessdata_dir() -> Path:

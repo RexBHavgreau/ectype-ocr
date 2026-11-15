@@ -1335,6 +1335,159 @@ class AddLanguagesDialog(QDialog):
         self.status.setText("Download failed: " + error.strip().splitlines()[-1])
 
 
+class FreeSpaceDialog(QDialog):
+    """What takes space in the data folder, and removing some of it. Corrections from Review are
+    never listed here."""
+
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__(window)
+        from . import freespace
+
+        self.window_ = window
+        self.setWindowTitle("Free up space")
+        self.setMinimumWidth(560)
+        self.layout_ = QVBoxLayout(self)
+        self.status = QLabel("Working out what takes space…")
+        self.layout_.addWidget(self.status)
+        self.checks: list[tuple[QCheckBox, int, str, str | None]] = []  # box, bytes, kind, language
+        self.total_label = QLabel("")
+        self.free_button = QPushButton("Free up space")
+        self.free_button.setEnabled(False)
+        self.free_button.clicked.connect(self.free)
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.reject)
+        self.sizer = Task(lambda progress: freespace.report())
+        self.sizer.done.connect(self._sized)
+        self.sizer.failed.connect(lambda text: self.status.setText("Could not work out the sizes."))
+        self.sizer.start()
+        self.row = QHBoxLayout()
+        self.row.addStretch(1)
+        self.row.addWidget(self.free_button)
+        self.row.addWidget(close_button)
+
+    def _add(self, text: str, size: int, kind: str, lang: str | None, ticked: bool) -> None:
+        box = QCheckBox(text)
+        box.setChecked(ticked)
+        box.toggled.connect(self._update_total)
+        self.layout_.addWidget(box)
+        self.checks.append((box, size, kind, lang))
+
+    def _sized(self, r: dict) -> None:
+        self.status.setText(f"Ectype's data takes {r['total']['bytes'] / 1e9:.1f} GB.")
+        self._add(f"Prepared copies of training lines: {r['cache']['bytes'] / 1e9:.1f} GB — made again automatically "
+                  "when needed", r["cache"]["bytes"], "cache", None, True)
+        self._add(f"Leftovers of stopped runs: {r['leftovers']['bytes'] / 1e9:.1f} GB", r["leftovers"]["bytes"],
+                  "leftovers", None, True)
+        synthetic = {lang: by["synthetic"] for lang, by in r["pool"].items() if by["synthetic"]["lines"]}
+        if synthetic:
+            self.layout_.addWidget(QLabel("<b>Lines set from fonts</b>"))
+        for lang, by in synthetic.items():
+            self._add(f"{languages.name(lang)}: {by['lines']:,} lines, {by['bytes'] / 1e9:.1f} GB", by["bytes"],
+                      "font", lang, False)
+        if synthetic:
+            note = QLabel("Made again by Training → Train from fonts (this can take hours). "
+                          "Your corrections from Review are never removed.")
+            note.setWordWrap(True)
+            self.layout_.addWidget(note)
+        self.layout_.addWidget(self.total_label)
+        self.layout_.addLayout(self.row)
+        busy = (self.window_.worker is not None and self.window_.worker.isRunning()) or (
+            self.window_.task is not None and self.window_.task.isRunning())
+        self.free_button.setEnabled(not busy)
+        if busy:
+            self.total_label.setText("Wait until the run in progress has finished.")
+        else:
+            self._update_total()
+
+    def _update_total(self) -> None:
+        n = sum(size for box, size, _, _ in self.checks if box.isChecked())
+        self.total_label.setText(f"To be freed: {n / 1e9:.1f} GB")
+
+    def chosen(self) -> dict:
+        picked = [(kind, lang) for box, _, kind, lang in self.checks if box.isChecked()]
+        return {"cache": any(k == "cache" for k, _ in picked), "leftovers": any(k == "leftovers" for k, _ in picked),
+                "langs": [lang for k, lang in picked if k == "font"]}
+
+    def free(self) -> None:
+        choice = self.chosen()
+        self.accept()
+        self.window_.free_space(choice)
+
+
+class DataFolderDialog(QDialog):
+    """Where Ectype keeps its data, how big it is, and moving it to another drive."""
+
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__(window)
+        from . import datafolder
+        from .resources import user_data_dir
+
+        self.window_ = window
+        self.setWindowTitle("Data folder")
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+        self.where = user_data_dir()
+        self.label = QLabel(f"Ectype keeps its models, training lines and downloads in:<br><b>{self.where}</b>")
+        self.label.setWordWrap(True)
+        self.label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.label)
+        self.size_label = QLabel("Working out how big it is…")
+        layout.addWidget(self.size_label)
+        note = QLabel("Moving copies everything, checks the copy, and only then deletes the old files. "
+                      "Ectype closes afterwards; open it again to go on.")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        row = QHBoxLayout()
+        self.move_button = QPushButton("Move…")
+        self.move_button.clicked.connect(self.choose)
+        open_button = QPushButton("Open folder")
+        open_button.clicked.connect(self.open_folder)
+        free_button = QPushButton("Free up space…")
+        free_button.clicked.connect(self.free_space)
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.accept)
+        for b in (self.move_button, free_button, open_button):
+            row.addWidget(b)
+        row.addStretch(1)
+        row.addWidget(close_button)
+        layout.addLayout(row)
+        self.sizer = Task(lambda progress: datafolder.size_of(self.where))
+        self.sizer.done.connect(self._sized)
+        self.sizer.start()
+
+    def _sized(self, result) -> None:
+        files, size = result
+        self.size_label.setText(f"{files:,} files, {size / 1e9:.1f} GB.")
+
+    def free_space(self) -> None:
+        self.accept()
+        self.window_.free_space_dialog()
+
+    def open_folder(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        self.where.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.where)))
+
+    def suggestion(self) -> str:
+        if sys.platform == "win32" and Path("D:\\").exists() and not str(self.where).upper().startswith("D:"):
+            return "D:\\Ectype OCR"
+        return str(self.where.parent)
+
+    def choose(self) -> None:
+        start = self.suggestion()
+        if not Path(start).exists():
+            start = str(Path(start).parent)
+        folder = QFileDialog.getExistingDirectory(self, "Move Ectype's data to…", start)
+        if folder:
+            chosen = Path(folder)
+            if chosen.is_dir() and any(chosen.iterdir()):  # an existing folder with things in it: use a new one inside
+                chosen = chosen / "Ectype OCR"
+            self.accept()
+            self.window_.move_data_to(chosen)
+
+
 class ModelsDialog(QDialog):
     """The trained models and the training pools: what there is, and removing it."""
 
@@ -1545,7 +1698,7 @@ class KrakenModelsPanel(QWidget):
             self.engine_label.setText(
                 "The Kraken engine is downloaded but didn't start: " + str(status.get("problem", "")).strip()[:300]
                 + "<br>Press <b>Check again</b> (a first start can be slow while Windows Defender checks its files; "
-                "excluding the folder <code>%LOCALAPPDATA%\\Ectype OCR\\kraken-engine</code> in Windows Security "
+                "excluding the folder <code>" + str(self.kraken.engine_dir()) + "</code> in Windows Security "
                 "helps), or download it again.")
             self.engine_button.setText("Download it again")
             self.engine_button.show()
@@ -2517,6 +2670,9 @@ class MainWindow(QMainWindow):
         self.all_cores.setToolTip("Several Kraken readers side by side (faster); off, one reader with half the cores, "
                                   "leaving the computer free for other work")
         self.all_cores.toggled.connect(self._all_cores_changed)
+        settings_menu.addSeparator()
+        settings_menu.addAction("Data folder…", lambda: self._data_folder_dialog())
+        settings_menu.addAction("Free up space…", lambda: self.free_space_dialog())
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("Check for updates…", lambda: self.check_for_updates(manual=True))
         self.check_at_start = help_menu.addAction("Check for updates at startup")
@@ -2586,6 +2742,70 @@ class MainWindow(QMainWindow):
         if hand:
             self.project.set_hands(lang, list(self.project.settings.hands.get(lang, [])) + [hand])
             self.langs.set_manuscript(self.project.settings)
+
+    def _data_folder_dialog(self) -> None:
+        dialog = DataFolderDialog(self)
+        dialog.exec()
+        dialog.sizer.wait()
+        dialog.deleteLater()
+
+    def free_space_dialog(self) -> None:
+        dialog = FreeSpaceDialog(self)
+        dialog.exec()
+        dialog.sizer.wait()
+        dialog.deleteLater()
+
+    def free_space(self, choice: dict) -> None:
+        """Remove what the Free up space window ticked (progress window with Stop)."""
+        from . import freespace
+
+        if not (choice["cache"] or choice["leftovers"] or choice["langs"]):
+            return
+
+        def work(progress):
+            freed = 0
+            if choice["cache"]:
+                freed += freespace.remove_cache(progress)
+            if choice["leftovers"]:
+                freed += freespace.remove_leftovers(progress)
+            if choice["langs"]:
+                freed += sum(r["bytes"] for r in freespace.remove_font_lines(choice["langs"], progress).values())
+            return freed
+
+        self._start(work, self._space_freed, "Freeing up space", measured=True)
+
+    def _space_freed(self, freed: int) -> None:
+        self._log(f"Freed {freed / 1e9:.1f} GB")
+        QMessageBox.information(self, "Free up space", f"Freed {freed / 1e9:.1f} GB. Your corrections were not touched.")
+
+    def move_data_to(self, dest: Path) -> None:
+        """Move Ectype's data folder (progress window with Stop), then close: the open models and
+        settings were read from the old place."""
+        from . import datafolder
+
+        if (self.worker is not None and self.worker.isRunning()) or (self.task is not None and self.task.isRunning()):
+            QMessageBox.information(self, "Data folder", "Wait until the run in progress has finished.")
+            return
+
+        def work(progress):
+            try:
+                return datafolder.move_data(dest, progress)
+            except ValueError as exc:  # a request that can't be done: said plainly, nothing changed
+                return {"refused": str(exc)}
+
+        self._start(work, self._data_moved, "Moving Ectype's data", measured=True)
+
+    def _data_moved(self, result: dict) -> None:
+        if result.get("refused"):
+            QMessageBox.warning(self, "Data folder", result["refused"])
+            return
+        self._log(f"Data moved to {result['dest']}")
+        text = f"Ectype's data is now in {result['dest']}. Ectype will close; open it again to go on."
+        if result["left"]:
+            text += ("\n\nThese old files were in use and could not be deleted; you can delete them yourself later:\n"
+                     + "\n".join(result["left"][:20]) + ("\n…" if len(result["left"]) > 20 else ""))
+        QMessageBox.information(self, "Data folder", text)
+        self.close()
 
     def _all_cores_changed(self, on: bool) -> None:
         settings = updates.load_settings()
