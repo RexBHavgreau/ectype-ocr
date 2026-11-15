@@ -265,6 +265,12 @@ def _stamp(font: FontInfo, lines: int, script: str = "") -> str:
     return hashlib.sha1(f"{font.path.name}:{font.index}:{st.st_size}:{st.st_mtime_ns}:{lines}:{version}".encode()).hexdigest()[:12]
 
 
+def font_done(books: dict, writer, book: str, stamp: str) -> bool:
+    """Whether a font's lines are in the pool already: its record matches and its images exist
+    (so lines removed to free space are made again)."""
+    return books.get(book, {}).get("stamp") == stamp and bool(writer.count(book))
+
+
 def italic_of(font: FontInfo, pool: list[FontInfo]) -> FontInfo | None:
     """The italic face of the font's family and weight (Regular -> Italic, Bold -> Bold Italic),
     among the fonts in the pool; None if it has none, or is italic itself."""
@@ -378,7 +384,7 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                 fraction((si + (k - 1) / len(usable)) / len(scripts))
                 book = f"font: {font.name}"
                 stamp = _stamp(font, lines_per_font, script) + ("" if lv == FULL else "-" + lv)
-                if books.get(book, {}).get("stamp") == stamp and w.count(book):
+                if font_done(books, w, book, stamp):
                     say(f"{name}: {font.name} already done")
                     continue
                 say(f"{name}: setting {lines_per_font} lines in {font.name} ({k} of {len(usable)})")

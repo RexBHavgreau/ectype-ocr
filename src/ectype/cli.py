@@ -237,6 +237,47 @@ def cmd_data_folder(args: argparse.Namespace) -> int:
     return 0
 
 
+def _gb(n: int) -> str:
+    return f"{n / 1e9:.1f} GB"
+
+
+def cmd_free_space(args: argparse.Namespace) -> int:
+    from . import freespace
+
+    asked = args.cache or args.font_lines is not None
+    if not asked:
+        r = freespace.report()
+        print(f"Ectype's data is in {r['folder']} ({_gb(r['total']['bytes'])} in all)")
+        print(f"  Prepared copies of training lines: {_gb(r['cache']['bytes'])} (made again when needed)   [--cache]")
+        print(f"  Leftovers of stopped runs: {_gb(r['leftovers']['bytes'])}   [--cache]")
+        for lang, by in r["pool"].items():
+            synth, corr = by["synthetic"], by["correction"]
+            print(f"  {lang}: lines set from fonts {synth['lines']:,} ({_gb(synth['bytes'])})   [--font-lines {lang}];"
+                  f" your corrections {corr['lines']:,} ({_gb(corr['bytes'])}, never removed)")
+        print("Lines set from fonts are made again by Training -> Train from fonts (this can take hours).")
+        print("To free space:  ectype free-space --cache      ectype free-space --font-lines [LANG ...]")
+        return 0
+    progress = _ConsoleProgress()
+    freed = 0
+    if args.cache:
+        n = freespace.remove_cache(progress) + freespace.remove_leftovers(progress)
+        progress.end_line()
+        print(f"Removed prepared copies and leftovers: {_gb(n)} freed.")
+        freed += n
+    if args.font_lines is not None:
+        langs = args.font_lines or None
+        result = freespace.remove_font_lines(langs, progress)
+        progress.end_line()
+        for lang in (langs or []):
+            if lang not in result:
+                print(f"No training pool for {lang}.")
+        for lang, r in result.items():
+            print(f"Removed {r['lines']:,} lines set from fonts in {lang}: {_gb(r['bytes'])} freed.")
+            freed += r["bytes"]
+    print(f"Freed {_gb(freed)} in all. Your corrections were not touched.")
+    return 0
+
+
 class _ConsoleProgress:
     """Progress for a console: stage messages as lines; ("fraction", "0.42") as one percentage
     kept up to date on a single line (only in a terminal; left out when output goes to a file)."""
@@ -582,6 +623,8 @@ Examples:
     ectype run "D:\\Library\\Treatise.pdf" --lang eng+grc+heb
   Where Ectype keeps its data (models, training), and moving it to another drive:
     ectype data-folder      ectype data-folder --move "D:\\Ectype OCR"
+  See what takes space in Ectype's data folder, and free some (your corrections are never removed):
+    ectype free-space      ectype free-space --cache      ectype free-space --font-lines heb grc
   Languages: what is installed, what can be added, and adding some:
     ectype languages      ectype languages --all      ectype languages --add spa lat
 
@@ -734,6 +777,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("data-folder", help="show where Ectype keeps its data and how big it is; --move puts it elsewhere")
     p.add_argument("--move", metavar="FOLDER", help="move all of it to this (empty or new) folder, e.g. \"D:\\Ectype OCR\"")
     p.set_defaults(func=cmd_data_folder)
+
+    p = sub.add_parser("free-space", help="show what takes space in Ectype's data folder; --cache and --font-lines free some")
+    p.add_argument("--cache", action="store_true", help="remove prepared copies of training lines and leftovers of stopped runs")
+    p.add_argument("--font-lines", nargs="*", metavar="LANG",
+                   help="remove lines set from fonts (all languages, or those named); Train from fonts makes them again")
+    p.set_defaults(func=cmd_free_space)
 
     p = sub.add_parser("rebuild", help="after corrections: segment, cluster, fonts and the PDF again")
     p.add_argument("workspace")

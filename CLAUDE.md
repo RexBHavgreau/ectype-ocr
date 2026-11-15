@@ -467,6 +467,18 @@ plan in it, not only the menus and crash recorder):
   it by hand: move the folder, `setx ECTYPE_DATA_DIR "D:\Ectype OCR"` (the mover then refuses, by
   design, and says to remove that setting).
 
+**0.10.0** (on the branch; Beaux found 20+ GB in the data folder, mostly training material):
+- *Free up space* (`freespace.py`; Settings menu and the Data folder window → `FreeSpaceDialog`,
+  run through `MainWindow.free_space` / `_start`; `ectype free-space`, `--cache`,
+  `--font-lines [LANG ...]`). `report()` only stats files. `remove_cache` deletes
+  `training-cache/` (made again when training); `remove_leftovers` deletes `work/` folders not
+  touched for an hour; `remove_font_lines` deletes the pool's **"synthetic" items only**, one font
+  (book) at a time through `pool.Writer`, index saved after each (a Stop leaves the pool
+  consistent), and the font's `books.json` record when none of its lines remain. Train from
+  fonts remakes them: `synthtrain.font_done` needs the record's stamp **and** images present.
+  Corrections, aligned and confident lines, models, texts and settings are never touched.
+  Progress is throttled to once a second (millions of files).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
