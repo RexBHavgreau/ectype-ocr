@@ -434,6 +434,10 @@ plan in it, not only the menus and crash recorder):
   once with the command to add it (`textfiles.check_languages`).
 - *`ectype --help` didn't say commands have their own options* (Beaux: "I have no idea where to
   put them"): `cli.GUIDE`, an epilog with how to get a command's options and worked examples.
+- *A failed Tesseract run showed only its command line* (Beaux: `--lang spa` with Spanish not
+  installed, "returned non-zero exit status 1"): `TesseractEngine.recognize` no longer uses
+  `check=True`; `ocr.tesseract_failure` says a missing language in plain words with the command
+  to add it, else Tesseract's own last lines (`EngineUnavailable`).
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

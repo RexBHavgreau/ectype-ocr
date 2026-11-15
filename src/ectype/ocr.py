@@ -148,10 +148,12 @@ class TesseractEngine:
                 [self.cmd, str(src), str(Path(tmp) / "out"), "-l", lang, "--dpi", str(round(dpi)),
                  "--psm", str(self.psm), "--oem", str(self.oem), *self.config,
                  "-c", "hocr_char_boxes=1", "-c", "hocr_font_info=1", "hocr"],
-                check=True, capture_output=True,
+                capture_output=True,
                 env=self._env(),
                 **subprocess_flags(),
             )
+            if result.returncode != 0:  # say why in Tesseract's words, not as its command line
+                raise EngineUnavailable(tesseract_failure(result.stderr.decode(errors="replace"), lang))
             out = Path(tmp) / "out.hocr"
             if not out.is_file():  # e.g. its tessdata lacks the hocr config or the language
                 message = result.stderr.decode(errors="replace").strip()
@@ -160,6 +162,22 @@ class TesseractEngine:
         page = parse_hocr(hocr, engine=self.name, lang=lang, dpi=dpi)
         page.size_px = [gray.shape[1], gray.shape[0]]
         return page
+
+
+def tesseract_failure(stderr: str, lang: str) -> str:
+    """A failed Tesseract run in plain words: a language it has no data for, else its own last
+    lines (Beaux, 0.9.0: only the command line was shown, for a language not installed)."""
+    import re
+
+    missing = re.findall(r"Failed loading language '([^']+)'", stderr)
+    if missing:
+        from . import languages
+
+        names = ", ".join(f"{languages.name(c)} ({c})" for c in dict.fromkeys(missing))
+        return (f"Tesseract has no reading data for {names}. Add it first: "
+                f"ectype languages --add {' '.join(dict.fromkeys(missing))} (or Languages → Add languages… in the app).")
+    lines = [l.strip() for l in stderr.strip().splitlines() if l.strip()]
+    return "Tesseract failed: " + (" ".join(lines[-3:]) if lines else f"no message (languages {lang})")
 
 
 class KrakenEngine:

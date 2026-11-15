@@ -444,3 +444,15 @@ def test_cli_refuses_a_language_not_installed(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Not installed:" in out and "ectype languages --add xyz" in out
     assert not (tmp_path / "Libro.txt").exists()
+
+
+def test_a_tesseract_failure_is_said_in_plain_words():
+    """Beaux (0.9.0): a book read with --lang spa, Spanish not installed, failed with Tesseract's
+    whole command line. Its own reason is said instead, with the command to add the language."""
+    from ectype.ocr import tesseract_failure
+
+    said = tesseract_failure("Error opening data file /x/spa.traineddata\n"
+                             "Failed loading language 'spa'\nTesseract couldn't load any languages!\n", "spa")
+    assert said.startswith("Tesseract has no reading data for Spanish (spa)") and "ectype languages --add spa" in said
+    assert tesseract_failure("Error in pixReadStream\nImage file cannot be read\n", "eng") == \
+        "Tesseract failed: Error in pixReadStream Image file cannot be read"
