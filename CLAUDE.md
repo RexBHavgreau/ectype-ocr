@@ -456,6 +456,13 @@ plan in it, not only the menus and crash recorder):
   folder is now `<scan>.ectype` beside the scan (was reports/work-…) with its settings saved, so
   the app can open it. `run --mode plaintext` had crashed (cmd_text's new args); fixed, tested.
 
+- *Data folder can move* (Beaux found 20+ GB in `%LOCALAPPDATA%\Ectype OCR` on C:): Settings → **Data folder…**
+  / `ectype data-folder [--move D:\...]` (`datafolder.py`). `resources.user_data_dir()`: ECTYPE_DATA_DIR,
+  else the pointer `default_data_dir()/location.json` (read on every call), else the default. The move copies
+  everything, checks sizes (bytes for files under 1 MB), writes the pointer, and only then deletes the old
+  copies (files in use are left and listed; `crash/running-*.txt` are never copied). A failure or Stop before the
+  pointer removes the partial copy. The app closes afterwards (paths were read at start).
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

@@ -207,6 +207,36 @@ def cmd_idml(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_data_folder(args: argparse.Namespace) -> int:
+    from . import datafolder
+    from .resources import user_data_dir
+
+    if args.move:
+        progress = _ConsoleProgress()
+        try:
+            result = datafolder.move_data(Path(args.move), progress)
+        except ValueError as exc:
+            progress.end_line()
+            print(exc)
+            return 2
+        except Exception as exc:  # copying or checking failed: nothing was changed
+            progress.end_line()
+            print(f"Nothing was moved: {exc}")
+            return 1
+        progress.end_line()
+        print(f"Ectype's data is now in {result['dest']} ({result['files']:,} files, {result['bytes'] / 1e9:.1f} GB).")
+        if result["left"]:
+            print("These old files could not be deleted (in use); delete them yourself later:")
+            for name in result["left"]:
+                print(f"  {name}")
+        return 0
+    folder = user_data_dir()
+    files, size = datafolder.size_of(folder)
+    print(f"Ectype's data is in {folder}")
+    print(f"  {files:,} files, {size / 1e9:.1f} GB")
+    return 0
+
+
 class _ConsoleProgress:
     """Progress for a console: stage messages as lines; ("fraction", "0.42") as one percentage
     kept up to date on a single line (only in a terminal; left out when output goes to a file)."""
@@ -550,6 +580,8 @@ Examples:
     ectype text-files "D:\\Library" --redo --lang spa
   A whole book, scan to PDF:
     ectype run "D:\\Library\\Treatise.pdf" --lang eng+grc+heb
+  Where Ectype keeps its data (models, training), and moving it to another drive:
+    ectype data-folder      ectype data-folder --move "D:\\Ectype OCR"
   Languages: what is installed, what can be added, and adding some:
     ectype languages      ectype languages --all      ectype languages --add spa lat
 
@@ -698,6 +730,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="keep vowel points, accents and breathings as read (default: removed, for searching)")
     p.add_argument("--keep", action="store_true", help="keep each book's work folder (page images, OCR) instead of deleting it")
     p.set_defaults(func=cmd_text_files)
+
+    p = sub.add_parser("data-folder", help="show where Ectype keeps its data and how big it is; --move puts it elsewhere")
+    p.add_argument("--move", metavar="FOLDER", help="move all of it to this (empty or new) folder, e.g. \"D:\\Ectype OCR\"")
+    p.set_defaults(func=cmd_data_folder)
 
     p = sub.add_parser("rebuild", help="after corrections: segment, cluster, fonts and the PDF again")
     p.add_argument("workspace")
