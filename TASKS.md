@@ -60,7 +60,7 @@ Report (<tool>, <date>):
 ## Ready
 
 ### T-001 · README: add the commands it doesn't mention
-- **Status:** Ready
+- **Status:** In progress (ChatGPT, 2026-11-16)
 - **Who:** any agent · **Size:** S
 - **Why:** The README's "Commands" section was written before several commands existed, so
   users can't find them.
