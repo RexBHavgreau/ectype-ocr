@@ -28,11 +28,17 @@ from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import lsqr
 
 from . import report, trace
+from .stopping import Ticker
 from .pdfwrite import EmbeddedFont, save_font
 
 UNITS_PER_EM = 1000
 XH_UNITS = 500  # x-height in font units: the font's "size" is twice the x-height
 DEFAULT_SIDE = 0.06 * XH_UNITS
+# No letter is a dozen x-heights tall or wide; a shape that is came from a line whose x-height
+# was measured far too small (a rule or an ornament on a Hebrew grammar's page), and its font
+# coordinates passed the 32,767 a font allows (fontTools: "Value 35256 does not fit in format h
+# for yMax"). Such a shape is left out of the font: the word keeps it as part of the scan.
+MAX_EXTENT = 12 * XH_UNITS
 
 
 @dataclass
@@ -121,8 +127,11 @@ def build_style_font(style: int, glyphs: list[dict], composites: Path, pairs: di
         else:
             contours = []
         box = trace.bounds(contours)
+        if box and max(abs(box[1]), abs(box[3]), box[2] - box[0]) > MAX_EXTENT:
+            continue  # not a letter: see MAX_EXTENT
         traced[g["id"]] = (contours, box)
         widths[g["id"]] = (box[2] - box[0]) if box else 0.25 * XH_UNITS
+    glyphs = [g for g in glyphs if g["id"] in traced]
     lsb, rsb = solve_sidebearings(widths, pairs)
 
     order = [".notdef", "cid00001"] + [f"cid{k + 2:05d}" for k in range(len(glyphs))]
@@ -216,8 +225,9 @@ def validate_otf(path: Path) -> dict:
 
 
 def build_workspace_fonts(workspace: Path, family: str | None = None, min_instances: int = 1,
-                          threshold: float = 0.45) -> dict:
-    """Build every style's font from <workspace>/cluster into <workspace>/fonts."""
+                          threshold: float = 0.45, progress=None) -> dict:
+    """Build every style's font from <workspace>/cluster into <workspace>/fonts. `progress(done, total,
+    what)` is told per font built (at most once a second, and at the end); Stop is checked per font."""
     workspace = Path(workspace)
     cl = json.loads((workspace / "cluster" / "clusters.json").read_text(encoding="utf-8"))
     out = workspace / "fonts"
@@ -228,6 +238,7 @@ def build_workspace_fonts(workspace: Path, family: str | None = None, min_instan
         if g["count"] >= min_instances:
             by_style[g["style"]].append(g)
     styles = []
+    tick = Ticker(progress, "building fonts", len(by_style))
     for style, gs in sorted(by_style.items()):
         name = f"{family} S{style}"
         font, cid_of, built, otf = build_style_font(style, gs, workspace / "cluster" / "composites", cl["pairs"],
@@ -242,6 +253,8 @@ def build_workspace_fonts(workspace: Path, family: str | None = None, min_instan
         })
         styles.append({"style": style, "name": font.name, "glyphs": len(built), "otf_bytes": len(otf),
                        "cff_bytes": len(font.program), "validation": check})
+        tick.step()
+    tick.finish()
     summary = {"family": family, "threshold": threshold, "styles": styles}
     report.write_json(out / "fonts.json", summary)
     _write_html(summary, out)

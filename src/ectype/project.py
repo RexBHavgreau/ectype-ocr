@@ -9,7 +9,9 @@ file `ectype preprocess --overrides` reads.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -84,6 +86,78 @@ def beside_scan(pdf: Path, scan: Path) -> Path:
     return dest
 
 
+def projects_dir() -> Path:
+    """Where the book projects are kept: in Ectype's data folder (moves with it), so the folders
+    of scans hold only results."""
+    from .resources import user_data_dir
+
+    return user_data_dir() / "projects"
+
+
+def _scan_key(scan: Path) -> str:
+    return os.path.normcase(str(Path(scan).resolve()))
+
+
+def _read_index() -> dict[str, str]:
+    path = projects_dir() / "index.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in data.items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _write_index(index: dict[str, str]) -> None:
+    folder = projects_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    part = folder / "index.json.part"
+    part.write_text(json.dumps(index, indent=1, ensure_ascii=False), encoding="utf-8")
+    part.replace(folder / "index.json")
+
+
+def find_for_scan(scan: Path) -> Path | None:
+    """The scan's existing project folder (an older one beside the scan, else the one in the
+    projects folder), or None. Creates nothing."""
+    scan = Path(scan)
+    beside = scan.with_name(scan.stem + ".ectype")
+    if (beside / "project.json").is_file():
+        return beside
+    name = _read_index().get(_scan_key(scan))
+    if name and (projects_dir() / name).is_dir():
+        return projects_dir() / name
+    return None
+
+
+def _new_project_folder(scan: Path) -> Path:
+    """A new folder in the projects folder named for the scan ("<name> (2).ectype" if another
+    scan's project has the name), recorded in the index."""
+    index = _read_index()
+    taken = set(index.values())
+    n = 1
+    while True:
+        name = f"{scan.stem}{'' if n == 1 else f' ({n})'}.ectype"
+        if name not in taken and not (projects_dir() / name).exists():
+            break
+        n += 1
+    index[_scan_key(scan)] = name
+    _write_index(index)
+    return projects_dir() / name
+
+
+class LanguagesMissing(Exception):
+    """The pages were read and hold a script none of the chosen languages reads (Greek in a book
+    read as English only): stop before the slow stages, which would build on misreadings (Beaux,
+    Thomson's Athanasius: 39,468 glyph "styles" and a fonts stage of hours)."""
+
+    def __init__(self, codes: list[str], found: dict[str, int]):
+        self.codes, self.found = codes, found
+        super().__init__("This book has " + found_words(found) + " that the chosen languages don't read.")
+
+
+def found_words(found: dict[str, int]) -> str:
+    return ", ".join(f"{script} ({n:,} words)" for script, n in found.items())
+
+
 class Project:
     def __init__(self, workspace: Path, source: Path | None = None):
         self.workspace = Path(workspace)
@@ -97,9 +171,15 @@ class Project:
 
     @classmethod
     def for_scan(cls, scan: Path) -> "Project":
-        """A project whose workspace sits beside the scan: <scan name>.ectype/."""
+        """The scan's project: an older one beside the scan keeps working; otherwise the one
+        recorded in Ectype's projects folder, or a new folder there (see `find_for_scan`)."""
         scan = Path(scan)
-        return cls(scan.with_name(scan.stem + ".ectype"), scan)
+        found = find_for_scan(scan)
+        return cls(found if found is not None else _new_project_folder(scan), scan)
+
+    @staticmethod
+    def find_for_scan(scan: Path) -> Path | None:
+        return find_for_scan(scan)
 
     # -- settings and overrides -------------------------------------------------
 
@@ -376,6 +456,17 @@ class Project:
         return [lang for lang in suggest(self.unread_scripts(), self.languages(), pages)
                 if lang not in self.settings.declined_languages]
 
+    def missing_languages(self) -> tuple[list[str], dict[str, int]] | None:
+        """(languages to add, {script: words} they would read), or None when nothing is missing."""
+        from .scripts import SUGGEST
+
+        codes = self.language_suggestions()
+        if not codes:
+            return None
+        found = {script: n for script, n in self.unread_scripts().items()
+                 if (SUGGEST.get(script) or ("eng" if script == "Latin" else None)) in codes}  # Latin: English, as suggest()
+        return codes, found
+
     def decline_languages(self, codes: list[str]) -> None:
         self.settings.declined_languages = sorted(set(self.settings.declined_languages) | set(codes))
         self.save_settings()
@@ -476,6 +567,24 @@ class Project:
                 if stage in ("ocr", "segment") or done == total:
                     progress(stage, f"page {done} of {total}")
 
+            def on_work(done: int, total: int, what: str, stage=stage, weight=weight, before=before) -> None:
+                # Inside a long stage (cluster, fonts): the bar moves by the stage's own measure,
+                # and a message every few seconds says where it is.
+                if stop:
+                    stop.check()
+                if stage == "cluster":
+                    from .cluster import overall_fraction
+
+                    part = overall_fraction(what, done, total)
+                else:
+                    part = done / max(1, total)
+                fraction((before + weight * part) / whole)
+                now = time.monotonic()
+                if done >= total or now - last_said.get(stage, -99.0) >= 3.0:
+                    last_said[stage] = now
+                    progress(stage, f"{what}: {done:,} of {total:,}")
+
+            last_said: dict[str, float] = {}
             progress(stage, "running")
             if stage == "preprocess":
                 if not s.source or not Path(s.source).is_file():
@@ -496,6 +605,11 @@ class Project:
                     msg += f"; words in scripts the OCR languages don't cover: {found}"
                     if out["suggest_languages"]:
                         msg += "; add " + ", ".join(name(c) for c in out["suggest_languages"])
+                if s.mode in ("traced", "substitute") and not self.manuscript():
+                    missing = self.missing_languages()
+                    if missing:
+                        progress(stage, msg)
+                        raise LanguagesMissing(*missing)
             elif stage == "read":
                 from . import updates
                 from .manuscript import read_workspace
@@ -511,12 +625,12 @@ class Project:
             elif stage == "cluster":
                 from .cluster import cluster_workspace
 
-                out = cluster_workspace(ws)
+                out = cluster_workspace(ws, progress=on_work)
                 msg = f"{len(out['glyphs'])} glyphs in {len(out['styles'])} styles; {len(out['suspects'])} probable misreadings"
             elif stage == "fonts":
                 from .fontbuild import build_workspace_fonts
 
-                out = build_workspace_fonts(ws, family=f"Ectype {s.name or ws.name}")
+                out = build_workspace_fonts(ws, family=f"Ectype {s.name or ws.name}", progress=on_work)
                 bad = [st["style"] for st in out["styles"] if st["validation"]["ots"] not in ("pass", "not installed")]
                 msg = f"{len(out['styles'])} fonts" + (f"; validation problems in styles {bad}" if bad else ", all valid")
             elif stage == "plaintext":
@@ -602,7 +716,15 @@ class Project:
             from .cluster import cluster_workspace
 
             progress("cluster", "running")
-            out = cluster_workspace(ws)
+            said = [-99.0]
+
+            def on_work(done: int, total: int, what: str) -> None:
+                now = time.monotonic()
+                if done >= total or now - said[0] >= 3.0:
+                    said[0] = now
+                    progress("cluster", f"{what}: {done:,} of {total:,}")
+
+            out = cluster_workspace(ws, progress=on_work)
             progress("cluster", f"{len(out['glyphs'])} glyphs in {len(out['styles'])} styles")
         from .fontmatch import match_styles, write_matches
         from .layout import build_layout

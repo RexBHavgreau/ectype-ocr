@@ -481,21 +481,22 @@ def test_a_step_command_given_a_scan_says_what_to_use(tmp_path, capsys, monkeypa
 
 
 def test_cli_run_puts_the_pdf_beside_the_scan(tmp_path, capsys, monkeypatch):
-    """Beaux: "The OCR'd PDF should just go next to the current one." `ectype run` keeps its
-    project folder beside the scan (as the app does) and copies the PDF there as "<name> - OCR.pdf";
+    """Beaux: "The OCR'd PDF should just go next to the current one." `ectype run` (text mode) keeps
+    no project folder and copies the PDF there as "<name> - OCR.pdf";
     the scan is untouched, a file of that name Ectype didn't make is kept, a later run replaces
     Ectype's own. The Plain text mode runs from the command line too."""
     from ectype import cli
     from ectype.project import Project, made_by_ectype
 
     monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
     pdf = _pdf(tmp_path / "Libro.pdf", 3)
     original = pdf.read_bytes()
     assert cli.main(["run", str(pdf), "--mode", "text"]) == 0
     out = tmp_path / "Libro - OCR.pdf"
     assert out.is_file() and made_by_ectype(out) and pdf.read_bytes() == original
     assert f"PDF: {out}" in capsys.readouterr().out
-    assert Project(tmp_path / "Libro.ectype").settings.mode == "text"
+    assert not (tmp_path / "Libro.ectype").exists(), "a results-only run keeps no project"
     assert cli.main(["run", str(pdf), "--mode", "text"]) == 0  # Ectype's own copy is replaced
     assert not (tmp_path / "Libro - OCR (2).pdf").exists()
     out.write_bytes(b"%PDF-1.4 someone else's")  # not Ectype's: kept

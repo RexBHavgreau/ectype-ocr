@@ -159,10 +159,12 @@ def test_lines_set_in_fonts(data, tmp_path, monkeypatch):
     assert synthtrain.generate(chosen, ["greek"], lines_per_font=12)["fonts"]["greek"] == ["FreeSerif Regular"]
     # A Hebrew font without the points: its lines set without them.
     _unpointed(Path(find_font("FreeSerif")), tmp_path / "Plain.ttf", "Plain Hebrew")
-    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"] * 5)
+    monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: (
+        ["בראשית ברא אלהים את השמים ואת הארץ והארץ היתה תהו ובהו"] if source == "hebrew-prose" else
+        ["בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ"]) * 5)
     plain = synthtrain.fonts_in(tmp_path / "Plain.ttf") or [synthtrain.FontInfo(tmp_path / "Plain.ttf", "Plain Hebrew Regular")]
     r = synthtrain.generate(plain, ["hebrew"], lines_per_font=12)
-    assert r["fonts"]["hebrew"] == ["Plain Hebrew Regular (without marks)"] and r["added"]["heb"] == 12
+    assert r["fonts"]["hebrew"] == ["Plain Hebrew Regular (without marks)"] and r["added"]["heb"] == 12 + 4  # and its unpointed prose lines, two fifths as many
     lines = [i.text for i in pool.items("heb")]
     assert lines and all(not any(0x05B0 <= ord(c) <= 0x05C7 for c in t) for t in lines), "set without points"
     monkeypatch.setattr(texts, "load", lambda source, progress=None, accents=False: [

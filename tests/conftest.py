@@ -59,6 +59,19 @@ def _tounicode(mapping: dict[int, str]) -> bytes:
     return "\n".join(lines).encode()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _data_folder(tmp_path_factory):
+    """Book projects and the like go in a throwaway data folder, never the real one."""
+    import os
+
+    if "ECTYPE_DATA_DIR" in os.environ:
+        yield
+        return
+    os.environ["ECTYPE_DATA_DIR"] = str(tmp_path_factory.mktemp("ectype-data"))
+    yield
+    os.environ.pop("ECTYPE_DATA_DIR", None)
+
+
 @pytest.fixture
 def clearscan_like_pdf(tmp_path: Path) -> Path:
     pdf = pikepdf.new()

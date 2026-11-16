@@ -479,6 +479,124 @@ plan in it, not only the menus and crash recorder):
   Corrections, aligned and confident lines, models, texts and settings are never touched.
   Progress is throttled to once a second (millions of files).
 
+**0.11.0** (on the branch; book projects leave the scans' folders):
+- *Projects in the data folder* (Beaux keeps scans in library folders such as D:\Library and doesn't
+  want `.ectype` folders there; they asked for "a folder in the same directory as the Ectype
+  app", which is Program Files: Windows doesn't let programs write there and updates replace
+  it, so they go in the data folder instead, and Beaux was told). `project.projects_dir()` =
+  `user_data_dir()/projects`, so Data folder… moves them with everything else.
+  `Project.for_scan`: an older `<scan>.ectype` beside the scan (with project.json) is used as
+  before, never moved; else the folder named in `projects/index.json` (scan's resolved path,
+  `os.path.normcase` -> folder name); else a new `<stem>.ectype` (`<stem> (2).ectype` … if another
+  scan's project has the name), indexed. `Project.find_for_scan` looks without creating (used by
+  `ectype text`). Only results (PDF "<name> - OCR.pdf", .txt) go beside the scan.
+- *Results-only runs keep nothing*: `ectype run --mode text|plaintext` works in a temporary folder
+  under `textfiles.work_root()` and deletes it (try/finally, so also on failure or Ctrl+C) unless
+  `--keep` (then it is the book's project in `projects/`, openable in Review) or `-o`. Traced and
+  substitute keep their project. A stopped text run starts over (cheap).
+- *Choosing Kraken models* (Beaux: "all lumped together in the GUI, and in the CLI I just select
+  the languages"). The stored form is unchanged (Kraken codes `kraken_<number>` inside
+  `Settings.lang`, reading in ocr.py as before); only the showing and choosing changed.
+  `languages.py`: `tesseract_codes`/`kraken_codes`, `kraken_for`, `reader_of`, `choose_reader`
+  (`choose_reader_for_script`: removes the models that read that script, puts the chosen one in),
+  `reader_rows`/`orphan_readers` (an older project with a model and no language of its script still
+  shows it as that script's reader), `apply_kraken_choices` (the CLI's refusals in plain words).
+  Menu (`LanguageButton.set_languages`, Print Mode only): the checklist holds Tesseract languages
+  only; each ticked language with models gets a "Read <language> with" submenu (Tesseract alone /
+  Kraken: <title> / Kraken: trained on <book>), rebuilt after a tick; then "Kraken models…" (opens the
+  languages window on its Kraken tab), "Add languages…", "Trained models…". The Kraken panel lists
+  the installed models by script and says how to use one. CLI: `ectype kraken list|available|add|remove`,
+  `--kraken LANG=MODEL` on run, ocr, text, text-files (applied in `cli.apply_kraken_options`);
+  `ectype languages` lists the models under their script; `--lang heb+kraken_<n>` still works.
+  Tests: tests/test_kraken_choice.py. Not tried against a real engine or Zenodo (add/available).
+- *Reading stopped: "min() iterable argument is empty"* (Beaux, 0.10.0, the Hebrew grammar with the
+  multilingual PP-OCRv6 medium model, kraken_21788410, which reads ten scripts): `kraken.read_runs`
+  read a line's runs script by script and put each in at once, so after the Hebrew run came back
+  as more words, a later run's place in the line (taken before) pointed at the wrong words (the
+  test shows "and" replaced by Arabic) or past the end (the crash). Every run is now read first,
+  then all put in back to front per line. Also `ocr.kraken_scripts`: a model of several scripts
+  reads only the ticked languages' scripts (ticking Hebrew no longer sends words the detector took
+  for Arabic/Syriac to it); a model with none of its scripts ticked reads all, as before.
+- *Measured* (the grammar extract, 17 pages, stock `heb`, here on 4 cores): Tesseract alone 3,085
+  unpointed Hebrew words, 63.2% found in the hebrew-prose vocabulary, common ב/כ words (כמו כלל כל
+  כאשר בין בלתי מבוא לבוא כי …) wrong 22 of 162; with PP-OCRv6 medium (kraken_21788410, Beaux's
+  pre-release `kraken-test-models`) rereading the Hebrew: 3,386 words, 69.8%, 5 of 178 wrong; 4.5 min
+  against about 1. Not yet against a checked transcription (Beaux will add corrected pages).
+  **Against a transcription** (corpus/truth/, PDF page 5 of the extract, 238 words, made by Claude from
+  the scan, not yet checked by Beaux; letters only: points, punctuation and the German glosses left
+  out): Tesseract alone 24.4% of words wrong (8.2% of letters), with Kraken rereading 2.5% (1.2%).
+  Beaux's own text export (0.10.0, Tesseract) was "unusable even as a starting point". Kraken's
+  remaining errors: the book's syllable-divider stroke inside example words (אב׀רם) read as yod
+  ("אבירם", "קירא"), and ר/ד once. The bracketed glosses are German in Hebrew letters (זילבע =
+  Silbe), which no Hebrew model knows.
+  **Beaux's jumbled text** (their export's header: `(kraken_21788410)`, the model alone, no `heb`):
+  Tesseract finds the lines and words Kraken rereads, and with no Tesseract language it read as
+  `eng` (ocr.py's fallback), left to right, cutting the Hebrew oddly, so Kraken's runs came out
+  back to front within lines and the rest as English noise. `languages.reading_codes` (used by
+  `ocr_pages` and `_ocr_one`): a one-script Kraken model with no ticked language of its script
+  brings that script's Tesseract language (SUGGEST; Latin -> eng); a many-script model with none
+  of its languages ticked stops the reading (`ReaderWithoutLanguage` -> `EngineUnavailable`)
+  saying to tick the book's language and choose the model under "Read <language> with".
+  Also fixed: the closing note named no words for a missing English ("this book has  that heb
+  doesn't read": `missing_languages` matched scripts through SUGGEST, which has no Latin).
+- *Free up space* lists "Book projects" with their size and never removes them
+  (`freespace.report()["projects"]`). tests/conftest.py points ECTYPE_DATA_DIR at a throwaway
+  folder for the whole test session.
+- *Wrong languages caught early* (Beaux: Thomson's Athanasius, Greek and English facing pages,
+  run with no --lang: misread Greek made 39,468 glyph "styles", and the fonts stage would have
+  taken hours; Russian, Arabic and Hindi were also suggested). `scripts.suggest` offers the most
+  frequent missing script and any other found at least half as often (`DOMINANT`): misread Greek
+  also counts as Cyrillic/Arabic/Devanagari. After OCR, traced and substitute runs raise
+  `project.LanguagesMissing` (`Project.missing_languages`) before segment: the app's Worker emits
+  `languages_needed`, the window offers the language (`offer_languages(otherwise=...)`: Not now /
+  Not for this book go on from "segment"); `ectype run` stops with the commands (exit 3; `--anyway`
+  goes on); text/plaintext runs finish and say it; `text-files` lists such books in its summary
+  ("NEEDS grc: …"). The Data folder window suggests D:\ProgramData when it exists (Beaux keeps
+  program data there; a non-empty folder gets an "Ectype OCR" folder inside).
+- *`ectype textlayer "<book>.pdf" --lang …` was refused* (Beaux guessed the step's name):
+  `cli._as_run` (before argparse) turns `textlayer`/`traced`/`substitute` given a scan into
+  `run <scan> --mode text|traced|substitute`, saying so; given a project folder they are the steps.
+- *The fonts step failed on Beaux's Hebrew grammar* (talmudlashonibrg00lb, 17-page extract in
+  corpus/): "Value 35256 does not fit in format h for yMax": a shape on a line whose x-height was
+  measured far too small was scaled past a font's 32,767. `fontbuild.MAX_EXTENT` (12 x-heights):
+  such a shape is left out of the font (the word keeps it in the scan). Also measured there: 92%
+  of its 5,127 glyphs are single letters (doubtful pointed Hebrew is traced letter by letter,
+  `VERBATIM_CONF`), so traced mode on such books is slow (cluster 58 s / 17 pages, mostly
+  `average`); the searchable PDF (`--mode text`) is the practical output for them.
+- *Cluster and fonts showed nothing and couldn't be stopped* (Beaux's Hebrew grammar, 479 pages: the
+  cluster step ran 4+ hours in silence and Stop did nothing, so it looked frozen). `cluster_workspace`
+  and `build_workspace_fonts` take `progress(done, total, what)`, told at most once a second and at
+  each phase's end (`stopping.Ticker`, which also checks Stop at every item): measuring pages 10%,
+  grouping letters 30%, averaging glyphs 50%, report sheets 10% (`cluster.PHASES`,
+  `overall_fraction`); fonts per font built. `Project.run` moves the bar by it and says "grouping
+  letters: 1,200 of 4,800" every 3 s; `ectype cluster/fonts/run` show it on one line
+  (`_ConsoleProgress.phase`). `clusters.json` is now written **last** (after the report sheets), so a
+  stopped run leaves none (or the earlier one) and it is never stale-but-fresh. Results unchanged
+  (tests/test_cluster_progress.py). The built .otf files differ run to run (build timestamp).
+- *Unpointed Hebrew prose for every Hebrew font* (Beaux's Hebrew grammar, 19th-century, unpointed,
+  full spelling כמו כלל התנועות לבוא ובעבור: the model confused ב/כ; the WLC is pointed and spelled
+  defectively, and a font with points never got unpointed lines). New known text `hebrew-prose`
+  (`texts.py`: 60 fixed works, `PROSE_WORKS`, 1.16 M characters, 2.1 MB kept) from the Project
+  Ben-Yehuda public domain dump, pinned (`verify.BENYEHUDA_COMMIT`, `PINS["hebrew-prose"]`, folder
+  `txt_stripped/`) and fingerprinted like the others (`python tools/make_fingerprints.py hebrew-prose`
+  now fingerprints one source and keeps the rest). Chosen from its catalogue: no translator, no
+  original language, genre article, eight authors of expository prose (14 Ahad Ha'am, 8 each
+  Smolenskin, Lilienblum, Sokolow, A. D. Gordon, 6 Brainin, 4 each Ussishkin, Magnes), 20-90 KB
+  works spread evenly by catalogue number. `_prose_pieces`: pieces of 6-30 words cut at sentence
+  ends, Hebrew marks removed (maqaf kept; NFC first, which unpacks pointed presentation forms),
+  no Latin letters, titles and numbers dropped; ASCII quotes left as the source has them (no
+  conversion to gershayim). The kept copy's pin names the works and `PROSE_VERSION`
+  (`texts.prose_pin`). `synthtrain.unpointed_lines`: each Hebrew font gets a second book
+  `font: <name> (unpointed)` with its own stamp (`UNPOINTED_VERSION`), 40% as many lines as the
+  pointed set (`UNPOINTED_SHARE`), so a font whose pointed lines exist (Beaux's 112,000, over an
+  hour) is not set again, only the new set made, and a second run makes nothing. A font without
+  the points takes 70% from the prose, 30% from the WLC without points. If the prose can't be
+  downloaded: said in the progress and `skipped`, lines come from the WLC without points, stamped
+  `-bible`, and are made again once the prose can be had (`-prose`). Hebrew still isn't made
+  unavailable by this (`support(failed=)` untouched). Free up space removes the set with the
+  font's other lines (it is a synthetic book). Tried here: 13,107 pieces; FreeSerif, 20 lines,
+  8 unpointed added, second run nothing.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
@@ -606,7 +724,8 @@ plan in it, not only the menus and crash recorder):
 - Known texts: Hebrew Bible (WLC), Greek New Testament (SBLGNT), Latin Vulgate (Clementine,
   public domain, one TSV from github.com/lukesmithxyz/vul; Train from fonts → Latin trains
   `lat`, a quarter of its lines with word-final æ). More languages need a reliable
-  public-domain text the app can download. Syriac: the Peshitta OT (with deuterocanon, 46
+  public-domain text the app can download. Hebrew prose (0.11.0, `hebrew-prose`): Project Ben-Yehuda's public domain
+  works, unpointed, for unpointed lines in every Hebrew font (see 0.11.0). Syriac: the Peshitta OT (with deuterocanon, 46
   books, unvowelled) from ETCBC/peshitta's `plain/0.2/<Book>.txt` (Beaux chose it; its text is
   CC BY-NC 4.0, credited in CREDITS.md, downloaded on the user's machine for their own
   training; the repo's MIT licence covers its programs only). Train from fonts → Syriac
@@ -694,6 +813,10 @@ plan in it, not only the menus and crash recorder):
   separate `party` package, not Kraken's line reader; check its speed on CPU, its size, and
   whether it gives each letter's place (traced PDFs need it) before offering it. Listed error
   rates come from each model's own test pages, so they don't compare across models.
+- **Kraken reads the whole page**: a per-language choice "Kraken: <model> (reads the whole page)"
+  beside today's re-reading; Kraken finds the lines (blla, as Manuscript Mode does), reads them and
+  gives each letter's place; to be measured against Tesseract on corrected pages of Beaux's books
+  before becoming the default.
 - Manuscripts, later: straightening curved pages (Beaux: not now); training on Intel graphics
   (needs changes to Kraken); a Hebrew manuscript model tried on Beaux's PC (BiblIA, Zenodo).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).

@@ -188,3 +188,16 @@ def test_fitting_hebrew_adds_the_points_it_lacks(tmp_path, monkeypatch):
     before = train.errors_tesseract(tmp_path / "eval", "stock", held)["test"]
     after = train.errors_tesseract(tmp_path / "eval", "trained", held)["test"]
     assert after[0] < before[0], (before, after)
+
+
+def test_misread_greek_doesnt_suggest_russian_arabic_or_hindi():
+    """Beaux (0.9.0): Thomson's Athanasius (Greek and English facing pages) read as English only.
+    The misread Greek also came out as other scripts, and Russian, Arabic and Hindi were offered
+    with Greek. Only the main missing script is offered (and any other at least half as common)."""
+    from ectype.scripts import suggest
+
+    unread = {"Cyrillic": 611, "Greek": 1416, "Han": 61, "Devanagari": 221, "Bengali": 17, "Arabic": 382,
+              "Telugu": 1, "Thai": 54, "Malayalam": 21, "Japanese": 46, "Kannada": 4, "Korean": 8, "Hebrew": 4}
+    assert suggest(unread, ["eng"]) == ["grc"]
+    # Two scripts really there, each common: both offered, the commoner first.
+    assert suggest({"Greek": 900, "Hebrew": 600, "Arabic": 80}, ["eng"]) == ["grc", "heb"]

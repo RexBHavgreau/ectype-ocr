@@ -127,6 +127,7 @@ The report goes to the Log; the app offers to read the pages again.
 
 **Known texts** (`texts.py`), downloaded once into the user's folder:
 - the Hebrew Bible: the Westminster Leningrad Codex, public domain, via the Open Scriptures Hebrew Bible, CC BY 4.0;
+- Hebrew prose (`hebrew-prose`): 60 fixed articles (1880s-1930s expository prose, unpointed, full spelling) from the Project Ben-Yehuda public domain dump, https://benyehuda.org. Every Hebrew font also gets unpointed lines from it (about 40% as many as its pointed lines, their own set in the pool), which the pointed, defectively spelled Bible cannot teach;
 - the Greek New Testament: the SBL Greek New Testament, CC BY 4.0;
 - the Latin Vulgate (Clementine), public domain, from the one-file text of `lukesmithxyz/vul`; it trains Latin (`lat`, Train from fonts → Latin).
 - the Peshitta Old Testament (with the deuterocanonical books, unvowelled), the ETCBC's plain text, CC BY-NC 4.0 (free to use, not commercially, with credit); it trains Syriac (`syr`, Train from fonts → Syriac). Syriac lines are set right to left with their letters joined.

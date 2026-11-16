@@ -26,6 +26,7 @@ SBLGNT_COMMIT = "d7f35adca9ec410e1d1499c63b4dd989d76c8d4d"
 VUL_COMMIT = "10d9d6191dd81f110a9788e66b4818483f32d31d"
 PESHITTA_COMMIT = "9850f5addade26f681334aa475570bef9b0b440a"
 QURAN_COMMIT = "d96dab765d712634ba17d1550cd5d1dc15c25b36"
+BENYEHUDA_COMMIT = "5e4277fead7b565f32cc4b352abd3565023a77d8"  # Project Ben-Yehuda dump, pinned in 0.11.0
 
 # source -> (repository, commit, folder inside it where the paths below start)
 PINS = {
@@ -36,10 +37,11 @@ PINS = {
     "vulgate": ("lukesmithxyz/vul", VUL_COMMIT, ""),
     "peshitta": ("ETCBC/peshitta", PESHITTA_COMMIT, "plain/0.2/"),
     "quran": ("rizaumami/quran-epub", QURAN_COMMIT, "src/quran/"),
+    "hebrew-prose": ("projectbenyehuda/public_domain_dump", BENYEHUDA_COMMIT, "txt_stripped/"),
 }
 RAW = "https://raw.githubusercontent.com/{repo}/{commit}/{path}"
 # Sources small enough to download whole when fingerprinting: they also get a SHA-256.
-WHOLE = ("hebrew-bible", "greek-nt", "vulgate", "peshitta", "quran")
+WHOLE = ("hebrew-bible", "greek-nt", "vulgate", "peshitta", "quran", "hebrew-prose")
 
 
 class DownloadMismatch(Exception):

@@ -212,10 +212,20 @@ def suggest(unread: dict[str, int], chosen: list[str], pages: list[dict[str, int
 
     covered = {script for lang in chosen for script in scripts_read(lang)}
     need = 1 if not pages or len(pages) < 2 else min(3, max(2, math.ceil(len(pages) / 20)))
-    out = []
+    found: list[tuple[str, int]] = []
     for script, n in sorted(unread.items(), key=lambda kv: -kv[1]):
         lang = SUGGEST.get(script) or ("eng" if script == "Latin" else None)
         clustered = pages is None or sum(p.get(script, 0) >= min_on_a_page for p in pages) >= need
-        if lang and n >= min_words and clustered and script not in covered and lang not in out:
-            out.append(lang)
-    return out
+        if lang and n >= min_words and clustered and script not in covered and lang not in [l for l, _ in found]:
+            found.append((lang, n))
+    if not found:
+        return []
+    # A script the languages don't read comes out as nonsense in other scripts too: Greek read
+    # as English gave "Cyrillic", "Arabic", "Devanagari", ... (Beaux, Thomson's Athanasius: Greek
+    # 1,416 words, Cyrillic 611, Arabic 382, Devanagari 221). Suggest the main one, and any other
+    # found at least half as often; the rest are judged again once it is read.
+    top = found[0][1]
+    return [lang for lang, n in found if n >= DOMINANT * top]
+
+
+DOMINANT = 0.5  # a script found at least this share of the most frequent one is suggested with it

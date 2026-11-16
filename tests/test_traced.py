@@ -75,3 +75,22 @@ def test_traced_pdf(workspace):
     assert b"TJ" in pdf.pages[0].Contents.read_bytes()
     info = json.loads((root / "fonts" / "style-0.json").read_text())
     assert len(info["glyphs"]) < 120, "one glyph per character and style, roughly"
+
+
+def test_a_shape_too_big_for_a_font_is_left_out(tmp_path):
+    """Beaux's Hebrew grammar: a shape on a line whose x-height was measured far too small came
+    out tens of thousands of units tall, and building the font failed ("Value 35256 does not fit
+    in format h for yMax"). It is left out of the font (the word keeps it as part of the scan)."""
+    import numpy as np
+    from PIL import Image
+
+    from ectype.fontbuild import build_style_font
+
+    img = np.full((40, 30), 255, np.uint8)
+    img[10:30, 8:22] = 0
+    Image.fromarray(img).save(tmp_path / "a.png")
+    Image.fromarray(img).save(tmp_path / "b.png")
+    glyphs = [{"id": 1, "text": "a", "count": 5, "composite": "a.png", "canvas": {"x_height": 12.0, "baseline_row": 30}},
+              {"id": 2, "text": "b", "count": 1, "composite": "b.png", "canvas": {"x_height": 0.2, "baseline_row": 30}}]
+    font, cid_of, built, otf = build_style_font(0, glyphs, tmp_path, {}, "k", "Ectype Test")
+    assert set(cid_of) == {1} and [b.text for b in built] == ["a"] and otf

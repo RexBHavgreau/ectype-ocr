@@ -9,7 +9,8 @@ For each font in the folder (and its subfolders) that has the script's letters:
    Hebrew (Pillow's raqm layout, which places the vowel points). Hebrew lines come in three
    forms (`hebrew_form`): with the Codex's accents, as grammars print it (points, and ֫ over
    a stress before the last syllable, as in Driver's Treatise), and with points only; a font
-   without the accents sets the last.
+   without the accents sets the last. Every Hebrew font also gets unpointed lines in full
+   spelling, from prose (`unpointed_lines`), as a book of its own.
 2. Each line is made to look scanned (`degrade`): a slight blur, ink lighter or heavier,
    paper noise, specks, a small tilt.
 3. The image and its exact text go into the language's training pool (`pool.py`) as the
@@ -328,6 +329,49 @@ def held_out(fonts: list[FontInfo]) -> set[str]:
     return {f.name for f in order[: max(1, len(order) // 5)]}
 
 
+UNPOINTED_VERSION = 1  # of the unpointed Hebrew set (its own, so a font's pointed lines are never made again)
+UNPOINTED_SHARE = 0.4  # unpointed lines a font gets, as a share of the lines it has pointed
+PROSE_SHARE = 0.7  # of a font-without-points' unpointed lines, those from the prose (the rest: the Bible without points)
+
+
+def unpointed_book(font: FontInfo) -> str:
+    """The pool's book of a font's unpointed Hebrew lines: its own, beside the font's other book."""
+    return f"font: {font.name} (unpointed)"
+
+
+def unpointed_count(lines_per_font: int) -> int:
+    return max(1, int(lines_per_font * UNPOINTED_SHARE))
+
+
+def unpointed_lines(font, have, lv, k, split, books, passages, prose, lines_per_font, w, set_lines, say) -> None:
+    """Set a Hebrew font's unpointed lines, once. Books and grammars print Hebrew unpointed and
+    in full spelling, which the Hebrew Bible (pointed, spelled defectively) doesn't show, so they
+    come from Project Ben-Yehuda's prose; a font without the points takes 30% from the Bible
+    without its points as well. Its own book and stamp (UNPOINTED_VERSION): a font whose pointed
+    lines are done gets only these made, and none are made twice. Without the prose (it couldn't
+    be downloaded) all come from the Bible, and are made again once the prose can be had (the
+    stamp says which they were made from)."""
+    count = unpointed_count(lines_per_font)
+    book = unpointed_book(font)
+    st = font.path.stat()
+    stamp = hashlib.sha1(f"{font.path.name}:{font.index}:{st.st_size}:{st.st_mtime_ns}:{count}:{UNPOINTED_VERSION}:{lv}:"
+                         f"{texts.prose_pin() if prose else ''}".encode()).hexdigest()[:12] + ("-prose" if prose else "-bible")
+    if font_done(books, w, book, stamp):
+        say(f"Hebrew: {font.name} unpointed lines already done")
+        return
+    bible = [without_marks(p) for p in passages]
+
+    def make_text(rng, n):
+        if not prose:
+            yield from lines_from(bible, n, rng)
+            return
+        share = PROSE_SHARE if lv == LETTERS else 1.0
+        for text in lines_from(prose, n, rng):
+            yield text if rng.random() < share else lines_from(bible, 1, rng)[0]
+
+    set_lines(font, have, book, stamp, count, make_text, "unpointed lines", k, split)
+
+
 def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: int = 400, seed: int = 0,
              progress: Callable[[str], None] | None = None) -> dict:
     """Generate lines in every font (of a folder, or those given) for each script the font
@@ -379,33 +423,31 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
             for font, _, _ in usable:
                 face = italic_of(font, installed)
                 italics[font.name] = (face, covers(face, needed)) if face else None
+        prose, prose_chars = None, set()
+        if hebrew:  # unpointed prose for every Hebrew font (see unpointed_lines)
+            try:
+                prose = texts.load("hebrew-prose", say)
+                prose_chars = {c for p in prose for c in p if not c.isspace()}
+            except Stopped:
+                raise
+            except Exception as exc:  # the Hebrew Bible without its points stands in
+                why = f"couldn't be downloaded ({exc}); its unpointed lines are set from the Hebrew Bible without its points"
+                say(f"{texts.SOURCES['hebrew-prose']}: {why}")
+                report["skipped"][texts.SOURCES["hebrew-prose"]] = why
         with pool.Writer(lang) as w:
-            for k, (font, have, lv) in enumerate(usable, 1):
-                fraction((si + (k - 1) / len(usable)) / len(scripts))
-                book = f"font: {font.name}"
-                stamp = _stamp(font, lines_per_font, script) + ("" if lv == FULL else "-" + lv)
-                if font_done(books, w, book, stamp):
-                    say(f"{name}: {font.name} already done")
-                    continue
-                say(f"{name}: setting {lines_per_font} lines in {font.name} ({k} of {len(usable)})")
+            def set_lines(font, have, book, stamp, count, make_text, label, k, split):
+                """`count` lines from `make_text(rng, n)` set in the font, as the font's book `book`."""
+                say(f"{name}: setting {count} {label} in {font.name} ({k} of {len(usable)})")
                 w.remove_book(book, source="synthetic")
-                rng = random.Random(f"{seed}:{font.name}")
-                split = "test" if font.name in test_fonts else "train"
+                rng = random.Random(f"{seed}:{book.removeprefix('font: ')}")
                 made, samples = 0, []
-                candidates = lines_from(passages, lines_per_font * (4 if by_line else 2), rng)
-                for text in candidates:
-                    if hebrew:
-                        text = hebrew_form(text, rng, have)
-                    elif script == "latin" and rng.random() < 0.25:
-                        text = with_ligatures(text)
-                    if lv == LETTERS and not by_line:
-                        text = without_marks(text)
-                    if made >= lines_per_font:
+                italic = italics.get(font.name)
+                for text in make_text(rng, count * (4 if by_line else 2)):
+                    if made >= count:
                         break
                     if any(not c.isspace() and c not in have for c in text):
                         continue  # the font lacks a character of this line
                     size = rng.choice((30, 36, 42, 46, 50, 56))
-                    italic = italics.get(font.name)
                     runs = _italic_runs(text, font, italic[0], rng) if italic else None
                     if runs and any(not c.isspace() and c not in italic[1] for t, f in runs if f is italic[0] for c in t):
                         runs = None  # the italic lacks a character of its words: all roman
@@ -421,7 +463,30 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
                     made += 1
                 report["added"][lang] = report["added"].get(lang, 0) + made
                 pool.set_book(lang, book, source="synthetic", stamp=stamp, split=split, fingerprint=measure(samples))
-                if made < lines_per_font // 2:
-                    report["skipped"][font.name] = f"only {made} lines could be set"
+                if made < count // 2:
+                    report["skipped"][font.name if label == "lines" else f"{font.name} ({label})"] = f"only {made} lines could be set"
+
+            for k, (font, have, lv) in enumerate(usable, 1):
+                fraction((si + (k - 1) / len(usable)) / len(scripts))
+                book = f"font: {font.name}"
+                stamp = _stamp(font, lines_per_font, script) + ("" if lv == FULL else "-" + lv)
+                split = "test" if font.name in test_fonts else "train"
+                if font_done(books, w, book, stamp):
+                    say(f"{name}: {font.name} already done")
+                else:
+                    def make_text(rng, n):
+                        for text in lines_from(passages, n, rng):
+                            if hebrew:
+                                text = hebrew_form(text, rng, have)
+                            elif script == "latin" and rng.random() < 0.25:
+                                text = with_ligatures(text)
+                            if lv == LETTERS and not by_line:
+                                text = without_marks(text)
+                            yield text
+
+                    set_lines(font, have, book, stamp, lines_per_font, make_text, "lines", k, split)
+                if hebrew:
+                    unpointed_lines(font, have | covers(font, prose_chars), lv, k, split, books, passages, prose,
+                                    lines_per_font, w, set_lines, say)
     fraction(1.0)
     return report

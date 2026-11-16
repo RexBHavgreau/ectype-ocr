@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QIcon, QImage, QKeySequence, QPainterPath, QPainterPathStroker,
+from PySide6.QtGui import (QAction, QActionGroup, QBrush, QColor, QFont, QIcon, QImage, QKeySequence, QPainterPath, QPainterPathStroker,
                            QPen, QPixmap, QShortcut,
                            QTransform)
 from PySide6.QtWidgets import (
@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__, crashlog, languages, stopping, updates
-from .project import Project
+from .project import LanguagesMissing, Project, found_words
 
 PAGE_IMAGES = [("gray", "Page image: grayscale (JPEG)"), ("lossless", "Page image: grayscale, lossless (larger)"),
                ("bw", "Page image: black and white (smallest)")]
@@ -52,6 +52,7 @@ class Worker(QThread):
     done = Signal(str)
     failed = Signal(str)
     stopped = Signal()
+    languages_needed = Signal()  # read, and a script none of the languages reads: ask before going on
 
     def __init__(self, project: Project, start: str):
         super().__init__()
@@ -66,6 +67,8 @@ class Worker(QThread):
             self.done.emit(str(pdf or ""))
         except stopping.Stopped:
             self.stopped.emit()
+        except LanguagesMissing:
+            self.languages_needed.emit()
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -1146,6 +1149,7 @@ class LanguageButton(QToolButton):
     changed = Signal(list)
     add_requested = Signal()
     models_requested = Signal()
+    kraken_requested = Signal()  # open the languages window on its Kraken tab
     script_requested = Signal(str)  # "print" or "manuscript"
     hands_changed = Signal(str, list)  # a manuscript language's hands, in order
     reading_changed = Signal(str)  # how several hands read: "every" or "unsure"
@@ -1191,18 +1195,23 @@ class LanguageButton(QToolButton):
         self.hands_changed.emit(lang, hands)
 
     def set_languages(self, selected: list[str]) -> None:
+        """Print Mode's menu: the Tesseract languages to tick, then for each ticked language
+        with Kraken models a "Read <language> with" choice, then the windows. Kraken models stay
+        in the language list as before (kraken_<number>); only the way they are shown differs."""
         self.ms_settings = None
         self.selected = list(selected) or ["eng"]
         self.menu_.clear()
         self.boxes = {}
+        self.reader_actions = []
         self.menu_.addAction("Switch to Manuscript Mode", lambda: self.script_requested.emit("manuscript"))
         self.menu_.addSeparator()
-        codes = languages.installed()
-        for code in self.selected:  # chosen but not installed (yet): listed, so they can be unticked
+        installed = languages.installed()
+        codes = languages.tesseract_codes(installed)
+        for code in languages.tesseract_codes(self.selected):  # chosen but not installed (yet): listed, so they can be unticked
             if code not in codes:
                 codes.append(code)
         for code in codes:
-            box = QCheckBox(languages.name(code) + ("" if code in languages.installed() else " (not installed)"))
+            box = QCheckBox(languages.name(code) + ("" if code in installed else " (not installed)"))
             box.setChecked(code in self.selected)
             box.setContentsMargins(6, 2, 6, 2)
             box.toggled.connect(lambda on, c=code: self._toggled(c, on))
@@ -1211,35 +1220,78 @@ class LanguageButton(QToolButton):
             self.menu_.addAction(action)
             self.boxes[code] = box
         self.menu_.addSeparator()
+        self.readers_end = self.menu_.addSeparator()  # the "Read … with" choices go before this
+        self._fill_readers()
+        self.menu_.addAction("Kraken models…", self.kraken_requested.emit)
         self.menu_.addAction("Add languages…", self.add_requested.emit)
         self.menu_.addAction("Trained models…", self.models_requested.emit)
         self._label()
 
+    def _fill_readers(self) -> None:
+        """One submenu per script of a ticked language that has Kraken models: Tesseract alone,
+        or one model. The submenus are rebuilt when a language is ticked or unticked."""
+        for action in self.reader_actions:
+            self.menu_.removeAction(action)
+            action.deleteLater()
+        self.reader_actions = []
+        rows = languages.reader_rows(self.selected)
+        for script, label, models in rows:
+            sub = QMenu(f"Read {label} with", self.menu_)
+            group = QActionGroup(sub)
+            group.setExclusive(True)
+            chosen = languages.reader_for_script(self.selected, script)
+            choices = [("Tesseract alone", None)] + [(languages.reader_title(k), k) for k in models]
+            for text, model in choices:
+                item = sub.addAction(text)
+                item.setCheckable(True)
+                item.setChecked(model == chosen)
+                group.addAction(item)
+                item.triggered.connect(lambda _=False, sc=script, m=model: self._reader_chosen(sc, m))
+            self.menu_.insertMenu(self.readers_end, sub)
+            self.reader_actions.append(sub.menuAction())
+
+    def _reader_chosen(self, script: str, model: str | None) -> None:
+        new = languages.choose_reader_for_script(self.selected, script, model)
+        if not languages.tesseract_codes(new):  # at least one language
+            return
+        self.selected = new
+        self._label()
+        QTimer.singleShot(0, self._fill_readers)  # every "Read … with" shows the choice as it now stands
+        self.changed.emit(list(self.selected))
+
     def _toggled(self, code: str, on: bool) -> None:
         if on and code not in self.selected:
-            self.selected.append(code)
+            self.selected.insert(len(languages.tesseract_codes(self.selected)), code)  # before the models
         elif not on and code in self.selected:
-            if len(self.selected) == 1:  # at least one language
+            if len(languages.tesseract_codes(self.selected)) == 1:  # at least one language
                 self.boxes[code].blockSignals(True)
                 self.boxes[code].setChecked(True)
                 self.boxes[code].blockSignals(False)
                 return
             self.selected.remove(code)
         self._label()
+        QTimer.singleShot(0, self._fill_readers)  # a language's "Read … with" choice appears or goes
         self.changed.emit(list(self.selected))
 
     def _label(self) -> None:
-        names = [languages.name(c) for c in self.selected]
+        names, tips = [], []
+        for code in languages.tesseract_codes(self.selected):
+            model = languages.reader_of(self.selected, code)
+            names.append(languages.name(code) + (" (Kraken)" if model else ""))
+            tips.append(languages.name(code) + (f", read with {languages.reader_title(model)}" if model else ""))
+        for k in languages.orphan_readers(self.selected):
+            names.append(languages.name(k))
+            tips.append(languages.reader_title(k))
         text = ", ".join(names) if len(names) <= 2 else f"{names[0]} + {len(names) - 1} more"
         self.setText(f"Languages: {text}")
-        self.setToolTip("OCR languages: " + ", ".join(names))
+        self.setToolTip("OCR languages: " + "; ".join(tips))
 
 
 class AddLanguagesDialog(QDialog):
     """Pick languages to download; they are added to the OCR languages afterwards. Two tabs:
     Tesseract's languages, and Kraken's models (for Greek, Hebrew and other scripts)."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, kraken_tab: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Add languages")
         self.resize(760, 600)
@@ -1286,6 +1338,8 @@ class AddLanguagesDialog(QDialog):
         self.buttons.accepted.connect(self.download)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
+        if kraken_tab:
+            self.tabs.setCurrentWidget(self.kraken)
 
     def _kraken_installed(self, codes: list) -> None:
         self.downloaded = list(codes)
@@ -1378,6 +1432,11 @@ class FreeSpaceDialog(QDialog):
                   "when needed", r["cache"]["bytes"], "cache", None, True)
         self._add(f"Leftovers of stopped runs: {r['leftovers']['bytes'] / 1e9:.1f} GB", r["leftovers"]["bytes"],
                   "leftovers", None, True)
+        books = r.get("projects", {"bytes": 0, "folders": 0})
+        projects = QLabel(f"Book projects: {books['bytes'] / 1e9:.1f} GB in {books['folders']} books — your books' "
+                          "projects, with their corrections: not removed here")
+        projects.setWordWrap(True)
+        self.layout_.addWidget(projects)
         synthetic = {lang: by["synthetic"] for lang, by in r["pool"].items() if by["synthetic"]["lines"]}
         if synthetic:
             self.layout_.addWidget(QLabel("<b>Lines set from fonts</b>"))
@@ -1472,7 +1531,8 @@ class DataFolderDialog(QDialog):
 
     def suggestion(self) -> str:
         if sys.platform == "win32" and Path("D:\\").exists() and not str(self.where).upper().startswith("D:"):
-            return "D:\\Ectype OCR"
+            # Beaux keeps program data in D:\ProgramData: offer that when it is there
+            return "D:\\ProgramData" if Path("D:\\ProgramData").is_dir() else "D:\\Ectype OCR"
         return str(self.where.parent)
 
     def choose(self) -> None:
@@ -1612,9 +1672,14 @@ class KrakenModelsPanel(QWidget):
                        "libraries and shared in its repository on Zenodo. Tesseract still reads the main text; "
                        "words in a model's script are read again by Kraken. Choose a model that matches your "
                        "book: printed or handwritten, and the period of the type. The description says what "
-                       "each was trained on.")
+                       "each was trained on. To read with a model, tick its language under Languages and "
+                       "choose the model under “Read <language> with”.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
+        self.installed_label = QLabel("")
+        self.installed_label.setWordWrap(True)
+        layout.addWidget(self.installed_label)
+        self._show_installed()
         self.engine_label = QLabel("")
         self.engine_label.setWordWrap(True)
         self.engine_label.setOpenExternalLinks(True)
@@ -1673,6 +1738,18 @@ class KrakenModelsPanel(QWidget):
         buttons.addWidget(self.download_button)
         layout.addLayout(buttons)
         self.check_engine()
+
+    def _show_installed(self) -> None:
+        """The models installed, under the script each reads (a many-script model under each)."""
+        models = self.kraken.installed_models()
+        if not models:
+            self.installed_label.setText("No Kraken models are installed yet.")
+            return
+        lines = []
+        for script in sorted({s for k in models for s in self.kraken.reads(k)}):
+            names = [languages.reader_title(k).removeprefix("Kraken: ") for k in languages.models_for_script(script)]
+            lines.append(f"<b>{script}</b>: " + "; ".join(names))
+        self.installed_label.setText("<b>Installed:</b><br>" + "<br>".join(lines))
 
     # -- the engine
 
@@ -1783,12 +1860,14 @@ class KrakenModelsPanel(QWidget):
         else:
             self.status.setText(f"{len(self.records)} recognition models in the repository. Choose a script, "
                                 "untick “Printed text only” for handwriting, select a model and download it: it then "
-                                "appears in the Languages menu, to tick like any language.")
+                                "is listed below under the language it reads. To use it, tick that language under Languages "
+                                "and choose the model under “Read <language> with”.")
         self._filter()
 
     def _filter(self) -> None:
         script = self.script.currentData() or ""
         text = self.search.text().lower()
+        self._show_installed()
         have = {m.get("doi") for m in self.kraken.installed_models().values()}
         shown = [r for r in self.records
                  if (not script or script in self.kraken.scripts_of(r))
@@ -2184,7 +2263,7 @@ class FontTrainingDialog(QDialog):
         self.failed: dict[str, str] = {}  # languages whose known text couldn't be downloaded
         self.scanner: Task | None = None
         layout = QVBoxLayout(self)
-        intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament, the Latin "
+        intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible and Hebrew prose without points, the Greek New Testament, the Latin "
                        "Vulgate, the Peshitta, the Qurʾān and the Arabic Bible) in each "
                        "font you choose, makes the lines look scanned, and trains each language's model on them: no "
                        "correcting by hand. Fonts are only read, never copied. The more typefaces like your books' "
@@ -2592,7 +2671,8 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.page_image)
         self.langs = LanguageButton()
         self.langs.changed.connect(self._languages_changed)
-        self.langs.add_requested.connect(self.add_languages)
+        self.langs.add_requested.connect(lambda: self.add_languages())
+        self.langs.kraken_requested.connect(lambda: self.add_languages(kraken_tab=True))
         self.langs.models_requested.connect(lambda: ModelsDialog(self).exec())
         self.langs.script_requested.connect(self._script_requested)
         self.langs.hands_changed.connect(self._hands_changed)
@@ -2894,10 +2974,18 @@ class MainWindow(QMainWindow):
             msg += " Corrections made so far are carried over to the new reading."
         self.statusBar().showMessage(msg)
 
-    def add_languages(self) -> None:
-        dialog = AddLanguagesDialog(self)
+    def add_languages(self, kraken_tab: bool = False) -> None:
+        dialog = AddLanguagesDialog(self, kraken_tab=kraken_tab)
         if dialog.exec() and dialog.downloaded:
-            codes = self.project.languages() + [c for c in dialog.downloaded if c not in self.project.languages()]
+            codes = self.project.languages()
+            for c in dialog.downloaded:  # a Kraken model just downloaded becomes its scripts' reader
+                if c.startswith("kraken_"):
+                    from .kraken import reads
+
+                    for script in reads(c):
+                        codes = languages.choose_reader_for_script(codes, script, c)
+                elif c not in codes:
+                    codes.insert(len(languages.tesseract_codes(codes)), c)
             self.project.set_languages(codes)
             self.langs.set_languages(codes)
             self._languages_changed(codes)
@@ -3149,6 +3237,7 @@ class MainWindow(QMainWindow):
         self.worker.done.connect(self._finished)
         self.worker.failed.connect(self._failed)
         self.worker.stopped.connect(self._stopped)
+        self.worker.languages_needed.connect(self._languages_needed)
         self.worker.start()
 
     def _finished(self, pdf: str) -> None:
@@ -3162,14 +3251,26 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.review_stack)
         self.offer_languages()
 
-    def offer_languages(self) -> None:
+    def _languages_needed(self) -> None:
+        """The run stopped after reading: a script none of the languages reads. Offer the language
+        before the slow stages; if the person declines, go on with them."""
+        if self.worker is not None:
+            self.worker.wait()  # its run has ended; a new one may start
+        self._close_progress()
+        self._log("Stopped after reading: the book has words in a script the OCR languages don't read.")
+        self._enable()
+        self.offer_languages(otherwise=lambda: self.run("segment"))
+
+    def offer_languages(self, otherwise=None) -> None:
         """Words in a script none of the OCR languages covers (Greek or Hebrew in an English
-        book): offer to add the languages, downloading them if needed, and read the pages again."""
+        book): offer to add the languages, downloading them if needed, and read the pages again.
+        `otherwise`: what to do if the person declines (go on with the run that stopped)."""
         codes = self.project.language_suggestions()
         if not codes:
+            if otherwise:
+                otherwise()
             return
-        unread = self.project.unread_scripts()
-        found = ", ".join(f"{script} ({n} words)" for script, n in unread.items())
+        found = found_words(self.project.missing_languages()[1])
         names = ", ".join(languages.name(c) for c in codes)
         missing = [c for c in codes if c not in languages.installed()]
         box = QMessageBox(self)
@@ -3183,7 +3284,12 @@ class MainWindow(QMainWindow):
         box.exec()
         if box.clickedButton() is never:
             self.project.decline_languages(codes)
-        elif box.clickedButton() is add:
+            if otherwise:
+                otherwise()
+        elif box.clickedButton() is not add:  # "Not now"
+            if otherwise:
+                otherwise()
+        else:
             def work(progress):
                 if missing:
                     languages.download(missing, lambda code, got, total: progress(

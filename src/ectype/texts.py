@@ -3,6 +3,12 @@ are matched against (`synthtrain.py`, `align.py`).
 
 - "hebrew-bible": the Westminster Leningrad Codex (public domain), from the Open Scriptures
   Hebrew Bible (CC BY 4.0, github.com/openscriptures/morphhb).
+- "hebrew-prose": 60 articles of 19th and early 20th century Hebrew expository prose (Ahad Ha'am,
+  Smolenskin, Lilienblum, Sokolow, A. D. Gordon, Brainin, Ussishkin, Magnes) from the Project
+  Ben-Yehuda public domain dump (github.com/projectbenyehuda/public_domain_dump; public domain,
+  credit to the Project Ben-Yehuda volunteers, benyehuda.org), unpointed and in full spelling as
+  grammars and books print it. Hebrew fonts set lines from it without points (`synthtrain.py`),
+  which the Hebrew Bible, pointed and spelled defectively, can't teach.
 - "greek-nt": the SBL Greek New Testament (CC BY 4.0, github.com/LogosBible/SBLGNT).
 - "vulgate": the Clementine Vulgate (public domain), as one file of verses from
   github.com/lukesmithxyz/vul (public domain).
@@ -64,10 +70,28 @@ QURAN_FILE = "quran-simple.txt"
 # here; `_cached` then downloads it and checks it like the others.
 VAN_DYCK_URL = "https://ebible.org/Scriptures/arb-vd_vpl.zip"
 VAN_DYCK_FINGERPRINT: dict | None = None
-SOURCES = {"hebrew-bible": "Hebrew Bible (Westminster Leningrad Codex)", "greek-nt": "Greek New Testament (SBLGNT)",
+# The works of "hebrew-prose": paths in the Project Ben-Yehuda dump (txt_stripped/<path>.txt).
+# Chosen once, from its catalogue (pseudocatalogue.csv) at the pinned commit: works in Hebrew (no
+# translator, no original language), genre article, by eight authors of expository prose, of 20-90 KB
+# each, spread evenly through each author's works by catalogue number (14 of Ahad Ha'am's, 8 each
+# of Smolenskin, Lilienblum, Sokolow and A. D. Gordon, 6 of Brainin, 4 each of Ussishkin and
+# Magnes). The list is fixed so every file can be fingerprinted (`fingerprints.json`); changing it
+# means running tools/make_fingerprints.py again (the kept text is made again too: `prose_pin`).
+PROSE_WORKS = tuple("""
+    p23/m171 p23/m774 p23/m1415 p23/m2594 p23/m3602 p23/m5086 p23/m5589 p23/m6303 p23/m6959 p23/m7415
+    p23/m7990 p23/m8447 p23/m13935 p23/m15050 p95/m105 p95/m2039 p95/m5155 p95/m6442 p95/m7747
+    p95/m21982 p95/m57256 p95/m57426 p58/m127 p58/m716 p58/m2318 p58/m4745 p58/m5685 p58/m6402 p58/m7118
+    p58/m7836 p80/m193 p80/m3420 p80/m5064 p80/m5391 p80/m6162 p80/m7861 p80/m12956 p80/m19871 p18/m125
+    p18/m1555 p18/m3110 p18/m5164 p18/m6391 p18/m7883 p18/m18002 p18/m18051 p12/m447 p12/m2536 p12/m3612
+    p12/m5207 p12/m6170 p12/m8505 p437/m10781 p437/m10789 p437/m10803 p437/m10815 p2706/m50388
+    p2706/m50400 p2706/m50520 p2706/m52807
+""".split())
+PROSE_VERSION = 1  # of how the works are cut into lines (`_prose_pieces`)
+SOURCES = {"hebrew-bible": "Hebrew Bible (Westminster Leningrad Codex)", "hebrew-prose": "Hebrew prose (Project Ben-Yehuda)",
+           "greek-nt": "Greek New Testament (SBLGNT)",
            "vulgate": "Latin Vulgate (Clementine)", "peshitta": "Peshitta (Old Testament, ETCBC)",
            "quran": "Qurʾān (Tanzil.net)", "van-dyck": "Arabic Bible (Smith–Van Dyck)"}
-LANG = {"hebrew-bible": "heb", "greek-nt": "grc", "vulgate": "lat", "peshitta": "syr", "arabic": "ara"}
+LANG = {"hebrew-bible": "heb", "hebrew-prose": "heb", "greek-nt": "grc", "vulgate": "lat", "peshitta": "syr", "arabic": "ara"}
 
 # Hebrew marks left out: the accents (U+0591-U+05AF), meteg, paseq, the upper and lower dots, rafe.
 HEBREW_ACCENTS = re.compile("[֑-ֽֿ֯׀ׅׄ]")
@@ -111,6 +135,45 @@ def _hebrew_book(xml: str) -> list[str]:
         text = re.sub(r"\s+", " ", text).strip()
         if text:
             out.append(text)
+    return out
+
+
+# Hebrew marks that are not letters or punctuation (accents, points, dots): all of U+0591-U+05C7
+# but maqaf (U+05BE), which stays.
+_PROSE_MARKS = re.compile("[\u0591-\u05bd\u05bf-\u05c7\u00ad\u200b-\u200f\u202a-\u202e\ufeff]")
+PIECE_WORDS = (6, 30)  # fewest and most words in a line of prose
+
+
+def _prose_pieces(txt: str) -> list[str]:
+    """Passages of one Project Ben-Yehuda work: each paragraph cut at its sentence ends and the
+    sentences joined to pieces of 6 to 30 words (verse length, so `synthtrain.lines_from` takes
+    its 3 to 9 word lines from them as from the Bible). Titles, headings and numbers (short
+    lines) are left out; so is any piece with Latin letters or no Hebrew letter; Hebrew marks
+    that slipped in are removed (maqaf, geresh, gershayim and punctuation stay)."""
+    least, most = PIECE_WORDS
+    out: list[str] = []
+    for para in txt.splitlines():
+        para = _PROSE_MARKS.sub("", unicodedata.normalize("NFC", para))  # NFC first: it unpacks pointed letters (שׁ, וֹ)
+        pieces: list[list[str]] = []
+        cur: list[str] = []
+        for sentence in re.split(r"(?<=[.!?:;])\s+", para):
+            cur += sentence.split()
+            if len(cur) >= least + 2:
+                pieces.append(cur)
+                cur = []
+        if cur:
+            if pieces and len(cur) < least:
+                pieces[-1] += cur
+            else:
+                pieces.append(cur)
+        for words in pieces:
+            parts = -(-len(words) // most)  # a long piece in equal parts
+            size = -(-len(words) // parts)
+            for k in range(0, len(words), size):
+                piece = " ".join(words[k:k + size])
+                if (len(words[k:k + size]) >= least and re.search("[\u05d0-\u05ea]", piece)
+                        and not re.search("[A-Za-z]", piece)):
+                    out.append(piece)
     return out
 
 
@@ -259,6 +322,13 @@ def _vulgate(tsv: str) -> list[str]:
     return out
 
 
+def prose_pin() -> str:
+    """What a kept "hebrew-prose" text is made from: the commit, the list of works and how they
+    are cut (a change to any of them makes a kept copy fail its check and be downloaded again)."""
+    works = hashlib.sha256(("\n".join(PROSE_WORKS) + f"\n{PROSE_VERSION}").encode()).hexdigest()[:12]
+    return f"{verify.PINS['hebrew-prose'][1]}:{works}"
+
+
 def load(source: str, progress: Callable[[str], None] | None = None, accents: bool = False) -> list[str]:
     """The passages of a known text (verses), accents left out (kept with accents=True: the
     Hebrew Bible's cantillation, meteg and paseq), downloaded once."""
@@ -273,11 +343,11 @@ def load(source: str, progress: Callable[[str], None] | None = None, accents: bo
     if source not in SOURCES:
         path = Path(source)
         if not path.is_file():
-            raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, greek-nt, vulgate, peshitta, arabic, "
+            raise FileNotFoundError(f"No text {source!r}: give hebrew-bible, hebrew-prose, greek-nt, vulgate, peshitta, arabic, "
                                     "or a text file.")
         return [keep(line.strip()) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     cache = folder() / f"{source}.txt"
-    pin = verify.PINS[source][1]
+    pin = prose_pin() if source == "hebrew-prose" else verify.PINS[source][1]
     if not _cache_ok(cache, pin):
         say(f"downloading the {SOURCES[source]}")
         if source == "vulgate":
@@ -286,9 +356,10 @@ def load(source: str, progress: Callable[[str], None] | None = None, accents: bo
             verses = []
             books, ext, parse = {"hebrew-bible": (HEBREW_BOOKS, ".xml", _hebrew_book),
                                  "greek-nt": (GREEK_BOOKS, ".txt", _greek_book),
-                                 "peshitta": (PESHITTA_BOOKS, ".txt", _peshitta_book)}[source]
+                                 "peshitta": (PESHITTA_BOOKS, ".txt", _peshitta_book),
+                                 "hebrew-prose": (PROSE_WORKS, ".txt", _prose_pieces)}[source]
             for k, book in enumerate(books, 1):
-                say(f"downloading the {SOURCES[source]}: {book} ({k} of {len(books)})")
+                say(f"downloading the {SOURCES[source]}: {book.rsplit('/', 1)[-1]} ({k} of {len(books)})")
                 verses += parse(_get(source, book + ext))
         _write_cache(cache, pin, verses)
     return [keep(v) for v in cache.read_text(encoding="utf-8").splitlines() if v.strip()]

@@ -123,16 +123,23 @@ def lines_report(lang: str) -> dict:
     return out
 
 
+def projects_dir() -> Path:
+    return user_data_dir() / "projects"
+
+
 def report() -> dict:
     files, size = _tree(cache_dir())
     leftovers = [_tree(p) for p in leftover_folders()]
     total_files, total = _tree(user_data_dir())
+    project_files, project_bytes = _tree(projects_dir())
     return {
         "folder": str(user_data_dir()),
         "total": {"files": total_files, "bytes": total},
         "cache": {"files": files, "bytes": size},
         "leftovers": {"files": sum(f for f, _ in leftovers), "bytes": sum(b for _, b in leftovers),
                       "folders": len(leftovers)},
+        "projects": {"files": project_files, "bytes": project_bytes, "folders": len(
+            [p for p in projects_dir().glob("*.ectype") if p.is_dir()]) if projects_dir().is_dir() else 0},
         "pool": {lang: lines_report(lang) for lang in pool.languages()},
     }
 

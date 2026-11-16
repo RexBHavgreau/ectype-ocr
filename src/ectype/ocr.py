@@ -180,6 +180,26 @@ def tesseract_failure(stderr: str, lang: str) -> str:
     return "Tesseract failed: " + (" ".join(lines[-3:]) if lines else f"no message (languages {lang})")
 
 
+def kraken_scripts(resolved) -> dict:
+    """Script -> (model file, pack) for the Kraken models chosen: each script to a model that reads
+    it, a model made for fewer scripts first. A model of several scripts reads only the ticked
+    languages' scripts ("Read Hebrew with" a multilingual model: not words the detector took for
+    Arabic or Syriac, which Beaux's Hebrew grammar had); a model none of whose scripts is ticked
+    reads all of them. Latin is Tesseract's."""
+    from .kraken import reads
+    from .scripts import script_of
+
+    ticked = {script_of(r.code) for r in resolved if r.engine == "tesseract"}
+    kraken: dict = {}
+    for r in sorted((r for r in resolved if r.engine == "kraken" and r.model), key=lambda r: len(reads(r.code))):
+        scripts = reads(r.code)
+        for script in [s for s in scripts if s in ticked] or scripts:
+            kraken.setdefault(script, (r.model, r.pack))
+    kraken.pop("Latin", None)
+    kraken.pop(None, None)
+    return kraken
+
+
 class KrakenEngine:
     name = "kraken"
 
@@ -299,7 +319,9 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
              session=None, resolved=None) -> dict:
     from .models import resolve_all
 
-    codes = lang.split("+")
+    from .languages import reading_codes
+
+    codes = reading_codes(lang.split("+"))  # a Kraken model alone brings its script's Tesseract language
     resolved = resolved if resolved is not None else resolve_all(codes)
     keys = [r.key() for r in resolved if r.which != "stock"]  # stock: as pages read before training were
     target = out_dir / f"{png.stem}.ocr.json"
@@ -323,13 +345,7 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
             from .kraken import reads
             from .scripts import check_words
 
-            # Each script to a model that reads it; a model made for fewer scripts comes first.
-            kraken = {}
-            for r in sorted((r for r in resolved if r.engine == "kraken" and r.model), key=lambda r: len(reads(r.code))):
-                for script in reads(r.code):
-                    kraken.setdefault(script, (r.model, r.pack))
-            kraken.pop("Latin", None)
-            kraken.pop(None, None)
+            kraken = kraken_scripts(resolved)
             word_engine = TesseractEngine(psm=8, threads=threads)
             page.unread_scripts = dict(check_words(
                 gray, page, codes,
@@ -387,7 +403,12 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
 
     from . import models
 
-    codes = lang.split("+")
+    from .languages import ReaderWithoutLanguage, reading_codes
+
+    try:
+        codes = reading_codes(lang.split("+"))  # a Kraken model alone brings its script's Tesseract language
+    except ReaderWithoutLanguage as exc:
+        raise EngineUnavailable(str(exc)) from None
     workspace = out_dir.parent
     resolved = models.resolve_all(codes, workspace)
     session = None

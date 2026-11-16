@@ -80,3 +80,37 @@ def watch(proc: subprocess.Popen, interval: float = 0.3) -> threading.Event:
 
     threading.Thread(target=look, daemon=True).start()
     return done
+
+
+class Ticker:
+    """Progress and Stop for a long loop of many small items: `step()` after each item checks the
+    active run's Stop (cheap, every item) and tells `progress(done, total, what)` at most once
+    every `every` seconds, and always at the end. `progress` may be None."""
+
+    def __init__(self, progress, what: str, total: int, every: float = 1.0) -> None:
+        import time
+
+        self._time = time.monotonic
+        self.progress, self.what, self.total, self.every = progress, what, total, every
+        self.done = 0
+        self._sent = -1
+        self._last = self._time()
+
+    def step(self, n: int = 1) -> None:
+        check()
+        self.done += n
+        if self.progress is not None and (self.done >= self.total or self._time() - self._last >= self.every):
+            self._send()
+
+    def finish(self) -> None:
+        """The phase is over: report it complete (once)."""
+        check()
+        self.done = self.total
+        if self.progress is not None and self._sent != self.total:
+            self._send()
+
+    def _send(self) -> None:
+        if self.done != self._sent:
+            self._sent = self.done
+            self._last = self._time()
+            self.progress(min(self.done, self.total), self.total, self.what)

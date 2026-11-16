@@ -23,6 +23,7 @@ from .plaintext import companion, is_ours
 from .preprocess import IMAGE_SUFFIXES
 
 Progress = Callable[[str, str], None]
+NEEDS: dict[str, list[str]] = {}  # scan -> languages its reading lacked (for the summary)
 
 
 def work_root() -> Path:
@@ -76,6 +77,13 @@ def make_text_file(scan: Path, lang: str, keep: bool = False, keep_marks: bool =
         stopping.check()
         project.settings.name = scan.stem
         out = project.write_text(companion(scan), keep_marks=keep_marks)  # atomic: a stopped book leaves no text file
+        missing = project.missing_languages()
+        if missing:  # said in the summary: the book needs another language (the batch goes on)
+            from .project import found_words
+
+            progress("languages", f"{scan.name}: {found_words(missing[1])} not read; add --lang "
+                                  + "+".join(dict.fromkeys(split(lang) + missing[0])) + " and --redo")
+            NEEDS[str(scan)] = missing[0]
         fraction(1.0)
         return Path(out["text"])
     finally:
@@ -128,6 +136,8 @@ def make_text_files(inputs: list[Path], lang: str = "eng", recursive: bool = Fal
             progress("books", f"{scan.name} failed: {why}")
             continue
         result["done"].append((scan, path))
+        if str(scan) in NEEDS:
+            result.setdefault("needs", []).append((scan, NEEDS.pop(str(scan))))
         progress("fraction", f"{(k + 1) / total:.4f}")
     return result
 
@@ -135,6 +145,9 @@ def make_text_files(inputs: list[Path], lang: str = "eng", recursive: bool = Fal
 def summary_text(result: dict) -> str:
     lines = [f"Done: {len(result['done'])}, skipped: {len(result['skipped'])}, failed: {len(result['failed'])}."]
     lines += [f"  made {txt}" for _, txt in result["done"]]
+    for scan, codes in result.get("needs", []):
+        lines.append(f"  NEEDS {'+'.join(codes)}: {scan.name} has words in a script the languages didn't read; "
+                     f"make it again with --lang …+{'+'.join(codes)} --redo")
     lines += [f"  skipped {scan.name}: {why}" for scan, why in result["skipped"]]
     lines += [f"  FAILED {scan.name}: {why}" for scan, why in result["failed"]]
     return "\n".join(lines)
