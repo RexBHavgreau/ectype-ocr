@@ -151,3 +151,23 @@ def test_raised_note_numbers_read_again():
     page = OcrPage("tesseract", "eng", [700, 120], 300, [line])
     assert raised_runs(gray, page) == [(0, 0, 7, 8)], "the figure, not the top of the y's arm"
     assert reread_raised(gray, page, lambda crop: "1") == 1 and w1.text == "present¹" and w2.text == "clearly"
+
+
+def test_align_leaves_a_neighbours_ink_out_of_a_letter():
+    """Beaux's grammar: a letter holding its neighbour's ink (י holding יר) when the reading had a
+    letter fewer than the ink. Ink making a letter far wider than usual is left out, not glued on;
+    a broken letter's pieces, about its own width, still join it."""
+    Char = O.Char
+    widths = {"י": 0.3, "ש": 0.8}
+    # The reader's box for י reaches over the letter it missed (a letter's box runs to the next one).
+    chars = [Char("ש", [0, 0, 30, 40], 99), Char("י", [48, 0, 90, 40], 99)]
+    clusters = [{"components": [0], "x0": 0, "x1": 30, "area": 400},     # ש
+                {"components": [1], "x0": 48, "x1": 60, "area": 150},    # י
+                {"components": [2], "x0": 64, "x1": 90, "area": 350}]    # ר the reading missed
+    groups, skipped = S._align(chars, clusters, 37, 11, [widths[c.text] for c in chars])
+    assert groups == [([0], [0]), ([1], [1])] and skipped == [2]
+    # a broken ש: two pieces within its usual width join it
+    broken = [{"components": [0], "x0": 0, "x1": 14, "area": 200}, {"components": [1], "x0": 16, "x1": 30, "area": 200},
+              {"components": [2], "x0": 48, "x1": 60, "area": 150}]
+    groups, skipped = S._align(chars, broken, 37, 11, [widths[c.text] for c in chars])
+    assert groups == [([0], [0, 1]), ([1], [2])] and skipped == []

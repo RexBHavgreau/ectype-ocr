@@ -654,6 +654,17 @@ number of workable font sizes and styles"):
   (54 s first). Free up space (window and `ectype free-space --cache`) also removes the book
   projects' working files (`freespace.project_work_folders`/`remove_project_work`: each project's
   `cluster/cache`; readings, corrections, fonts, PDFs untouched).
+- *Ink to letters, first look* (Beaux asked for it after the measurements above). A fresh sample of
+  the 361 odd one-off glyphs (after the size and box fixes): (1) a letter with its neighbour's ink
+  (י holding יר, מ holding ים, ) holding (4): the reading had a letter fewer than the ink; (2)
+  letters with vowel points (the pointed examples: real variants, rightly apart); (3) specks and
+  blots read as punctuation; (4) a little of the small glosses' ink. For (1), `segment._align`
+  now charges `ALIGN["wide"]` (2.0) per x-height by which split pieces make a letter wider than
+  1.5x its usual width + 0.25 x-height (a broken letter's pieces stay within it): odd one-offs
+  361 -> 354 (grammar), 347 -> 338 (Treatise); 5.0 gained nothing more. So most of (1) is letters
+  touching in the print (one ink component over two letters), which no alignment can split:
+  cutting a component at the reader's letter boundary would be the next step. Ink left out stays
+  in the page's background image (better than a wrong letter drawn).
 - *Kraken letter boxes keep to the line's own height*: the padding Kraken reads with reached into
   the lines above and below (`read_runs` passes the unpadded `bands` to `_words`); odd shapes 456 -> 442.
 
