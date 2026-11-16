@@ -87,7 +87,7 @@ Report (<tool>, <date>):
 - **Report:**
 
 ### T-002 · Docs: docx-to-idml is now called Ectype IDML
-- **Status:** Ready
+- **Status:** In progress (ChatGPT, 2026-11-16)
 - **Who:** any agent · **Size:** S
 - **Why:** The companion program was renamed at its version 1.0.0 (November 2026). The app
   already uses the new name; `README.md` and `docs/idml.md` still use the old one and link
