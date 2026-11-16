@@ -130,6 +130,49 @@ def _size_class(ratio: float) -> float:
     return 1.0 if abs(ratio - 1) < 0.12 else round(round(ratio / 0.1) * 0.1, 1)
 
 
+def size_levels(ratios, bandwidth: float = 0.025):
+    """The book's own type sizes, from every letter's size against its page's text: the peaks of
+    their spread (in log scale, smoothed by `bandwidth`), split at the low points between them.
+    Returns a function giving a size its level's class: the text's level is 1.0, the others their
+    median rounded to 0.1. Rounding each line by itself split one size by measuring noise into
+    several (Beaux's Hebrew grammar: eleven sizes, 0.7 to 3.3, where the book has text, glosses,
+    headings and a title or two), and each became styles and fonts of its own. `bandwidth` 0.025:
+    0.04 merged the Treatise's notes (0.82, 7,000 letters) into its text (29,000 at 0.98), whose
+    spread filled the low point between; 0.015 broke small peaks up; 0.02-0.03 gave both books the
+    same levels (Treatise 0.8, 1.0, 1.2, 1.5; the grammar 0.6, 0.8, 1.0, 1.4, 2.1, 2.4, 3.3)."""
+    r = np.asarray([x for x in ratios if x and x > 0], float)
+    if r.size < 2:
+        return _size_class
+    logs = np.log(r)
+    grid = np.arange(logs.min() - 3 * bandwidth, logs.max() + 3 * bandwidth, bandwidth / 4)
+    counts, edges = np.histogram(logs, bins=np.append(grid, grid[-1] + bandwidth / 4))
+    kernel = np.exp(-0.5 * (np.arange(-12, 13) / 4.0) ** 2)  # a Gaussian of `bandwidth`
+    density = np.convolve(counts, kernel, mode="same")
+    # Split at a low point lower than half of the smaller peak beside it.
+    peaks = [k for k in range(1, len(density) - 1) if density[k] >= density[k - 1] and density[k] > density[k + 1]]
+    cuts = []
+    for a, b in zip(peaks, peaks[1:]):
+        low = a + int(np.argmin(density[a:b + 1]))
+        if density[low] < 0.5 * min(density[a], density[b]):
+            cuts.append(grid[low])
+    bounds = [-np.inf, *cuts, np.inf]
+    levels = []
+    for lo, hi in zip(bounds, bounds[1:]):
+        members = r[(logs >= lo) & (logs < hi)]
+        if members.size:
+            levels.append((lo, hi, float(np.median(members))))
+    text = min(levels, key=lambda lv: abs(np.log(lv[2])))  # the level nearest the text's size
+
+    def classify(ratio: float) -> float:
+        x = np.log(ratio) if ratio and ratio > 0 else 0.0
+        for lo, hi, med in levels:
+            if lo <= x < hi:
+                return 1.0 if (lo, hi, med) == text else _size_class(med)
+        return _size_class(ratio)
+
+    return classify
+
+
 def _json_default(o):
     if isinstance(o, np.generic):
         return o.item()
@@ -308,11 +351,13 @@ def collect(workspace: Path, progress=None) -> list[Instance]:
     high = italic_limit([a for _, _, slants in per_page for a in slants.values()])
     from .review import word_styles
 
+    # One size class for each of the book's own sizes (size_levels), not each line rounded alone.
+    level = size_levels([relative_size(inst.xh, main[k], pt[k], doc_xh) for k, found, _ in per_page for inst in found])
     for k, found, slants in per_page:
         italic = word_italics(None, None, high=high, slants=slants)
         styles = word_styles(workspace, page_data[k][0].stem)  # set in Review: over what was detected
         for inst in found:
-            inst.size_class = _size_class(relative_size(inst.xh, main[k], pt[k], doc_xh))
+            inst.size_class = level(relative_size(inst.xh, main[k], pt[k], doc_xh))
             inst.zone = zones[k].get(inst.line, "")
             inst.italic = italic.get((inst.line, inst.word), False)
             st = styles.get((inst.line, inst.word))

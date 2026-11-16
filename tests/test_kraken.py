@@ -69,7 +69,8 @@ def test_runs_of_a_script_are_read_by_kraken(data):
     assert len(session.requests[0]) == 2, "one request for the page's runs"
     x0, y0, x1, y1 = session.requests[0][0]
     assert x0 < 100 and x1 > 320 and y0 < 100 and y1 > 140, "the run's box, padded"
-    assert line.words[1].box[1] == y0 and line.words[1].conf == 90.0
+    # the letters keep to the line's own height, not the padding Kraken reads with
+    assert line.words[1].box[1] == 100 and line.words[1].box[3] == 140 and line.words[1].conf == 90.0
 
 
 def test_detected_words_are_left_for_kraken(data):
