@@ -99,7 +99,7 @@ Report (ChatGPT GitHub, 2026-11-16):
 - For Beaux to try on Windows: nothing; this is a documentation change.
 
 ### T-004 · README: describe the project as it is now, not by build phases
-- **Status:** Ready
+- **Status:** For review (task/T-004-readme-current)
 - **Who:** any agent · **Size:** M · documents only: no setup and no tests needed
 - **Why:** The README opens with "Phases 0–5 are done, and Phase 6 is under way", which was
   true in October 2026. The app is far past that, and readers can't tell what it does today.
@@ -127,6 +127,12 @@ Report (ChatGPT GitHub, 2026-11-16):
   - For every file `src/ectype/<name>.py` (except `__init__.py`), `<name>` appears in the
     "Layout" section.
 - **Report:**
+
+Report (ChatGPT GitHub, 2026-11-16):
+- Did: Replaced the build-phase status with a summary of the current Run modes, Review, IDML export, Kraken, training and Manuscript Mode; rewrote Layout from the module docstrings and listed all 54 Python modules.
+- Checks: No `Phase [0-9]` matches remain in README.md; all 54 `.py` module names except `__init__` appear in Layout. The Install, desktop app and Commands sections are unchanged. No tests run because this task changes documentation only.
+- Not done / unsure: nothing.
+- For Beaux to try on Windows: nothing; this is a documentation change.
 
 ### T-010 · Program output read as UTF-8, with a test that keeps it so
 - **Status:** Ready
