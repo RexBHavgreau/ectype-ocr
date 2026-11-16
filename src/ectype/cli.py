@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -176,14 +177,179 @@ def cmd_languages(args: argparse.Namespace) -> int:
         return 0
     installed = languages.installed()
     print(f"Installed ({tessdata_dir()}):")
-    for code in installed:
+    for code in languages.tesseract_codes(installed):
         print(f"  {code:14} {languages.name(code)}")
+    _print_kraken_models(installed)
     if args.all:
         print("Available to add (ectype languages --add CODE ...):")
         for code in languages.available():
             if code not in installed:
                 print(f"  {code:14} {languages.name(code)}")
     return 0
+
+
+def _print_kraken_models(installed: list[str]) -> None:
+    """The Kraken models installed, by the script they read (a many-script model under each)."""
+    from . import kraken, languages
+
+    models = languages.kraken_codes(installed)
+    if not models:
+        return
+    print("Kraken models (choose with --kraken LANG=MODEL, e.g. --kraken heb=%s):"
+          % models[0].removeprefix(kraken.PREFIX))
+    scripts = sorted({s for k in models for s in kraken.reads(k)})
+    for script in scripts:
+        print(f"  {script}:")
+        for k in languages.models_for_script(script):
+            print(f"    {k.removeprefix(kraken.PREFIX):12} {languages.reader_title(k)}")
+
+
+def _engine_problem() -> str | None:
+    from . import kraken
+
+    if kraken.worker_command() is None:
+        return ("The Kraken engine isn't installed. In the Ectype OCR app, open Languages > Add languages… > "
+                "Kraken models and press \"Download the Kraken engine\" (it is saved in your user folder and "
+                "the command line uses it too).")
+    return None
+
+
+def _kraken_code(text: str) -> str:
+    text = text.strip()
+    if text.startswith("kraken_"):
+        return text
+    from . import kraken
+
+    if "zenodo" in text.lower() or "/" in text:
+        return kraken.code_for(text)
+    return kraken.PREFIX + text.lstrip("#")
+
+
+def cmd_kraken(args: argparse.Namespace) -> int:
+    from . import kraken, languages
+
+    if args.action == "list":
+        models = kraken.installed_models()
+        if not models:
+            print("No Kraken models are installed. See what can be added: ectype kraken available "
+                  "(then ectype kraken add <number>).")
+            return 0
+        print("Installed Kraken models (use one with --kraken LANG=MODEL, e.g. --kraken heb=%s):"
+              % next(iter(models)).removeprefix(kraken.PREFIX))
+        for code in sorted(models, key=lambda c: languages.name(c).lower()):
+            m = models[code]
+            try:
+                size = f"{Path(m['file']).stat().st_size / 1e6:.1f} MB"
+            except (OSError, KeyError):
+                size = "?"
+            trained = f"  (trained on {m['book']})" if m.get("book") else ""
+            print(f"  {code.removeprefix(kraken.PREFIX):12} {', '.join(kraken.reads(code)) or '?':14} "
+                  f"{m.get('title') or code}{trained}")
+            print(f"  {'':12} {code}  {m.get('doi') or ''}  {size}")
+        return 0
+    if args.action == "available":
+        problem = _engine_problem()
+        if problem:
+            print(problem)
+            return 2
+        records = kraken.list_models(progress=lambda done, total: None)
+        script = (args.script or "").lower()
+        have = {m.get("doi") for m in kraken.installed_models().values()}
+        shown = 0
+        for r in records:
+            if script and script not in [s.lower() for s in kraken.scripts_of(r)]:
+                continue
+            if args.printed and kraken.printed(r) is False:
+                continue
+            note = "  (installed)" if r["doi"] in have else ""
+            cer = f", error {r['cer']:.1f}%" if isinstance(r.get("cer"), (int, float)) else ""
+            kind = {True: "printed", False: "handwritten", None: ""}[kraken.printed(r)]
+            print(f"  {kraken.code_for(r['doi']).removeprefix(kraken.PREFIX):10} {', '.join(kraken.scripts_of(r)):12} "
+                  f"{r.get('summary') or r['doi']} ({kind}{cer}){note}")
+            shown += 1
+        print(f"{shown} models. Add one: ectype kraken add <number>. (Models that read whole pages, such as Party, "
+              "are left out: Ectype's Kraken reads lines.)")
+        return 0
+    if args.action == "add":
+        problem = _engine_problem()
+        if problem:
+            print(problem)
+            return 2
+        code = _kraken_code(args.model)
+        if code in kraken.installed_models():
+            print(f"Already installed: {languages.reader_title(code)}")
+            return 0
+        number = code.removeprefix(kraken.PREFIX)
+        record = next((r for r in kraken.list_models(progress=lambda done, total: None)
+                       if kraken.code_for(r["doi"]) == code), None)
+        if record is None:
+            print(f"Model {number} isn't among Kraken's line-reading models"
+                  + (" (it reads whole pages, which Ectype can't use)" if _page_model_named(number) else "")
+                  + ". See: ectype kraken available")
+            return 2
+        progress = _ConsoleProgress()
+
+        def show(done: int, total: int) -> None:
+            if total:
+                progress("fraction", str(done / total))
+
+        print(f"Downloading {record.get('summary') or record['doi']} …", flush=True)
+        try:
+            got = kraken.install_model(record, show)
+        except kraken.KrakenError as exc:
+            progress.end_line()
+            print(f"Not installed: {exc}")
+            return 1
+        progress.end_line()
+        print(f"Installed: {languages.reader_title(got)}. Use it with --kraken <language>={got.removeprefix(kraken.PREFIX)}")
+        return 0
+    if args.action == "remove":
+        code = _kraken_code(args.model)
+        models = kraken.installed_models()
+        if code not in models:
+            print(f"No installed Kraken model {args.model}. See: ectype kraken list")
+            return 2
+        import shutil
+
+        title = languages.reader_title(code)
+        folder = Path(models[code]["file"]).parent
+        kraken.unregister(code)
+        if folder.parent == kraken.models_dir():
+            shutil.rmtree(folder, ignore_errors=True)
+        print(f"Removed: {title}")
+        return 0
+    return 2
+
+
+def _page_model_named(number: str) -> bool:
+    """Whether a number is a page model (Party), judged from the listing kept on disk."""
+    from . import kraken
+
+    try:
+        data = json.loads((kraken.models_dir() / "listing.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return any(kraken.code_for(r["doi"]) == kraken.PREFIX + number and kraken.page_model(r) for r in data)
+
+
+def apply_kraken_options(args: argparse.Namespace) -> str | None:
+    """--kraken LANG=MODEL (repeatable) put into the language list; a refusal in plain words."""
+    from . import languages
+
+    choices = getattr(args, "kraken", None)
+    if not choices:
+        return None
+    lang = args.lang
+    if lang is None:  # ocr: the project's own languages
+        from .project import Project
+
+        ws = Path(args.workspace)
+        lang = Project(ws).settings.lang if (ws / "project.json").is_file() else "eng"
+    try:
+        args.lang = languages.join(languages.apply_kraken_choices(languages.split(lang), choices))
+    except ValueError as exc:
+        return str(exc)
+    return None
 
 
 def cmd_idml(args: argparse.Namespace) -> int:
@@ -700,6 +866,10 @@ book's project folder (the .ectype folder Ectype keeps in its data folder); for 
 text-files or run. `run --mode text` and `--mode plaintext` keep nothing but the result beside
 the scan (add --keep to keep the project for Review); traced and substitute runs keep it.
 
+  Read Hebrew with a particular Kraken model (it must be installed):
+    ectype kraken list      ectype kraken available --script Hebrew      ectype kraken add 7051645
+    ectype text "D:\\Library\\Grammar.pdf" --lang eng+heb --kraken heb=7051645
+
 Language codes join with +: eng (English), spa (Spanish), lat (Latin), grc (ancient Greek),
 heb (Hebrew), syr (Syriac), deu (German), fra (French), ita (Italian). Without --lang a scan is
 read as English.
@@ -748,6 +918,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("workspace")
     p.add_argument("--engine", default="tesseract", help="tesseract (default) or kraken")
     p.add_argument("--lang", help="engine language(s), e.g. eng or eng+grc (default: the project's, else eng)")
+    p.add_argument("--kraken", action="append", metavar="LANG=MODEL",
+                   help="read a language with a Kraken model, e.g. --kraken heb=7051645 (repeatable; see: ectype kraken list)")
     p.set_defaults(func=cmd_ocr)
 
     p = sub.add_parser("segment", help="(a step, on a project folder) tie OCR characters to their ink: <workspace>/segment")
@@ -799,6 +971,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-spreads", action="store_true")
     p.add_argument("--overrides", help="JSON of per-page preprocessing corrections")
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
+    p.add_argument("--kraken", action="append", metavar="LANG=MODEL",
+                   help="read a language with a Kraken model, e.g. --kraken heb=7051645 (repeatable; see: ectype kraken list)")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("textlayer", help="(a step, on a project folder) build the text-layer PDF (the scan + invisible OCR text): <workspace>/textlayer")
@@ -812,6 +986,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--add", nargs="+", metavar="CODE", help="download these languages, e.g. grc lat heb")
     p.add_argument("--all", action="store_true", help="also list the languages that can be added")
     p.set_defaults(func=cmd_languages)
+
+    p = sub.add_parser("kraken", help="Kraken models: list the installed ones, find and add more, remove one")
+    ksub = p.add_subparsers(dest="action", required=True)
+    ksub.add_parser("list", help="the installed models: number, scripts, title, size")
+    k = ksub.add_parser("available", help="models in Kraken's repository (needs the Kraken engine)")
+    k.add_argument("--script", help="only models for this script, e.g. Hebrew, Greek, Syriac")
+    k.add_argument("--printed", action="store_true", help="leave out models for handwriting")
+    k = ksub.add_parser("add", help="download and install a model (needs the Kraken engine)")
+    k.add_argument("model", help="its number (from `ectype kraken available`), its Zenodo DOI, or kraken_<number>")
+    k = ksub.add_parser("remove", help="remove an installed model")
+    k.add_argument("model", help="its number or code (from `ectype kraken list`)")
+    p.set_defaults(func=cmd_kraken)
 
     p = sub.add_parser("idml", help="export the OCR text as an InDesign document (IDML), in a folder with its links")
     p.add_argument("workspace")
@@ -835,6 +1021,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-marks", action="store_true",
                    help="keep vowel points, accents and breathings as read (default: removed, for searching)")
     p.add_argument("--keep-heads", action="store_true", help="keep running heads and page numbers")
+    p.add_argument("--kraken", action="append", metavar="LANG=MODEL",
+                   help="read a language with a Kraken model, e.g. --kraken heb=7051645 (repeatable; see: ectype kraken list)")
     p.set_defaults(func=cmd_text)
 
     p = sub.add_parser("text-files", help="make a text file beside each scan (a PDF or image) in folders, with its name")
@@ -845,6 +1033,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-marks", action="store_true",
                    help="keep vowel points, accents and breathings as read (default: removed, for searching)")
     p.add_argument("--keep", action="store_true", help="keep each book's work folder (page images, OCR) instead of deleting it")
+    p.add_argument("--kraken", action="append", metavar="LANG=MODEL",
+                   help="read a language with a Kraken model, e.g. --kraken heb=7051645 (repeatable; see: ectype kraken list)")
     p.set_defaults(func=cmd_text_files)
 
     p = sub.add_parser("data-folder", help="show where Ectype keeps its data and how big it is; --move puts it elsewhere")
@@ -947,7 +1137,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.command:
         parser.print_help()
         return 2
-    refusal = _wrong_target(args)
+    refusal = _wrong_target(args) or apply_kraken_options(args)
     if refusal:
         print(refusal)
         return 2
