@@ -48,6 +48,8 @@ Report (<tool>, <date>):
 ## What the fields mean
 
 - **Who**: `any agent` = a small model can do it from the task text alone.
+  `any agent that can run the tests` = it must have the repository checked out and set up
+  as `AGENTS.md` says; an agent that can only edit files should not take it.
   `any agent on Beaux's PC` = needs Windows, the installed app, or a website the cloud can't
   reach. `Claude` = needs the project's history or careful judgement; others should not take it.
   `Beaux` = only a person can do it.
@@ -58,73 +60,6 @@ Report (<tool>, <date>):
 ---
 
 ## Ready
-
-### T-001 · README: add the commands it doesn't mention
-- **Status:** For review (task/T-001-readme-commands)
-- **Who:** any agent · **Size:** S
-- **Why:** The README's "Commands" section was written before several commands existed, so
-  users can't find them.
-- **Read first:** `README.md` (the "Commands" section); the output of `ectype --help`,
-  `ectype kraken --help`, `ectype data-folder --help`, `ectype free-space --help`,
-  `ectype update --help`.
-- **Files to change:** `README.md` only.
-- **Steps:**
-  1. Run `ectype --help` and list every command name.
-  2. For each command name, search the README's "Commands" section. The ones known to be
-     missing are `kraken` (with `list`, `available`, `add`, `remove`), `data-folder`,
-     `free-space` and `update`; add any others you find missing.
-  3. Add them to the second code block in "Commands" (the one that starts with
-     `ectype languages [--all]`), one line each, in the same style: the command with its
-     main options, then `#` and a short description. Take options and descriptions from each
-     command's `--help`; do not invent any.
-  4. Also add the option `--kraken LANG=MODEL` to the `ectype run` line's explanation
-     paragraph, in one sentence, using the wording of `ectype run --help`.
-- **Done when:**
-  - Every command printed by `ectype --help` appears somewhere in `README.md`
-    (check each with `grep -c "ectype <name>" README.md`).
-  - No other part of the README changed (`git diff --stat` shows only `README.md`, and the
-    diff only adds lines in "Commands" and one sentence after the `ectype run` block).
-- **Report:**
-  Report (ChatGPT, 2026-11-16):
-  - Did: Added the missing `kraken` subcommands, `data-folder`, `free-space`, `update` and `gui` commands to the Commands block. Added the repeatable `--kraken LANG=MODEL` option to the `ectype run` explanation.
-  - Checks: Checked all 27 subcommand names from the current `build_parser()` against the README; none are missing. The README diff adds only eight lines in the Commands block and one sentence after the `ectype run` block. CLI help commands and the whole test suite were not run: this environment has no local checkout and cannot reach GitHub from the shell.
-  - Not done / unsure: The help text and options were checked against the current `src/ectype/cli.py` argparse definitions rather than captured by running the requested `--help` commands.
-  - For Beaux to try on Windows: Run `ectype --help`, `ectype kraken --help`, `ectype data-folder --help`, `ectype free-space --help` and `ectype update --help` to confirm the displayed options match the README.
-
-### T-002 · Docs: docx-to-idml is now called Ectype IDML
-- **Status:** For review (task/T-002-ectype-idml)
-- **Who:** any agent · **Size:** S
-- **Why:** The companion program was renamed at its version 1.0.0 (November 2026). The app
-  already uses the new name; `README.md` and `docs/idml.md` still use the old one and link
-  to the old address.
-- **Read first:** `README.md`, `docs/idml.md`. Facts to use: new name **Ectype IDML**; new
-  address `https://github.com/RexBHavgreau/ectype-idml`; program file
-  `Ectype-IDML-X.Y.Z.exe`; run from source with `python -m ectype_idml` (was
-  `python -m docx2idml`); settings folder `%APPDATA%\Ectype IDML`; the button in Export IDML
-  is "Find Ectype IDML…".
-- **Files to change:** `README.md`, `docs/idml.md` only.
-- **Steps:**
-  1. In each file, the **first** mention becomes "Ectype IDML (called docx-to-idml before
-     its 1.0.0)", linked to the new address.
-  2. Every later mention of the program becomes "Ectype IDML". Update links and the
-     `python -m` command as given above.
-  3. **Leave unchanged:** the environment variable names `ECTYPE_DOCX2IDML` and
-     `ECTYPE_DOCX2IDML_SOURCE` (they kept their names); the folder name `src/ectype/idmlkit/`;
-     the file name `LICENSE-docx-to-idml`; and sentences about the past that give a date
-     (for example "The first version of this export (October 26)…"): there, write
-     "docx-to-idml (now Ectype IDML)".
-  4. Do not touch `CREDITS.md`, `CLAUDE.md`, or any `.py` file.
-- **Done when:**
-  - `grep -n "RexBHavgreau/docx-to-idml" README.md docs/idml.md` prints nothing.
-  - `grep -n "python -m docx2idml" README.md docs/idml.md` prints nothing.
-  - Every remaining `docx-to-idml` in the two files is one of the cases in step 1 or 3
-    (list them in your report).
-- **Report:**
-  Report (ChatGPT, 2026-11-16):
-  - Did: Updated `README.md` and `docs/idml.md` to identify the companion as Ectype IDML, use its new repository address, and document its executable, source command, settings folder and discovery button. Kept `ECTYPE_DOCX2IDML` and `src/ectype/idmlkit/` unchanged.
-  - Checks: `grep -n "RexBHavgreau/docx-to-idml" README.md docs/idml.md` — no matches; `grep -n "python -m docx2idml" README.md docs/idml.md` — no matches. Remaining `docx-to-idml`: `README.md:52` and `docs/idml.md:182` (first mentions); `docs/idml.md:192` and `docs/idml.md:233` (dated historical references). Whole suite: 275 passed, 2 skipped (`pytest -q`; [GitHub Actions run](https://github.com/RexBHavgreau/ectype-ocr/actions/runs/43937235639)).
-  - Not done / unsure: No local checkout was available; the full suite was verified in GitHub Actions instead.
-  - For Beaux to try on Windows: nothing; documentation only.
 
 ### T-003 · docs/releasing.md: match what the release actually does
 - **Status:** Ready
@@ -159,7 +94,7 @@ Report (<tool>, <date>):
   true in October 2026. The app is far past that, and readers can't tell what it does today.
 - **Read first:** `README.md` (top paragraph, "Status", and the "Layout" section at the end);
   the first docstring line of each file in `src/ectype/*.py`.
-- **Files to change:** `README.md` only. Do T-001 and T-002 first, or work around their lines.
+- **Files to change:** `README.md` only.
 - **Steps:**
   1. Leave the first paragraph (it already points to `TASKS.md`) as it is.
   2. Replace the paragraph that starts "**Status: Phases 0–5 are done**" and its four
@@ -182,69 +117,116 @@ Report (<tool>, <date>):
     "Layout" section.
 - **Report:**
 
-### T-005 · Arabic: record the fingerprint of the Van Dyck Bible download
-- **Status:** For review (rexbhavgreau-task-t-005)
-- **Who:** any agent on Beaux's PC (the cloud can't reach ebible.org) · **Size:** S
-- **Why:** Ectype only downloads files whose exact size and SHA-256 are on record. The
-  Arabic Smith–Van Dyck Bible has no record yet, so that download is switched off and Arabic
-  trains from the Qurʾān alone.
-- **Read first:** `src/ectype/texts.py`: the comment above `VAN_DYCK_URL`, and the functions
-  `_cached` and `_van_dyck`.
-- **Files to change:** `src/ectype/texts.py` (one line and its comment); `CREDITS.md` (in the
-  Van Dyck row, remove only the words "; its download is off until a fingerprint is recorded
-  for it").
+### T-010 · Program output read as UTF-8, with a test that keeps it so
+- **Status:** Ready
+- **Who:** any agent that can run the tests · **Size:** S
+- **Why:** On Windows, Python reads another program's output in the old Windows encoding
+  unless told otherwise, so an accented letter or a dash in it comes back wrong. Six places
+  still don't say which encoding to use. A new test will catch any that are added later.
+- **Read first:** the six lines named in step 2.
+- **Files to change:** `src/ectype/resources.py`, `src/ectype/scripts.py`,
+  `src/ectype/synth.py`, `tools/kraken_eval.py`, `tools/make_fingerprints.py`; new file
+  `tests/test_text_encoding.py`. Nothing else.
 - **Steps:**
-  1. Download `https://ebible.org/Scriptures/arb-vd_vpl.zip` to a temporary folder outside
-     the repository.
-  2. Check it is the right file: in Python, read its bytes and call
-     `ectype.texts._van_dyck(data)`. It must return more than 30,000 verses, and the first
-     must be Genesis 1:1 in Arabic (it begins "فِي الْبَدْءِ" or the same words without vowel
-     marks). If not, stop and report what you got.
-  3. Work out the file's size in bytes and its SHA-256 (Python: `len(data)` and
-     `hashlib.sha256(data).hexdigest()`).
-  4. Set `VAN_DYCK_FINGERPRINT = {"size": <size>, "sha256": "<sha256>"}` in `texts.py`, and
-     shorten the comment above it to say the download is checked against this fingerprint,
-     recorded on <date>.
-  5. Download the file a second time and confirm the size and SHA-256 are the same. If they
-     differ (the site rebuilds the zip), undo step 4, stop and report both values.
-- **Done when:**
-  - `python -m pytest -q tests/test_verify.py tests/test_scripts_train.py` passes.
-  - In Python, with `ECTYPE_DATA_DIR` set to a new empty temporary folder,
-    `ectype.texts._cached("van-dyck", print)` downloads the text and returns more than
-    30,000 lines.
-- **Report:**
-  Report (GitHub Copilot, 2026-11-16):
-  - Did: Recorded the Van Dyck Bible fingerprint in `src/ectype/texts.py`, updated the comment to say the download is checked against it, removed the "download is off" note from `CREDITS.md`, and aligned the related verification test with the new fingerprinted behavior.
-  - Checks: `py -3.14 -m pytest -q tests/test_verify.py tests/test_scripts_train.py` — 28 passed, 3 skipped. `py -3.14 -m pytest -q` — this environment still crashes in `tests/test_traced.py` (`src/ectype/trace.py`) with an access violation, so the full suite is not green here.
-  - Not done / unsure: nothing in this task; the focused verification passed and the remaining full-suite failure is unrelated to the fingerprint change.
-  - For Beaux to try on Windows: nothing; the fingerprinted Van Dyck download is on, and the app should now fetch and verify it before use.
+  1. Create `tests/test_text_encoding.py` with exactly this content:
 
-### T-006 · Run the test suite on Windows and report what fails
-- **Status:** For review (rexbhavgreau-task-t-005)
-- **Who:** any agent on Beaux's PC · **Size:** S
-- **Why:** The automatic tests run on Linux only, but the app is used on Windows. Nobody has
-  a list of which tests fail there. This task only makes the list; it fixes nothing.
-- **Read first:** `AGENTS.md` (setup on Windows).
-- **Files to change:** none in `src/` or `tests/`. Write the result to a new file
-  `docs/windows-tests-<date>.md`.
-- **Steps:**
-  1. Set up as `AGENTS.md` says. Note the Windows version, Python version and Tesseract
-     version (`tesseract --version`).
-  2. Run `python -m pytest -q -p no:cacheprovider` with `QT_QPA_PLATFORM=offscreen` and
-     with `ECTYPE_DATA_DIR` set to a new empty temporary folder (so Beaux's real data folder
-     is never touched). Save the full output.
-  3. In the new file, write: the versions; the totals (passed, failed, skipped); then for
-     each failed test its name and the last line of its error. Group failures that have the
-     same error line.
-  4. Do **not** change any code or test, even if a fix looks obvious.
-- **Done when:** the file exists with the totals and one entry per failure (or says "no
-  failures").
+     ```python
+     """Text files are read and written as UTF-8, said outright. Left to itself, Python on Windows
+     uses the old ANSI code page, so a dash or a Hebrew letter comes back as "?" or stops the run."""
+     import ast
+     from pathlib import Path
+
+     ROOT = Path(__file__).resolve().parents[1]
+     FOLDERS = ["src/ectype", "tools"]
+     # Places left as they are on purpose: (file, function called). Each needs a reason.
+     ALLOWED = {
+         ("src/ectype/converter.py", "Popen"),  # Ectype IDML's own output: its encoding is decided in T-013
+     }
+
+
+     def _mode(call):
+         if len(call.args) > 1 and isinstance(call.args[1], ast.Constant):
+             return str(call.args[1].value)
+         for k in call.keywords:
+             if k.arg == "mode" and isinstance(k.value, ast.Constant):
+                 return str(k.value.value)
+         return "r"
+
+
+     def offenders(path):
+         found = []
+         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+             if not isinstance(node, ast.Call):
+                 continue
+             given = {k.arg for k in node.keywords}
+             f = node.func
+             name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+             if "encoding" in given:
+                 continue
+             if name in ("read_text", "write_text"):
+                 # a file's own read_text / write_text, not Ectype's functions of the same name
+                 ours = isinstance(f, ast.Attribute) and ast.unparse(f.value).endswith("project")  # Project.write_text
+                 if isinstance(f, ast.Attribute) and not ours and given <= {"errors", "newline"} and len(node.args) == (name == "write_text"):
+                     found.append((node.lineno, name))
+             elif name == "open" and isinstance(f, ast.Name) and "b" not in _mode(node):
+                 found.append((node.lineno, name))
+             elif name in ("run", "Popen", "check_output") and given & {"text", "universal_newlines"}:
+                 found.append((node.lineno, name))
+         return found
+
+
+     def test_text_is_read_and_written_as_utf8():
+         bad = []
+         for folder in FOLDERS:
+             for path in sorted((ROOT / folder).rglob("*.py")):
+                 rel = path.relative_to(ROOT).as_posix()
+                 bad += [f"{rel}:{line} {name}" for line, name in offenders(path) if (rel, name) not in ALLOWED]
+         assert not bad, "no encoding given:\n" + "\n".join(bad)
+     ```
+
+  2. Run `python -m pytest -q tests/test_text_encoding.py`. It fails and lists six places
+     (line numbers may have moved a little): `src/ectype/resources.py:96`,
+     `src/ectype/scripts.py:119`, `src/ectype/synth.py:78`, `tools/kraken_eval.py:67` and
+     `:105`, `tools/make_fingerprints.py:117`. If it lists others, stop and report them.
+  3. In each of the six calls, which all have `text=True`, add
+     `encoding="utf-8", errors="replace"` right after `text=True`. Change nothing else in
+     the call.
+  4. Do **not** change `src/ectype/converter.py` (it is left out of the test on purpose;
+     T-013), and do not change the test you created.
+- **Done when:**
+  - `python -m pytest -q tests/test_text_encoding.py` passes.
+  - `git diff --stat` shows only the five files above changed and the one test file added.
+  - The whole suite passes.
 - **Report:**
-  Report (GitHub Copilot, 2026-11-16):
-  - Did: Ran the Windows suite with Python 3.14 and recorded the results in `docs/windows-tests-2026-11-16.md`. No source or tests changed.
-  - Checks: 275 tests attempted across the full run and continuation batches: 188 passed, 32 failed, 46 errored, 7 skipped, and 2 crashed with Windows access violations in traced-font tests.
-  - Not done / unsure: The machine lacks the task's required Python 3.12, Tesseract, English traineddata and Pillow RAQM; default `python` is a separate LibreOffice Python without pytest. The suite could not complete in one process because of two native access violations.
-  - For Beaux to try on Windows: Install the project's required Python 3.12 environment and Tesseract, then rerun the suite; most OCR-related errors depend on the missing Tesseract installation.
+
+### T-011 · Tests read and write text as UTF-8
+- **Status:** Waiting (for T-010 to be merged: it adds the test this task extends)
+- **Who:** any agent that can run the tests · **Size:** M
+- **Why:** On Windows one test fails only because the test itself reads a file without
+  saying it is UTF-8 (`tests/test_synth_compare.py`, line 14: a dash comes back as "?").
+  About 36 places in `tests/` have the same habit.
+- **Read first:** `tests/test_text_encoding.py`.
+- **Files to change:** files in `tests/` only. **This task is the one exception to "never
+  change a test": you may add an `encoding=` argument and nothing else.**
+- **Steps:**
+  1. In `tests/test_text_encoding.py`, change `FOLDERS = ["src/ectype", "tools"]` to
+     `FOLDERS = ["src/ectype", "tools", "tests"]`.
+  2. Run `python -m pytest -q tests/test_text_encoding.py`. It lists every place.
+  3. For each `read_text()` add `encoding="utf-8"`. For each `write_text(...)` add
+     `encoding="utf-8"` as the last argument. For each `run`/`Popen`/`check_output` with
+     `text=True` add `encoding="utf-8", errors="replace"` after it. For each `open(...)` in
+     text mode add `encoding="utf-8"`.
+  4. Change no assertion, no test name, no expected value, and no line the test did not
+     list. If a listed line is not a file being read or written (for example a function of
+     Ectype's own that happens to be called `write_text`), leave it, and add it to `ALLOWED`
+     in `tests/test_text_encoding.py` with a comment saying what it is.
+- **Done when:**
+  - `python -m pytest -q tests/test_text_encoding.py` passes.
+  - `git diff` shows only added `encoding=` (and `errors=`) arguments, the one-line change
+    to `FOLDERS`, and any `ALLOWED` lines from step 4.
+  - The whole suite passes, with the same number of tests passed as before you began (run
+    it first and note the number).
+- **Report:**
 
 ---
 
@@ -264,6 +246,30 @@ These need the project's history or judgement about risk. Other agents: do not t
   the old stamp once and rewrite it in the new form, as `ocr.stamp` does for readings made
   before sidecars. Model files are large: hash them once and keep the digest, don't hash on
   every read.
+
+### T-012 · The tests run on Windows too, automatically
+- **Status:** Ready
+- **Who:** Claude · **Size:** M
+- **Why:** The app is Windows-only but its tests run on Linux only. T-006 (a run on Beaux's
+  PC, `docs/windows-tests-2026-11-16.md`) could not give a clean list: that PC had Python
+  3.14 and no Tesseract, so 78 of 85 failures were the missing setup. A `windows-latest`
+  job in `ci.yml` (Python 3.12, Tesseract as `release.yml` installs it, the test fonts:
+  Liberation, DejaVu, FreeFont; FriBiDi for Pillow's raqm) gives the real list on every
+  push. Start it allowed to fail, fix what it finds, then make it required.
+- **Leads from T-006 to check there** (may be the setup, may be real): the traced-font tests
+  ended in an access violation inside `trace.trace_bitmap` (vtracer) on Python 3.14: does it
+  happen on 3.12, which the app ships? `test_buttons_wrap_and_stay_visible_in_a_narrow_window`
+  (83 > 83: the buttons didn't wrap); `test_latin_lines_with_italic_words` (29 of 60).
+
+### T-013 · Ectype IDML's notes shown with the right letters
+- **Status:** Ready
+- **Who:** Claude · **Size:** S
+- **Why:** `converter.convert` reads Ectype IDML's output with Windows' default encoding
+  (`Popen(text=True)` with no encoding). Its notes quote running heads, which can be Hebrew
+  or Greek. Which encoding the packaged converter writes must be found out first (it is a
+  PyInstaller program; Ectype IDML's side may need `PYTHONUTF8` or to write UTF-8 itself),
+  so this isn't a one-line change. Then remove the line for it in
+  `tests/test_text_encoding.py`'s `ALLOWED`.
 
 ### T-008 · The Windows crash when clicking a word in Review
 - **Status:** Waiting (for a crash report from Beaux's PC made by 0.11.1 or later, which
@@ -293,6 +299,11 @@ Things only Beaux can do. Each unblocks the task named.
   Hebrew, one with footnotes and Greek). Unblocks T-009.
 - [ ] **Send the next crash report** if Review crashes again (at its next start the app says
   it kept a report and offers Open folder; the file is `crash-<date>-<time>.txt`). Unblocks T-008.
+- [ ] **After the next release: Training → Train from fonts → Arabic**, and say whether it
+  downloaded the Arabic Bible (its download was switched on in T-005) or said "(no text)".
+- [ ] **Say whether `corpus/arb-vd_vpl.txt` and `.xml` should stay.** They came in with an
+  upload on 16 November (the whole Arabic Bible, 62,000 lines); nothing uses them, and the
+  app downloads the text itself.
 - [ ] **Try a Kraken model download from Zenodo** in the installed app and say whether it
   worked (the download check has never met the real Zenodo).
 - [ ] **Try a Hebrew manuscript model** (BiblIA, from Zenodo) in Manuscript Mode.
@@ -334,6 +345,12 @@ printed books; no platform other than Windows.
 Newest first. The manager moves a task here when its pull request is merged, as one line,
 and deletes the task's full text above. Older history: `CLAUDE.md`, "What each version brought".
 
+- 2026-11-16 · T-006 · Tests run on Beaux's PC and written up (`docs/windows-tests-2026-11-16.md`).
+  The PC lacked Python 3.12 and Tesseract, so most failures were the setup; led to T-010 to T-012.
+- 2026-11-16 · T-005 · The Arabic Smith–Van Dyck Bible's download is switched on (its
+  fingerprint recorded).
+- 2026-11-16 · T-001 · README lists every command.
+- 2026-11-16 · T-002 · README and `docs/idml.md` say Ectype IDML, not docx-to-idml.
 - 2026-11-16 · This file and `AGENTS.md` set up; the original plan moved to `docs/history/`.
 
 ---
@@ -366,6 +383,12 @@ remember anything, and will do literally what the words say.
 - Put facts the worker needs in the task (names, addresses, numbers); don't send it to
   search for them.
 - Say what to leave alone; that is where small models wander.
+- Say what the worker's machine must have, and that it stops if it doesn't. (T-006 was run
+  on Python 3.14 with no Tesseract: 78 failures that meant nothing. T-001 was done by an
+  agent that couldn't run a command at all.)
+- Before writing a task that changes a value, search `tests/` for that value. (T-005's
+  check could only pass by changing a test that said the download was off; the worker had
+  to choose between two rules.) If a test must change, say so in the task and say how.
 - For code tasks, write the failing test yourself first, or describe it exactly, and make
   "the test passes" the check.
 - Keep for Claude: anything touching kept data on Beaux's PC (pools, models, stamps,

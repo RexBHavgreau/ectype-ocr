@@ -206,7 +206,9 @@ def test_hebrew_prose_is_checked_kept_and_refused_when_swapped(tmp_path, monkeyp
     assert not cache.exists()
 
 
-def test_arabic_uses_the_quran_alone_while_van_dyck_is_off(tmp_path, monkeypatch):
+def test_arabic_uses_the_quran_alone_when_van_dyck_cannot_be_had(tmp_path, monkeypatch):
+    """Van Dyck's download is on (its fingerprint recorded 2026-11-16), but here the server has only the
+    Qurʾān: Arabic then comes from the Qurʾān alone, and Tanzil's form is never asked."""
     monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
     lines = [f"1|{n}|بِسْمِ اللَّهِ {n}" for n in range(1, 6300)] + ["# Tanzil notice"]
     quran = ("\n".join(lines) + "\n").encode("utf-8")
@@ -215,7 +217,8 @@ def test_arabic_uses_the_quran_alone_while_van_dyck_is_off(tmp_path, monkeypatch
     monkeypatch.setattr("urllib.request.urlopen", served({texts.QURAN_FILE: quran}, seen))
     assert texts.VAN_DYCK_FINGERPRINT == {"size": 5268940, "sha256": "070404da2e13e641b7550b50d7e777480b2cc2667e9669f2194d909ca04cd68a"}
     verses = texts.load("arabic")
-    assert len(verses) == 6299 and seen and any("quran" in u.lower() for u in seen)
+    assert len(verses) == 6299 and any("quran" in u.lower() for u in seen)
+    assert all("tanzil" not in u for u in seen), "Tanzil's form is no longer a fallback"
     assert "# Tanzil notice" in (texts.folder() / "quran.txt").read_text(encoding="utf-8"), "the notice is kept"
     assert not hasattr(texts, "_tanzil_form")
 

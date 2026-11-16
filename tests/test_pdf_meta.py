@@ -73,8 +73,10 @@ def test_lossless_background_is_the_same_pixels(tmp_path):
     rng = np.random.default_rng(1)
     gray = rng.integers(0, 256, (120, 90), dtype=np.uint8)
     for lossless in (False, True):
-        write_pdf(tmp_path / "t.pdf", [PageSpec(90, 120, 300, background=gray, background_dpi=0, lossless=lossless)], [])
-        im = _images(tmp_path / "t.pdf")[0]
+        # a file of its own each time: _images keeps the PDF open, and Windows won't replace an open file
+        path = tmp_path / f"t{int(lossless)}.pdf"
+        write_pdf(path, [PageSpec(90, 120, 300, background=gray, background_dpi=0, lossless=lossless)], [])
+        im = _images(path)[0]
         if lossless:
             assert im.Filter == "/FlateDecode"
             assert np.array_equal(np.frombuffer(zlib.decompress(im.read_raw_bytes()), np.uint8).reshape(120, 90), gray)
