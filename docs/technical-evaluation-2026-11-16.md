@@ -141,7 +141,7 @@ Most importantly, preserve the traced-PDF technology while it is already perform
 ## Repository references
 
 - [`CLAUDE.md`](../CLAUDE.md) — implementation history, decisions, lessons, and planned work.
-- [`PLAN.md`](../PLAN.md) — original architecture, goals, and non-goals.
+- [`docs/history/original-plan.md`](history/original-plan.md) (was `PLAN.md` when this review was written) — original architecture, goals, and non-goals.
 - [`README.md`](../README.md) — public-facing capabilities and usage.
 - [`docs/idml.md`](idml.md) — OCR languages, Kraken, training, and IDML export.
 - [`corpus/`](../corpus/) — project test material.

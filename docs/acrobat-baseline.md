@@ -1,6 +1,6 @@
 # Acrobat ClearScan baseline
 
-This is what `ectype analyze` and `ectype compare` report for the two Young chapter files in `corpus/`. It checks the "What Acrobat ClearScan actually does" section of `PLAN.md`. To reproduce:
+This is what `ectype analyze` and `ectype compare` report for the two Young chapter files in `corpus/`. It checks the "What Acrobat ClearScan actually does" section of the original plan (`docs/history/original-plan.md`, called `PLAN.md` below). To reproduce:
 
 ```
 ectype analyze "corpus/E J. Young Inspiration-1 - Copy.pdf" -o reports/analyze-acrobat

@@ -1,6 +1,6 @@
 # ectype-ocr
 
-Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. See [`PLAN.md`](PLAN.md) for the design and the phased build plan.
+Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. The original design is kept in [`docs/history/original-plan.md`](docs/history/original-plan.md); current work is in [`TASKS.md`](TASKS.md).
 
 **Status: Phases 0–5 are done, and Phase 6 is under way:** the desktop app, parallel processing, caching, and corrections saved as training data. `ectype run scan.pdf` goes from a scan to a PDF whose visible text is set in fonts traced from the scan itself. Results by phase:
 - preprocessing, OCR and tying each character to its ink ([results](docs/phase1.md))
