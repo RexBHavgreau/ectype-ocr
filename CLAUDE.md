@@ -612,6 +612,18 @@ plan in it, not only the menus and crash recorder):
   lesson). The menu fix is kept but probably not the cause. Review now notes in the crash report
   each page shown and each word clicked with its code points (`ReviewTab.show_page`, `select`), so
   the next report names the word.
+- *Every Kraken word's first Hebrew letter missing from the traced type* (Beaux, 0.11.0, the grammar's
+  segmentation picture: word boxes shifted a letter to the left). Kraken gives each letter one narrow
+  column, at or just before its **left** edge (Hebrew א at 1295, ink 1290-1332; Greek ε at 30, ink
+  40-65; in steps of about 10 px), not its width; `kraken._words` took that column as the letter, so
+  a word's box ended at its first letter's left edge, and in Hebrew the first letter is the
+  rightmost. Measured on the 17 pages: 28.2% of the lines' ink outside every word box, 3,497 of 3,532
+  Hebrew words cut. `kraken.letter_spans` (also used by `manuscript.write_ocr`, which had the same
+  fault in its text layer): a letter runs from its point to the next letter's point on the right,
+  the cut moved to the emptiest column near it, the outer letters a little past the end points,
+  every span trimmed to its ink (the page is read once per page in `read_runs`); marks take their
+  letter's box. After: 0.3% of the ink outside, 52 of 3,532 word edges through ink (touching
+  neighbours). Tests: synthetic right-to-left and left-to-right lines.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

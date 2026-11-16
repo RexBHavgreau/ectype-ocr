@@ -362,3 +362,49 @@ def test_a_many_script_model_reads_only_the_ticked_scripts(monkeypatch):
     # an older project holding the model alone: it reads all its scripts, as before
     assert set(ocr.kraken_scripts([Resolved(code="eng", engine="tesseract", model="eng"), multi])) == \
         {"Arabic", "Greek", "Hebrew", "Syriac"}
+
+
+def _blocks(spans, width=600, height=60):
+    """A page of black blocks, one per letter, at the given column spans."""
+    import numpy as np
+
+    gray = np.full((height, width), 255, np.uint8)
+    for a, b in spans:
+        gray[10:50, a:b] = 0
+    return gray
+
+
+def test_letter_boxes_cover_each_letter_right_to_left(data):
+    """Beaux, 0.11.0: each word box ended at its first letter's left edge, so in Hebrew that
+    letter (the rightmost) was left out of the traced type. Kraken gives one narrow column a
+    letter, at or just before its left edge; a letter now runs to the next letter's point."""
+    from ectype.ocr import Char, Word
+
+    # Two words read right to left: אבג (letters at 500-540, 455-495, 420-450) and דה.
+    ink = [(500, 540), (455, 495), (420, 450), (330, 370), (290, 325)]
+    gray = _blocks(ink)
+    # Kraken's points: the left edge, give or take a few pixels; a point for the space; a mark.
+    chars = [["א", [503, 0, 503, 60], 90.0], ["ְ", [520, 0, 520, 60], 80.0], ["ב", [455, 0, 455, 60], 90.0],
+             ["ג", [424, 0, 424, 60], 90.0], [" ", [400, 0, 405, 60], 90.0],
+             ["ד", [332, 0, 332, 60], 90.0], ["ה", [288, 0, 288, 60], 90.0]]
+    words = kraken._words({"chars": chars}, [270, 0, 580, 60], Char, Word, gray)
+    assert [w.text for w in words] == ["אְבג", "דה"]
+    assert words[0].box[0] == 420 and words[0].box[2] == 540, "the first letter's whole width is in the box"
+    assert words[1].box[0] == 290 and words[1].box[2] == 370
+    assert [c.box[0:3:2] for c in words[0].chars] == [[500, 540], [455, 495], [420, 450]]
+    assert [c.box[0:3:2] for c in words[1].chars] == [[330, 370], [290, 325]]
+
+
+def test_letter_boxes_left_to_right_and_without_the_page(data):
+    from ectype.ocr import Char, Word
+
+    ink = [(40, 65), (70, 94), (109, 143), (145, 176)]  # ἐν ἀρ: Greek, measured points before each
+    gray = _blocks(ink, width=300)
+    chars = [["ε", [30, 0, 30, 60], 90.0], ["̓", [50, 0, 50, 60], 90.0], ["ν", [70, 0, 70, 60], 90.0],
+             [" ", [80, 0, 80, 60], 90.0], ["α", [100, 0, 100, 60], 90.0], ["ρ", [140, 0, 140, 60], 90.0]]
+    words = kraken._words({"chars": chars}, [20, 0, 290, 60], Char, Word, gray)
+    assert [w.text for w in words] == ["ἐν", "αρ"]
+    assert [c.box[0:3:2] for w in words for c in w.chars] == [[40, 65], [70, 94], [109, 143], [145, 176]]
+    # Without the page the spans still run point to point (no letter one pixel wide).
+    bare = kraken._words({"chars": chars}, [20, 0, 290, 60], Char, Word)
+    assert all(c.box[2] - c.box[0] >= 20 for w in bare for c in w.chars)

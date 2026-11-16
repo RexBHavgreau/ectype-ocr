@@ -410,6 +410,11 @@ def write_ocr(ws: Path, page: str, settings) -> Path:
     letters' boxes (a corrected line's letters spread over the line), for the text layer."""
     from PIL import Image
 
+    import unicodedata
+
+    import numpy as np
+
+    from .kraken import letter_spans
     from .ocr import Char, Line, OcrPage
     from .report import image_dpi
     from .review import place_chars
@@ -420,6 +425,7 @@ def write_ocr(ws: Path, page: str, settings) -> Path:
     fixed = corrections_of(ws, page)
     rtl = direction(settings) == "horizontal-rl"
     im = Image.open(ws / "pages" / f"{page}.png")
+    gray = np.asarray(im.convert("L"))
     out = OcrPage(engine="kraken", lang="+".join(settings.ms_languages), size_px=list(im.size), dpi=image_dpi(im),
                   models=[f"hand={hand_name(h)}" for h in chosen_hands(settings)])
     for line in found["lines"]:
@@ -427,8 +433,19 @@ def write_ocr(ws: Path, page: str, settings) -> Path:
         r = read.get(key, {})
         box = bbox(line["boundary"])
         chars = [Char(c, list(b), float(conf)) for c, b, conf in (r.get("readings", {}).get(r.get("hand"), {}).get("chars") or [])]
-        for c in chars:  # Kraken's cuts are narrow columns: the line's height
-            c.box = [c.box[0], box[1], max(c.box[2], c.box[0] + 1), box[3]]
+        # Kraken gives each letter a narrow column at its left edge: each letter's box runs to
+        # the next letter and is fitted to its ink (kraken.letter_spans); a point or accent,
+        # given apart, takes its letter's box; all to the line's height.
+        letters = [c for c in chars if not c.text.isspace() and not unicodedata.combining(c.text[:1] or " ")]
+        spans = letter_spans([(c.box[0] + c.box[2]) / 2 for c in letters], box, gray)
+        for c, (a, b) in zip(letters, spans):
+            c.box = [a, box[1], b, box[3]]
+        last, is_letter = None, {id(c) for c in letters}
+        for c in chars:
+            if id(c) in is_letter:
+                last = c
+            else:
+                c.box = list(last.box) if last is not None else [c.box[0], box[1], max(c.box[2], c.box[0] + 1), box[3]]
         text = r.get("text", "")
         if key in fixed:
             text = fixed[key]
