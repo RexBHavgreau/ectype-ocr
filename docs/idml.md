@@ -179,7 +179,7 @@ Training needs Tesseract's training tools: `lstmtraining` and `combine_tessdata`
 
 **Export IDML…** in the app, or `ectype idml <workspace> --mode reflow|facsimile`. The app asks first: Reflow (live) or Facsimile (static), with Reflow's options. It then prepares the layout; for Facsimile it also compares the scan's typefaces with the installed fonts and shows the fonts chosen, to confirm or change, before asking where to save.
 
-Each export is a folder of its own, as [Ectype IDML (called Ectype IDML before its 1.0.0)](https://github.com/RexBHavgreau/ectype-idml) writes them: `<name>/<name>.idml`, with the images in `<name>/Links/`, linked relative to the IDML (`file:Links/p001.jpg`). The folder can be moved or sent on without relinking.
+Each export is a folder of its own, as [Ectype IDML (called docx-to-idml before its 1.0.0)](https://github.com/RexBHavgreau/ectype-idml) writes them: `<name>/<name>.idml`, with the images in `<name>/Links/`, linked relative to the IDML (`file:Links/p001.jpg`). The folder can be moved or sent on without relinking.
 
 The export first makes sure segmentation and glyph grouping are current, and runs them if not. That analysis is what finds italics, running heads, superscripts and the scan's typefaces. No glyph tracing is involved. The export then builds a page layout (`layout.py`):
 - **Blocks:** lines of one zone and size that overlap, with a normal baseline pitch.
@@ -189,7 +189,7 @@ The export first makes sure segmentation and glyph grouping are current, and run
 
 ### Reflow: through Ectype IDML
 
-Reflow is laid out by [Ectype IDML (called Ectype IDML before its 1.0.0)](https://github.com/RexBHavgreau/ectype-idml), as decided for Ectype IDML (now Ectype IDML) on October 24 (its `docs/ENGINE.md`). Ectype writes the reading text as a Word manuscript (`docx.py`) and runs the installed converter's `convert` command (`converter.py`). It reads the converter's location from `program.json` in Ectype IDML's settings folder, or from `ECTYPE_DOCX2IDML` (a command line, e.g. `python -m docx2idml` to run it from source). The converter gives the book its masters, running heads, front matter and footnotes, in the fonts of its layout profile (chosen in the export dialog). Its report is shown in the Log. If Ectype IDML isn't installed, the dialog says so and links to its releases.
+Reflow is laid out by [Ectype IDML](https://github.com/RexBHavgreau/ectype-idml), as decided for docx-to-idml (now Ectype IDML) on October 24 (its `docs/ENGINE.md`). Ectype writes the reading text as a Word manuscript (`docx.py`) and runs the installed converter's `convert` command (`converter.py`). It reads the converter's location from `program.json` in its settings folder (`%APPDATA%\\Ectype IDML` on Windows), or from `ECTYPE_DOCX2IDML` (a command line, e.g. `python -m ectype_idml` to run it from source). The installed program is `Ectype-IDML-X.Y.Z.exe`. The converter gives the book its masters, running heads, front matter and footnotes, in the fonts of its layout profile (chosen in the export dialog). Its report is shown in the Log. If Ectype IDML isn't installed, the dialog says so, offers **Find Ectype IDML…**, and links to its releases.
 
 The manuscript (kept beside the IDML):
 - **Headings:** Heading 1 (the largest on its page, a chapter title), Heading 2 and 3, and an all-capitals line under a chapter title as Author.
@@ -230,6 +230,6 @@ Every IDML export, Reflow and Facsimile, is checked in the tests with Ectype IDM
 
 CI clones Ectype IDML for this and runs Reflow through it. Both exports of the Young chapter pass.
 
-The first version of this export (October 26) wrote its own IDML. It failed the schema (wrong DOM version, frame insets written as attributes), set `PagesPerDocument` to the page count (InDesign then adds that many pages at the start) and had no page descriptors. All three were things Ectype IDML had already found and fixed against InDesign, so that writer was replaced.
+The first version of this export (October 26) wrote its own IDML. It failed the schema (wrong DOM version, frame insets written as attributes), set `PagesPerDocument` to the page count (InDesign then adds that many pages at the start) and had no page descriptors. All three were things docx-to-idml (now Ectype IDML) had already found and fixed against InDesign, so that writer was replaced.
 
 **Still to check in InDesign:** a Facsimile export (line fit with InDesign's composer, the scan layer and links) and a Reflow export of a real chapter.
