@@ -220,7 +220,7 @@ Report (<tool>, <date>):
   - For Beaux to try on Windows: nothing; the fingerprinted Van Dyck download is on, and the app should now fetch and verify it before use.
 
 ### T-006 · Run the test suite on Windows and report what fails
-- **Status:** Ready
+- **Status:** For review (rexbhavgreau-task-t-005)
 - **Who:** any agent on Beaux's PC · **Size:** S
 - **Why:** The automatic tests run on Linux only, but the app is used on Windows. Nobody has
   a list of which tests fail there. This task only makes the list; it fixes nothing.
@@ -240,6 +240,11 @@ Report (<tool>, <date>):
 - **Done when:** the file exists with the totals and one entry per failure (or says "no
   failures").
 - **Report:**
+  Report (GitHub Copilot, 2026-11-16):
+  - Did: Ran the Windows suite with Python 3.14 and recorded the results in `docs/windows-tests-2026-11-16.md`. No source or tests changed.
+  - Checks: 275 tests attempted across the full run and continuation batches: 188 passed, 32 failed, 46 errored, 7 skipped, and 2 crashed with Windows access violations in traced-font tests.
+  - Not done / unsure: The machine lacks the task's required Python 3.12, Tesseract, English traineddata and Pillow RAQM; default `python` is a separate LibreOffice Python without pytest. The suite could not complete in one process because of two native access violations.
+  - For Beaux to try on Windows: Install the project's required Python 3.12 environment and Tesseract, then rerun the suite; most OCR-related errors depend on the missing Tesseract installation.
 
 ---
 
