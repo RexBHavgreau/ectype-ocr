@@ -813,10 +813,14 @@ plan in it, not only the menus and crash recorder):
   separate `party` package, not Kraken's line reader; check its speed on CPU, its size, and
   whether it gives each letter's place (traced PDFs need it) before offering it. Listed error
   rates come from each model's own test pages, so they don't compare across models.
-- **Kraken reads the whole page**: a per-language choice "Kraken: <model> (reads the whole page)"
-  beside today's re-reading; Kraken finds the lines (blla, as Manuscript Mode does), reads them and
-  gives each letter's place; to be measured against Tesseract on corrected pages of Beaux's books
-  before becoming the default.
+- **Kraken reads the whole page: measured, not built** (after 0.11.0). On the grammar's PDF page 5
+  (corpus/truth), Kraken finding the lines itself (blla, as Manuscript Mode does) and reading them
+  with PP-OCRv6 medium: 2.9% of words / 1.8% of letters wrong, 34 lines, 84 s to find the lines and
+  15 s to read on 4 CPU cores; Tesseract's lines with Kraken rereading the Hebrew: 2.5% / 1.2%, about
+  16 s a page. It also set a paragraph's large first word as a line of its own, out of order. So
+  for printed books the rereading stays; whole-page reading is worth it only where Tesseract's
+  lines fail (columns, curved or skewed lines), which Manuscript Mode already covers. Try it
+  again on such a book if Beaux has one.
 - Manuscripts, later: straightening curved pages (Beaux: not now); training on Intel graphics
   (needs changes to Kraken); a Hebrew manuscript model tried on Beaux's PC (BiblIA, Zenodo).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
