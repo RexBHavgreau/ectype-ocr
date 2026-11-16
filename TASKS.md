@@ -220,7 +220,7 @@ Report (<tool>, <date>):
   - For Beaux to try on Windows: nothing; the fingerprinted Van Dyck download is on, and the app should now fetch and verify it before use.
 
 ### T-006 · Run the test suite on Windows and report what fails
-- **Status:** Ready
+- **Status:** In progress (GitHub Copilot, 2026-11-16)
 - **Who:** any agent on Beaux's PC · **Size:** S
 - **Why:** The automatic tests run on Linux only, but the app is used on Windows. Nobody has
   a list of which tests fail there. This task only makes the list; it fixes nothing.
