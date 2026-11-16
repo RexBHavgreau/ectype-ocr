@@ -838,6 +838,7 @@ class ReviewTab(QWidget):
         if item is None:
             return
         page = item.data(Qt.ItemDataRole.UserRole)
+        crashlog.note(f"Review: page {page}")  # so a crash report says where Review was
         self.page = page
         self.page_styles = self.project.word_styles(page)
         self.scan.show_image(QImage(str(self.project.page_image(page))))
@@ -985,6 +986,10 @@ class ReviewTab(QWidget):
         if self.selected is not None and self.selected is not item:
             self.selected.set_status(self.selected.status)
         self.selected = item
+        # Kept in the crash report (Beaux, 0.11.0: Ectype died on clicking a word, and the report
+        # couldn't say which): the word and its characters, written to disk before anything is shown.
+        crashlog.note(f"Review: line {item.line + 1}, word {item.word + 1}: {item.text} "
+                      f"[{' '.join(f'{ord(c):04X}' for c in item.text)}]")
         item.setPen(QPen(COLOURS["selected"], 3))
         if self.adding or self.editor is None or self.editor.start != self._rect(item.word_box):
             self._show_editor(item.word_box)  # another word: its box, to stretch over a letter it missed

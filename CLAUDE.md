@@ -604,7 +604,14 @@ plan in it, not only the menus and crash recorder):
   removed each "Read … with" submenu's own `menuAction()` and `deleteLater()`'d it, though the
   submenu owns that action and keeps pointing to it; the menu is rebuilt after every run
   (`refresh`). Now the submenus themselves are deleted (`reader_menus`), also on a full rebuild
-  (`set_languages`). Unconfirmed: ask Beaux what they did just before it closed if it happens again.
+  (`set_languages`). **Then** Beaux said it happened on clicking a word's box in Review (and the
+  keyboard afterwards acted as if Ctrl/Win were held: Windows lost the key-up). Clicking all 4,616
+  words of the same pages here (offscreen, Linux) didn't crash, so it is Windows-only: suspects are
+  Windows' text input (the correction box takes focus and selects the Hebrew) or a font Windows
+  borrows for a character the box's font lacks (Beaux has a damaged installed font, see the IDML
+  lesson). The menu fix is kept but probably not the cause. Review now notes in the crash report
+  each page shown and each word clicked with its code points (`ReviewTab.show_page`, `select`), so
+  the next report names the word.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
