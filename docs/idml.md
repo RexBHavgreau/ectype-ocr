@@ -179,7 +179,7 @@ Training needs Tesseract's training tools: `lstmtraining` and `combine_tessdata`
 
 **Export IDML…** in the app, or `ectype idml <workspace> --mode reflow|facsimile`. The app asks first: Reflow (live) or Facsimile (static), with Reflow's options. It then prepares the layout; for Facsimile it also compares the scan's typefaces with the installed fonts and shows the fonts chosen, to confirm or change, before asking where to save.
 
-Each export is a folder of its own, as docx-to-idml writes them: `<name>/<name>.idml`, with the images in `<name>/Links/`, linked relative to the IDML (`file:Links/p001.jpg`). The folder can be moved or sent on without relinking.
+Each export is a folder of its own, as [Ectype IDML (called docx-to-idml before its 1.0.0)](https://github.com/RexBHavgreau/ectype-idml) writes them: `<name>/<name>.idml`, with the images in `<name>/Links/`, linked relative to the IDML (`file:Links/p001.jpg`). The folder can be moved or sent on without relinking.
 
 The export first makes sure segmentation and glyph grouping are current, and runs them if not. That analysis is what finds italics, running heads, superscripts and the scan's typefaces. No glyph tracing is involved. The export then builds a page layout (`layout.py`):
 - **Blocks:** lines of one zone and size that overlap, with a normal baseline pitch.
@@ -187,9 +187,9 @@ The export first makes sure segmentation and glyph grouping are current, and run
 - **Alignment:** justified, centred, flush left or right, read from the line ends.
 - **Folios:** each page's printed number, read from its running head or foot, and inferred for pages without one (the Young chapter: 168–193).
 
-### Reflow: through docx-to-idml
+### Reflow: through Ectype IDML
 
-Reflow is laid out by [docx-to-idml](https://github.com/RexBHavgreau/docx-to-idml), as decided for it on October 24 (its `docs/ENGINE.md`). Ectype writes the reading text as a Word manuscript (`docx.py`) and runs the installed converter's `convert` command (`converter.py`). It reads the converter's location from `program.json` in docx-to-idml's settings folder, or from `ECTYPE_DOCX2IDML` (a command line, e.g. `python -m docx2idml` to run it from source). The converter gives the book its masters, running heads, front matter and footnotes, in the fonts of its layout profile (chosen in the export dialog). Its report is shown in the Log. If docx-to-idml isn't installed, the dialog says so and links to its releases.
+Reflow is laid out by [Ectype IDML](https://github.com/RexBHavgreau/ectype-idml), as decided for docx-to-idml (now Ectype IDML) on October 24 (its `docs/ENGINE.md`). Ectype writes the reading text as a Word manuscript (`docx.py`) and runs the installed converter's `convert` command (`converter.py`). It reads the converter's location from `program.json` in its settings folder (`%APPDATA%\Ectype IDML` on Windows), or from `ECTYPE_DOCX2IDML` (a command line, e.g. `python -m ectype_idml` to run it from source). The installed program is `Ectype-IDML-X.Y.Z.exe`. The converter gives the book its masters, running heads, front matter and footnotes, in the fonts of its layout profile (chosen in the export dialog). Its report is shown in the Log. If Ectype IDML isn't installed, the dialog says so, offers **Find Ectype IDML…**, and links to its releases.
 
 The manuscript (kept beside the IDML):
 - **Headings:** Heading 1 (the largest on its page, a chapter title), Heading 2 and 3, and an all-capitals line under a chapter title as Author.
@@ -200,7 +200,7 @@ The manuscript (kept beside the IDML):
 - **"Page Marker":** optionally, `{p. 172}` where each page of the scan begins, inside a paragraph when the page breaks in one.
 - **Left out:** running heads and folios. Paragraphs split by a page break are joined, and line-end hyphens removed where they only split a word (the hyphenated form is kept when it occurs elsewhere in the book).
 
-On the Young chapter, docx-to-idml lays the manuscript out as 33 pages: about 30 of text plus front matter, with placeholders such as [Book title] and [ISBN] that its report names.
+On the Young chapter, Ectype IDML lays the manuscript out as 33 pages: about 30 of text plus front matter, with placeholders such as [Book title] and [ISBN] that its report names.
 
 ### Facsimile
 
@@ -210,7 +210,7 @@ Every text block of every page goes in its own frame where it stands on the scan
 - **Pages:** facing pages as in the book (left-hand pages are versos), numbered from the folios.
 - **The scan** is placed under the text on a layer of its own, "Scan", locked and non-printing.
 
-It is written with docx-to-idml's IDML writer, copied into `src/ectype/idmlkit/` unchanged (MIT). That writer brings InDesign's own base settings and styles, and pages, spreads, sections and links as InDesign writes them. Its output has been opened in InDesign and Affinity Publisher. Ectype subclasses it for frames placed freely on the page, a leading per paragraph, and the scan layer.
+It is written with Ectype IDML's IDML writer, copied into `src/ectype/idmlkit/` unchanged (MIT). That writer brings InDesign's own base settings and styles, and pages, spreads, sections and links as InDesign writes them. Its output has been opened in InDesign and Affinity Publisher. Ectype subclasses it for frames placed freely on the page, a leading per paragraph, and the scan layer.
 
 Fonts are chosen per glyph style (`fontmatch.py`), and each becomes a character style named for what it is on the scan ("Text", "Text Italic", "Notes", "Running Head"…), so a font is changed in one place in InDesign:
 - **Comparison.** Each style's averaged glyphs are compared with every installed font of the same slant, drawn at the same x-height on a 72-row canvas.
@@ -223,13 +223,13 @@ On a synthetic page set in Liberation Serif at 11 pt, the font match picks Liber
 
 ### Checking
 
-Every IDML export, Reflow and Facsimile, is checked in the tests with docx-to-idml's `tools/idml_check.py`. It checks:
+Every IDML export, Reflow and Facsimile, is checked in the tests with Ectype IDML's `tools/idml_check.py`. It checks:
 - the package structure
 - the links between parts: frames, stories, pages, masters and sections
 - Adobe's IDML schema (DOM 21.5), with jing
 
-CI clones docx-to-idml for this and runs Reflow through it. Both exports of the Young chapter pass.
+CI clones Ectype IDML for this and runs Reflow through it. Both exports of the Young chapter pass.
 
-The first version of this export (October 26) wrote its own IDML. It failed the schema (wrong DOM version, frame insets written as attributes), set `PagesPerDocument` to the page count (InDesign then adds that many pages at the start) and had no page descriptors. All three were things docx-to-idml had already found and fixed against InDesign, so that writer was replaced.
+The first version of this export (October 26) wrote its own IDML. It failed the schema (wrong DOM version, frame insets written as attributes), set `PagesPerDocument` to the page count (InDesign then adds that many pages at the start) and had no page descriptors. All three were things docx-to-idml (now Ectype IDML) had already found and fixed against InDesign, so that writer was replaced.
 
 **Still to check in InDesign:** a Facsimile export (line fit with InDesign's composer, the scan layer and links) and a Reflow export of a real chapter.

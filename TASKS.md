@@ -87,7 +87,7 @@ Report (<tool>, <date>):
 - **Report:**
 
 ### T-002 · Docs: docx-to-idml is now called Ectype IDML
-- **Status:** Ready
+- **Status:** For review (task/T-002-ectype-idml)
 - **Who:** any agent · **Size:** S
 - **Why:** The companion program was renamed at its version 1.0.0 (November 2026). The app
   already uses the new name; `README.md` and `docs/idml.md` still use the old one and link
@@ -115,6 +115,11 @@ Report (<tool>, <date>):
   - Every remaining `docx-to-idml` in the two files is one of the cases in step 1 or 3
     (list them in your report).
 - **Report:**
+  Report (ChatGPT, 2026-11-16):
+  - Did: Updated `README.md` and `docs/idml.md` to identify the companion as Ectype IDML, use its new repository address, and document its executable, source command, settings folder and discovery button. Kept `ECTYPE_DOCX2IDML` and `src/ectype/idmlkit/` unchanged.
+  - Checks: `grep -n "RexBHavgreau/docx-to-idml" README.md docs/idml.md` — no matches; `grep -n "python -m docx2idml" README.md docs/idml.md` — no matches. Remaining `docx-to-idml`: `README.md:52` and `docs/idml.md:182` (first mentions); `docs/idml.md:192` and `docs/idml.md:233` (dated historical references). Whole suite: 275 passed, 2 skipped (`pytest -q`; [GitHub Actions run](https://github.com/RexBHavgreau/ectype-ocr/actions/runs/43937235639)).
+  - Not done / unsure: No local checkout was available; the full suite was verified in GitHub Actions instead.
+  - For Beaux to try on Windows: nothing; documentation only.
 
 ### T-003 · docs/releasing.md: match what the release actually does
 - **Status:** Ready
