@@ -83,7 +83,7 @@ ectype kraken remove MODEL            # remove an installed model
 ectype data-folder [--move FOLDER]    # show where Ectype keeps its data and how big it is; --move puts it elsewhere
 ectype free-space [--cache] [--font-lines [LANG ...]]   # show what takes space in Ectype's data folder; --cache and --font-lines free some
 ectype update [--install]             # check for a newer version (and install it, with --install)
-ectype gui [TARGET]                   # open the desktop app (a scan to open, or a project folder)
+ectype gui [target]                   # open the desktop app (a scan to open, or a project folder)
 ectype languages --add grc lat heb    # download languages
 ectype train reports/work-young       # train the languages' models from their pools, with this project's corrections
 ectype train-synthetic --fonts C:\Fonts --script hebrew greek transliteration   # lines set from known text in your fonts
