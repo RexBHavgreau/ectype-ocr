@@ -73,9 +73,18 @@ ectype run scan.pdf [-o workspace] [--mode traced|substitute] [--font …] [--ke
 ```
 
 This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute. `--mode text` runs just preprocess, ocr and the text layer (`--page-image gray|bw`); `--mode plaintext` runs preprocess, ocr and writes the text file beside the scan. Text and plaintext runs work in a temporary folder and keep nothing but the result (`--keep` keeps the project for Review); traced and substitute runs keep their project in Ectype's projects folder. `--lang eng+grc` sets the OCR languages.
+Repeat `--kraken LANG=MODEL` (for example, `--kraken heb=7051645`) to read a language with a Kraken model (repeatable; see `ectype kraken list`).
 
 ```
 ectype languages [--all]              # installed OCR languages (--all: and those that can be added)
+ectype kraken list                    # the installed models: number, scripts, title, size
+ectype kraken available [--script SCRIPT] [--printed]   # models in Kraken's repository (needs the Kraken engine)
+ectype kraken add MODEL               # download and install a model (needs the Kraken engine)
+ectype kraken remove MODEL            # remove an installed model
+ectype data-folder [--move FOLDER]    # show where Ectype keeps its data and how big it is; --move puts it elsewhere
+ectype free-space [--cache] [--font-lines [LANG ...]]   # show what takes space in Ectype's data folder; --cache and --font-lines free some
+ectype update [--install]             # check for a newer version (and install it, with --install)
+ectype gui [target]                   # open the desktop app (a scan to open, or a project folder)
 ectype languages --add grc lat heb    # download languages
 ectype train reports/work-young       # train the languages' models from their pools, with this project's corrections
 ectype train-synthetic --fonts C:\Fonts --script hebrew greek transliteration   # lines set from known text in your fonts
