@@ -2,7 +2,7 @@
 
 This is a summary from reading [scribe.js](https://github.com/scribeocr/scribe.js) at commit `66367f2` (June 2026), the engine behind [Scribe OCR](https://github.com/scribeocr/scribeocr). Scribe is AGPL-3.0, so we copy no code from it. Everything below describes ideas only.
 
-**Short answer:** Scribe does **not** trace glyphs from the scan. It starts from a bundled typeface and reshapes it to match measurements taken from the OCR. This settles the open question in `PLAN.md` ("docs don't say whether glyph outlines come from the scan"). Our traced mode is a different technique; Scribe is closer to our substitute mode.
+**Short answer:** Scribe does **not** trace glyphs from the scan. It starts from a bundled typeface and reshapes it to match measurements taken from the OCR. This settles the open question in the original plan (`docs/history/original-plan.md`) ("docs don't say whether glyph outlines come from the scan"). Our traced mode is a different technique; Scribe is closer to our substitute mode.
 
 ## How it works
 

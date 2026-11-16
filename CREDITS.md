@@ -1,6 +1,6 @@
 # Credits
 
-Ectype OCR builds on other people's work. This file is updated in the same commit as anything borrowed. See `PLAN.md` for the attribution rule.
+Ectype OCR builds on other people's work. This file is updated in the same commit as anything borrowed. The attribution rule is in the original plan, `docs/history/original-plan.md`.
 
 ## Code copied or adapted
 
@@ -13,7 +13,7 @@ Ectype OCR builds on other people's work. This file is updated in the same commi
 
 | Source | What we follow | Link |
 | --- | --- | --- |
-| Adobe Acrobat ClearScan | The target output: glyphs traced from the scan into synthesized CID-keyed CFF fonts, painted as visible text over a background with the text erased (as analyzed in `PLAN.md`) | — |
+| Adobe Acrobat ClearScan | The target output: glyphs traced from the scan into synthesized CID-keyed CFF fonts, painted as visible text over a background with the text erased (as analyzed in `docs/history/original-plan.md`) | — |
 | Scribe OCR (AGPL-3.0) | A per-document overlay font fitted to OCR measurements; per-word `Tc`/`TJ` placement. Read for ideas only, no code copied (see `docs/spikes/scribe-ocr.md`) | https://github.com/scribeocr/scribeocr |
 | smoothscan (GPL-3.0) | Grouping repeated symbols, vectorizing them and embedding them as a font | https://github.com/ncraun/smoothscan |
 | Leptonica jbclass and jbig2enc | Symbol classification by correlation; averaging every instance of a class into one composite template | http://www.leptonica.org/ , https://github.com/agl/jbig2enc |

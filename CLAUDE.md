@@ -1,8 +1,10 @@
 # Ectype OCR: notes for Claude
 
 Read this first in every session. It carries what earlier sessions learned, so nothing has to be
-rediscovered. Background: `PLAN.md` (goals), `docs/releasing.md` (releases), `docs/idml.md`
-(training, IDML), `README.md`.
+rediscovered. Work to be done: `TASKS.md`. Background: `docs/releasing.md` (releases),
+`docs/idml.md` (training, IDML), `README.md`, `docs/history/original-plan.md` (the first
+design, October 2026: goals, the Acrobat analysis, prior art, the attribution rule; history,
+not current).
 
 ## Keep this file current (standing rule)
 
@@ -12,6 +14,24 @@ otherwise have to rediscover: a failure's real cause, a workaround, a design cho
 convention, the user's preferences, plans for a coming version. Keep entries short (what, why,
 where in the code). Update or remove an entry when it stops being true; move finished plans out
 of "Planned".
+
+## Tasks and other agents (Beaux, 2026-11-16)
+
+- Beaux wants Claude's strongest model used as the **project manager**, and cheaper agents
+  (smaller Claude models, GitHub Copilot from their Microsoft subscription, Qwen) to do the
+  routine work. `TASKS.md` is the shared list (it took `PLAN.md`'s place); `AGENTS.md` is
+  the short rule sheet every agent reads (Copilot and most tools read that name by
+  themselves; `QWEN.md` and `.github/copilot-instructions.md` only point to it).
+- **A Claude session here is the manager**: at the start, read `TASKS.md` (its last section
+  is the manager's guide); check work marked "For review"; write new work as tasks a small
+  model can do from the task text alone; keep for itself what the guide lists (kept data,
+  downloads, threads, Qt lifetimes, anything judged by eye). Delegate before doing.
+- Planned work lives in `TASKS.md` only ("For Claude", "Waiting for Beaux", "Later"). This
+  file keeps what was learned and decided; when a task is finished, its lesson comes here and
+  the task becomes one line under Done there.
+- Other agents may not edit this file; the manager adds their lessons when checking their work.
+- An agent running on Beaux's PC can do what a cloud session can't (run on Windows, reach
+  ebible.org and Zenodo, try the installed app): give it those tasks.
 
 ## Working with Beaux
 
@@ -873,10 +893,13 @@ number of workable font sizes and styles"):
 
 ## Planned
 
-- **Left from 0.8.0**: Van Dyck's fingerprint (ebible.org is blocked here; its download is off);
-  Kraken model checks tried on a real Zenodo download (Beaux's PC); training stamps still use
-  file times (`pool.py`, `synthtrain.py`, `trainall.py`, `training.py`, `manuscript._stamp`)
-  and hand-kept `SCRIPT_VERSION`/`VERSION` in synthtrain.
+The list of planned work is in `TASKS.md` (kept there so every agent sees one list). What
+stays here is what was measured or learned behind those items:
+
+- **Left from 0.8.0** (TASKS.md T-005, T-007): Van Dyck's fingerprint (ebible.org is blocked
+  here; its download is off); Kraken model checks tried on a real Zenodo download (Beaux's
+  PC); training stamps still use file times (`pool.py`, `synthtrain.py`, `trainall.py`,
+  `training.py`, `manuscript._stamp`) and hand-kept `SCRIPT_VERSION`/`VERSION` in synthtrain.
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
   the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.

@@ -1,3 +1,10 @@
+> **History, not current.** This is the plan Ectype OCR began from (24 October 2026), kept
+> as written. It was `PLAN.md` at the top of the repository until 16 November 2026. The app
+> has gone well past it: what exists now is in `README.md`, what was learned since is in
+> `CLAUDE.md`, and the work still to do is in `TASKS.md`. Two parts are still in force: the
+> **dependency licence rule** (under "Open decisions") and the **attribution rule** (at the
+> end). File names and layouts given here are the ones proposed then.
+
 # Ectype OCR: Project Plan
 
 Oct 24, 2026 · @Beaux
