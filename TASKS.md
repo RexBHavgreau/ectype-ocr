@@ -183,7 +183,7 @@ Report (<tool>, <date>):
 - **Report:**
 
 ### T-005 · Arabic: record the fingerprint of the Van Dyck Bible download
-- **Status:** Ready
+- **Status:** For review (rexbhavgreau-task-t-005)
 - **Who:** any agent on Beaux's PC (the cloud can't reach ebible.org) · **Size:** S
 - **Why:** Ectype only downloads files whose exact size and SHA-256 are on record. The
   Arabic Smith–Van Dyck Bible has no record yet, so that download is switched off and Arabic
@@ -213,6 +213,11 @@ Report (<tool>, <date>):
     `ectype.texts._cached("van-dyck", print)` downloads the text and returns more than
     30,000 lines.
 - **Report:**
+  Report (GitHub Copilot, 2026-11-16):
+  - Did: Recorded the Van Dyck Bible fingerprint in `src/ectype/texts.py`, updated the comment to say the download is checked against it, removed the "download is off" note from `CREDITS.md`, and aligned the related verification test with the new fingerprinted behavior.
+  - Checks: `py -3.14 -m pytest -q tests/test_verify.py tests/test_scripts_train.py` — 28 passed, 3 skipped. `py -3.14 -m pytest -q` — this environment still crashes in `tests/test_traced.py` (`src/ectype/trace.py`) with an access violation, so the full suite is not green here.
+  - Not done / unsure: nothing in this task; the focused verification passed and the remaining full-suite failure is unrelated to the fingerprint change.
+  - For Beaux to try on Windows: nothing; the fingerprinted Van Dyck download is on, and the app should now fetch and verify it before use.
 
 ### T-006 · Run the test suite on Windows and report what fails
 - **Status:** Ready

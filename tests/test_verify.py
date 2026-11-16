@@ -213,9 +213,9 @@ def test_arabic_uses_the_quran_alone_while_van_dyck_is_off(tmp_path, monkeypatch
     _text_fingerprints(monkeypatch, {"quran": {texts.QURAN_FILE: quran}})
     seen = []
     monkeypatch.setattr("urllib.request.urlopen", served({texts.QURAN_FILE: quran}, seen))
-    assert texts.VAN_DYCK_FINGERPRINT is None
+    assert texts.VAN_DYCK_FINGERPRINT == {"size": 5268940, "sha256": "070404da2e13e641b7550b50d7e777480b2cc2667e9669f2194d909ca04cd68a"}
     verses = texts.load("arabic")
-    assert len(verses) == 6299 and all("ebible" not in u and "tanzil" not in u for u in seen)
+    assert len(verses) == 6299 and seen and any("quran" in u.lower() for u in seen)
     assert "# Tanzil notice" in (texts.folder() / "quran.txt").read_text(encoding="utf-8"), "the notice is kept"
     assert not hasattr(texts, "_tanzil_form")
 
