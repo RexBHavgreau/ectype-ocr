@@ -60,7 +60,7 @@ Report (<tool>, <date>):
 ## Ready
 
 ### T-001 · README: add the commands it doesn't mention
-- **Status:** In progress (ChatGPT, 2026-11-16)
+- **Status:** For review (task/T-001-readme-commands)
 - **Who:** any agent · **Size:** S
 - **Why:** The README's "Commands" section was written before several commands existed, so
   users can't find them.
@@ -85,6 +85,11 @@ Report (<tool>, <date>):
   - No other part of the README changed (`git diff --stat` shows only `README.md`, and the
     diff only adds lines in "Commands" and one sentence after the `ectype run` block).
 - **Report:**
+  Report (ChatGPT, 2026-11-16):
+  - Did: Added the missing `kraken` subcommands, `data-folder`, `free-space`, `update` and `gui` commands to the Commands block. Added the repeatable `--kraken LANG=MODEL` option to the `ectype run` explanation.
+  - Checks: Checked all 27 subcommand names from the current `build_parser()` against the README; none are missing. The README diff adds only eight lines in the Commands block and one sentence after the `ectype run` block. CLI help commands and the whole test suite were not run: this environment has no local checkout and cannot reach GitHub from the shell.
+  - Not done / unsure: The help text and options were checked against the current `src/ectype/cli.py` argparse definitions rather than captured by running the requested `--help` commands.
+  - For Beaux to try on Windows: Run `ectype --help`, `ectype kraken --help`, `ectype data-folder --help`, `ectype free-space --help` and `ectype update --help` to confirm the displayed options match the README.
 
 ### T-002 · Docs: docx-to-idml is now called Ectype IDML
 - **Status:** For review (task/T-002-ectype-idml)
