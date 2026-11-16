@@ -9,6 +9,23 @@ import pytest
 
 from ectype import pool, synthtrain, texts
 
+
+def _unpointed(source, dest, family: str) -> None:
+    """A copy of the font without Hebrew's points, under another name (as in test_training.py; test
+    files don't import each other: on GitHub the tests folder isn't importable)."""
+    from fontTools import subset
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(source))
+    keep = [u for u in font.getBestCmap() if not 0x05B0 <= u <= 0x05C7]
+    sub = subset.Subsetter(subset.Options())
+    sub.populate(unicodes=keep)
+    sub.subset(font)
+    for rec in font["name"].names:
+        if rec.nameID in (1, 4, 16):
+            rec.string = family
+    font.save(str(dest))
+
 POINTS = re.compile("[֑-ֽֿ-ׇ]")  # every Hebrew mark but maqaf
 SAMPLE = """אחד העם
 
@@ -132,7 +149,6 @@ def test_without_the_prose_the_bible_without_points_stands_in(fonts, monkeypatch
 
 def test_a_font_without_points_takes_most_unpointed_lines_from_the_prose(fonts, tmp_path, monkeypatch):
     from ectype.synth import find_font
-    from tests.test_training import _unpointed
 
     _unpointed(find_font("FreeSerif"), tmp_path / "Plain.ttf", "Plain Hebrew")
     _texts(monkeypatch, PROSE)
