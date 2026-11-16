@@ -518,6 +518,16 @@ plan in it, not only the menus and crash recorder):
   of its 5,127 glyphs are single letters (doubtful pointed Hebrew is traced letter by letter,
   `VERBATIM_CONF`), so traced mode on such books is slow (cluster 58 s / 17 pages, mostly
   `average`); the searchable PDF (`--mode text`) is the practical output for them.
+- *Cluster and fonts showed nothing and couldn't be stopped* (Beaux's Hebrew grammar, 479 pages: the
+  cluster step ran 4+ hours in silence and Stop did nothing, so it looked frozen). `cluster_workspace`
+  and `build_workspace_fonts` take `progress(done, total, what)`, told at most once a second and at
+  each phase's end (`stopping.Ticker`, which also checks Stop at every item): measuring pages 10%,
+  grouping letters 30%, averaging glyphs 50%, report sheets 10% (`cluster.PHASES`,
+  `overall_fraction`); fonts per font built. `Project.run` moves the bar by it and says "grouping
+  letters: 1,200 of 4,800" every 3 s; `ectype cluster/fonts/run` show it on one line
+  (`_ConsoleProgress.phase`). `clusters.json` is now written **last** (after the report sheets), so a
+  stopped run leaves none (or the earlier one) and it is never stale-but-fresh. Results unchanged
+  (tests/test_cluster_progress.py). The built .otf files differ run to run (build timestamp).
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping

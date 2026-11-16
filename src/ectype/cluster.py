@@ -37,6 +37,7 @@ from scipy.spatial.distance import pdist
 from rapidfuzz import fuzz
 
 from . import imagefiles, report, stamps
+from .stopping import Ticker
 from .ocr import OcrPage
 from .segment import Segmentation, fit_baselines, line_x_heights
 
@@ -253,7 +254,7 @@ def _load_page(path: Path, stamp: str):
         return None
 
 
-def collect(workspace: Path) -> list[Instance]:
+def collect(workspace: Path, progress=None) -> list[Instance]:
     """Instances of every glyph unit with ink, across all pages of a workspace. A page's are kept
     (cluster/cache/pages) and taken again while its image, reading and segmentation are
     unchanged: after a correction only that page is measured again."""
@@ -275,6 +276,7 @@ def collect(workspace: Path) -> list[Instance]:
     for old in cache.glob("*.pkl"):  # kept by an older version: never opened
         old.unlink(missing_ok=True)
     per_page = []
+    tick = Ticker(progress, PHASES[0][0], len(page_data))
     for k, (png, seg_path, ocr) in enumerate(page_data):
         labels_path = workspace / "segment" / f"{png.stem}.labels.png"
         stamp = stamps.stamp(stamps.code_version(), stamps.file_digest(png), stamps.file_digest(seg_path),
@@ -286,6 +288,8 @@ def collect(workspace: Path) -> list[Instance]:
             _save_page(kept, stamp, *found)
         if found[0]:
             per_page.append((k, *found))
+        tick.step()
+    tick.finish()
     if not per_page:
         return instances
     # Sizes in points, not pixels: a book's pages can be scanned at different resolutions (the
@@ -477,7 +481,8 @@ def _feature(inst: Instance, half_width: float) -> np.ndarray:
 
 
 def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_size: int = 3,
-                      max_linkage: int = 3000, seed: int = 0, cache: "Cache | None" = None) -> dict[tuple, list[list[int]]]:
+                      max_linkage: int = 3000, seed: int = 0, cache: "Cache | None" = None,
+                      progress=None) -> dict[tuple, list[list[int]]]:
     """Group instances by (text, size class, slant, zone), then by shape. Returns the groups as lists of
     indices into `instances` and sets each instance's `cluster`. With a cache, a letter whose
     instances are all as before keeps its grouping (`Cache`)."""
@@ -490,6 +495,7 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
             by_key[(inst.text, inst.size_class, inst.italic, inst.zone, inst.bold, inst.smallcaps)].append(i)
     groups: dict[tuple, list[list[int]]] = {}
     next_id = 0
+    tick = Ticker(progress, PHASES[1][0], len(by_key))
     for key, idx in sorted(by_key.items(), key=lambda kv: (ZONES.index(kv[0][3]), kv[0][1], kv[0][2], kv[0][0])):
         name = cache.key("group", [instances[i] for i in idx], threshold, min_size, max_linkage, seed) if cache else None
         labels = cache.get(name) if cache else None
@@ -507,6 +513,8 @@ def cluster_instances(instances: list[Instance], threshold: float = 0.25, min_si
             out.append(members_idx)
             next_id += 1
         groups[key] = out
+        tick.step()
+    tick.finish()
     # A doubtfully read letter is a glyph of its own, its own ink: averaged with the letters it
     # was read as, a misreading would draw a letter the page doesn't have.
     for i in verbatim:
@@ -792,15 +800,34 @@ def pair_gaps(instances: list[Instance]) -> dict[str, dict]:
     return {f"{a},{b}": {"median": round(float(np.median(v)), 4), "count": len(v)} for (a, b), v in gaps.items()}
 
 
-def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
+# The phases of `cluster_workspace`, with their share of the whole (for a progress bar).
+PHASES = [("measuring pages", 0.10), ("grouping letters", 0.30), ("averaging glyphs", 0.50),
+          ("writing the report sheets", 0.10)]
+
+
+def overall_fraction(what: str, done: int, total: int) -> float:
+    """How far through `cluster_workspace` (0-1) a progress report `(done, total, what)` is."""
+    before = 0.0
+    for name, share in PHASES:
+        if name == what:
+            return min(1.0, before + share * (done / total if total else 1.0))
+        before += share
+    return before
+
+
+def cluster_workspace(workspace: Path, threshold: float = 0.25, progress=None) -> dict:
+    """Group the book's letters and average each group into a glyph. `progress(done, total, what)`
+    (what is one of `PHASES`, done/total within it) is told at most once a second and at the end of
+    each phase; Stop is checked at every item. clusters.json is written last, so a stopped run
+    leaves the earlier one (and the cache, written through .part files) untouched."""
     workspace = Path(workspace)
     out = workspace / "cluster"
     comp_dir = out / "composites"
     comp_dir.mkdir(parents=True, exist_ok=True)
     inputs = inputs_stamp(workspace)  # taken first: a file changed meanwhile then shows as stale
-    instances = collect(workspace)
+    instances = collect(workspace, progress=progress)
     cache = Cache(out / "cache")
-    groups = cluster_instances(instances, threshold=threshold, cache=cache)
+    groups = cluster_instances(instances, threshold=threshold, cache=cache, progress=progress)
     style_of = assign_styles(instances)
     by_cluster: dict[int, list[Instance]] = defaultdict(list)
     for inst in instances:
@@ -808,6 +835,7 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
 
     glyphs: list[Glyph] = []
     feats: dict[int, np.ndarray] = {}
+    tick = Ticker(progress, PHASES[2][0], sum(len(c) for c in groups.values()))
     for (text, size_class, is_italic, zone, bold, smallcaps), clusters in groups.items():
         for members_idx in clusters:
             cid = instances[members_idx[0]].cluster
@@ -835,6 +863,8 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
                 xh=round(float(np.median([m.xh for m in members])), 2), composite=name, canvas=canvas, ink=ink_box,
                 instances=[[m.page, m.unit] for m in members],
             ))
+            tick.step()
+    tick.finish()
 
     summary = {
         "inputs": inputs,
@@ -845,8 +875,8 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25) -> dict:
         "suspects": find_suspects(glyphs, feats),
         "pairs": pair_gaps(instances),
     }
-    report.write_json(out / "clusters.json", summary)
-    _write_sheets(summary, out)
+    _write_sheets(summary, out, progress=progress)
+    report.write_json(out / "clusters.json", summary)  # last: its presence means the step finished
     cache.prune()
     return summary
 
@@ -877,7 +907,8 @@ def _style_summary(glyphs: list[Glyph]) -> list[dict]:
     return out
 
 
-def _write_sheets(s: dict, out: Path, cell: int = 72, columns: int = 16) -> None:
+def _write_sheets(s: dict, out: Path, cell: int = 72, columns: int = 16, progress=None) -> None:
+    tick = Ticker(progress, PHASES[3][0], len(s["glyphs"]))
     by_style = defaultdict(list)
     for g in s["glyphs"]:
         by_style[g["style"]].append(g)
@@ -913,7 +944,9 @@ def _write_sheets(s: dict, out: Path, cell: int = 72, columns: int = 16) -> None
             sheet.paste(img, (x + (cell - img.width) // 2, y + 2))
             draw.text((x + 3, y + cell - 13), f"{g['text']} {g['count']}", fill=90)
             draw.rectangle((x, y, x + cell - 1, y + cell - 1), outline=215)
+            tick.step()
         name = f"style-{style}.png"
         sheet.save(out / name)
         body.append(f"<h2>Style {style}</h2><img class=\"sheet\" src=\"{name}\" alt=\"glyph sheet for style {style}\">")
+    tick.finish()
     report.write_page(out / "index.html", "Glyph clusters", "\n".join(body))

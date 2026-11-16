@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -565,6 +566,24 @@ class Project:
                 if stage in ("ocr", "segment") or done == total:
                     progress(stage, f"page {done} of {total}")
 
+            def on_work(done: int, total: int, what: str, stage=stage, weight=weight, before=before) -> None:
+                # Inside a long stage (cluster, fonts): the bar moves by the stage's own measure,
+                # and a message every few seconds says where it is.
+                if stop:
+                    stop.check()
+                if stage == "cluster":
+                    from .cluster import overall_fraction
+
+                    part = overall_fraction(what, done, total)
+                else:
+                    part = done / max(1, total)
+                fraction((before + weight * part) / whole)
+                now = time.monotonic()
+                if done >= total or now - last_said.get(stage, -99.0) >= 3.0:
+                    last_said[stage] = now
+                    progress(stage, f"{what}: {done:,} of {total:,}")
+
+            last_said: dict[str, float] = {}
             progress(stage, "running")
             if stage == "preprocess":
                 if not s.source or not Path(s.source).is_file():
@@ -605,12 +624,12 @@ class Project:
             elif stage == "cluster":
                 from .cluster import cluster_workspace
 
-                out = cluster_workspace(ws)
+                out = cluster_workspace(ws, progress=on_work)
                 msg = f"{len(out['glyphs'])} glyphs in {len(out['styles'])} styles; {len(out['suspects'])} probable misreadings"
             elif stage == "fonts":
                 from .fontbuild import build_workspace_fonts
 
-                out = build_workspace_fonts(ws, family=f"Ectype {s.name or ws.name}")
+                out = build_workspace_fonts(ws, family=f"Ectype {s.name or ws.name}", progress=on_work)
                 bad = [st["style"] for st in out["styles"] if st["validation"]["ots"] not in ("pass", "not installed")]
                 msg = f"{len(out['styles'])} fonts" + (f"; validation problems in styles {bad}" if bad else ", all valid")
             elif stage == "plaintext":
@@ -696,7 +715,15 @@ class Project:
             from .cluster import cluster_workspace
 
             progress("cluster", "running")
-            out = cluster_workspace(ws)
+            said = [-99.0]
+
+            def on_work(done: int, total: int, what: str) -> None:
+                now = time.monotonic()
+                if done >= total or now - said[0] >= 3.0:
+                    said[0] = now
+                    progress("cluster", f"{what}: {done:,} of {total:,}")
+
+            out = cluster_workspace(ws, progress=on_work)
             progress("cluster", f"{len(out['glyphs'])} glyphs in {len(out['styles'])} styles")
         from .fontmatch import match_styles, write_matches
         from .layout import build_layout

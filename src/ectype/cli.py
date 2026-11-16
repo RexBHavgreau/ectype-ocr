@@ -115,7 +115,9 @@ def cmd_cluster(args: argparse.Namespace) -> int:
     from .cluster import cluster_workspace
 
     ws = Path(args.workspace)
-    s = cluster_workspace(ws, threshold=args.threshold)
+    progress = _ConsoleProgress()
+    s = cluster_workspace(ws, threshold=args.threshold, progress=progress.phase)
+    progress.end_line()
     print(f"{s['instances']} glyph instances -> {len(s['glyphs'])} averaged glyphs in {len(s['styles'])} styles; "
           f"{len(s['suspects'])} probable OCR misreadings listed")
     print(f"Report: {ws / 'cluster' / 'index.html'}")
@@ -126,7 +128,9 @@ def cmd_fonts(args: argparse.Namespace) -> int:
     from .fontbuild import build_workspace_fonts
 
     ws = Path(args.workspace)
-    s = build_workspace_fonts(ws, family=args.family, threshold=args.threshold)
+    progress = _ConsoleProgress()
+    s = build_workspace_fonts(ws, family=args.family, threshold=args.threshold, progress=progress.phase)
+    progress.end_line()
     bad = [st["style"] for st in s["styles"]
            if st["validation"]["ots"] not in ("pass", "not installed") or st["validation"]["fonttools"] != "pass"]
     checks = "OTS and fontTools" if all(st["validation"]["ots"] == "pass" for st in s["styles"]) else "fontTools"
@@ -298,6 +302,14 @@ class _ConsoleProgress:
             return
         self.end_line()
         print(f"{stage}: {msg}", flush=True)
+
+    def phase(self, done: int, total: int, what: str) -> None:
+        """Progress inside a long step (`progress(done, total, what)`): the phase and its count on one line."""
+        if sys.stdout.isatty():
+            print(f"\r  {what}: {done:,} of {total:,}\x1b[K", end="", flush=True)
+            self.open = True
+            if done >= total:
+                self.end_line()
 
     def end_line(self) -> None:
         if self.open:

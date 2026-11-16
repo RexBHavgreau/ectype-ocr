@@ -28,6 +28,7 @@ from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import lsqr
 
 from . import report, trace
+from .stopping import Ticker
 from .pdfwrite import EmbeddedFont, save_font
 
 UNITS_PER_EM = 1000
@@ -224,8 +225,9 @@ def validate_otf(path: Path) -> dict:
 
 
 def build_workspace_fonts(workspace: Path, family: str | None = None, min_instances: int = 1,
-                          threshold: float = 0.45) -> dict:
-    """Build every style's font from <workspace>/cluster into <workspace>/fonts."""
+                          threshold: float = 0.45, progress=None) -> dict:
+    """Build every style's font from <workspace>/cluster into <workspace>/fonts. `progress(done, total,
+    what)` is told per font built (at most once a second, and at the end); Stop is checked per font."""
     workspace = Path(workspace)
     cl = json.loads((workspace / "cluster" / "clusters.json").read_text(encoding="utf-8"))
     out = workspace / "fonts"
@@ -236,6 +238,7 @@ def build_workspace_fonts(workspace: Path, family: str | None = None, min_instan
         if g["count"] >= min_instances:
             by_style[g["style"]].append(g)
     styles = []
+    tick = Ticker(progress, "building fonts", len(by_style))
     for style, gs in sorted(by_style.items()):
         name = f"{family} S{style}"
         font, cid_of, built, otf = build_style_font(style, gs, workspace / "cluster" / "composites", cl["pairs"],
@@ -250,6 +253,8 @@ def build_workspace_fonts(workspace: Path, family: str | None = None, min_instan
         })
         styles.append({"style": style, "name": font.name, "glyphs": len(built), "otf_bytes": len(otf),
                        "cff_bytes": len(font.program), "validation": check})
+        tick.step()
+    tick.finish()
     summary = {"family": family, "threshold": threshold, "styles": styles}
     report.write_json(out / "fonts.json", summary)
     _write_html(summary, out)
