@@ -33,6 +33,11 @@ from .pdfwrite import EmbeddedFont, save_font
 UNITS_PER_EM = 1000
 XH_UNITS = 500  # x-height in font units: the font's "size" is twice the x-height
 DEFAULT_SIDE = 0.06 * XH_UNITS
+# No letter is a dozen x-heights tall or wide; a shape that is came from a line whose x-height
+# was measured far too small (a rule or an ornament on a Hebrew grammar's page), and its font
+# coordinates passed the 32,767 a font allows (fontTools: "Value 35256 does not fit in format h
+# for yMax"). Such a shape is left out of the font: the word keeps it as part of the scan.
+MAX_EXTENT = 12 * XH_UNITS
 
 
 @dataclass
@@ -121,8 +126,11 @@ def build_style_font(style: int, glyphs: list[dict], composites: Path, pairs: di
         else:
             contours = []
         box = trace.bounds(contours)
+        if box and max(abs(box[1]), abs(box[3]), box[2] - box[0]) > MAX_EXTENT:
+            continue  # not a letter: see MAX_EXTENT
         traced[g["id"]] = (contours, box)
         widths[g["id"]] = (box[2] - box[0]) if box else 0.25 * XH_UNITS
+    glyphs = [g for g in glyphs if g["id"] in traced]
     lsb, rsb = solve_sidebearings(widths, pairs)
 
     order = [".notdef", "cid00001"] + [f"cid{k + 2:05d}" for k in range(len(glyphs))]

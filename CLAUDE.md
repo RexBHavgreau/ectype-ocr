@@ -511,6 +511,13 @@ plan in it, not only the menus and crash recorder):
 - *`ectype textlayer "<book>.pdf" --lang …` was refused* (Beaux guessed the step's name):
   `cli._as_run` (before argparse) turns `textlayer`/`traced`/`substitute` given a scan into
   `run <scan> --mode text|traced|substitute`, saying so; given a project folder they are the steps.
+- *The fonts step failed on Beaux's Hebrew grammar* (talmudlashonibrg00lb, 17-page extract in
+  corpus/): "Value 35256 does not fit in format h for yMax": a shape on a line whose x-height was
+  measured far too small was scaled past a font's 32,767. `fontbuild.MAX_EXTENT` (12 x-heights):
+  such a shape is left out of the font (the word keeps it in the scan). Also measured there: 92%
+  of its 5,127 glyphs are single letters (doubtful pointed Hebrew is traced letter by letter,
+  `VERBATIM_CONF`), so traced mode on such books is slow (cluster 58 s / 17 pages, mostly
+  `average`); the searchable PDF (`--mode text`) is the practical output for them.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
