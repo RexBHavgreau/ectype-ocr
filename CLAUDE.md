@@ -597,6 +597,15 @@ plan in it, not only the menus and crash recorder):
   font's other lines (it is a synthetic book). Tried here: 13,107 pieces; FreeSerif, 20 lines,
   8 unpointed added, second run nothing.
 
+**0.11.1** (on the branch; a fix):
+- *"Windows fatal exception: access violation"* (Beaux, 0.11.0, the Hebrew grammar in traced mode
+  with Kraken: the run finished, "Done", then the app died in `app.exec()`, main thread, no Python
+  error). Not reproduced here (offscreen Qt). Likeliest cause, new in 0.11.0: `LanguageButton._fill_readers`
+  removed each "Read … with" submenu's own `menuAction()` and `deleteLater()`'d it, though the
+  submenu owns that action and keeps pointing to it; the menu is rebuilt after every run
+  (`refresh`). Now the submenus themselves are deleted (`reader_menus`), also on a full rebuild
+  (`set_languages`). Unconfirmed: ask Beaux what they did just before it closed if it happens again.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,
