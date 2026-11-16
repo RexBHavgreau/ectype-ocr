@@ -64,12 +64,10 @@ PESHITTA_BOOKS = ("Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ru
 # download, SHA-1 16d8abb3...), at the commit pinned in verify.py. Tanzil's own form is no
 # longer a fallback: a form's answer can't be checked against a known fingerprint.
 QURAN_FILE = "quran-simple.txt"
-# eBible.org's Smith-Van Dyck zip ("GEN 1:1 text", a verse a line). Its download is OFF: it
-# couldn't be fingerprinted (ebible.org is unreachable from where this was made). To turn it
-# on, download the zip once, check it is the right file, and put its {"size": ..., "sha256": ...}
-# here; `_cached` then downloads it and checks it like the others.
+# eBible.org's Smith-Van Dyck zip ("GEN 1:1 text", a verse a line), checked against this
+# fingerprint, recorded on 2026-11-16.
 VAN_DYCK_URL = "https://ebible.org/Scriptures/arb-vd_vpl.zip"
-VAN_DYCK_FINGERPRINT: dict | None = None
+VAN_DYCK_FINGERPRINT = {"size": 5268940, "sha256": "070404da2e13e641b7550b50d7e777480b2cc2667e9669f2194d909ca04cd68a"}
 # The works of "hebrew-prose": paths in the Project Ben-Yehuda dump (txt_stripped/<path>.txt).
 # Chosen once, from its catalogue (pseudocatalogue.csv) at the pinned commit: works in Hebrew (no
 # translator, no original language), genre article, by eight authors of expository prose, of 20-90 KB
