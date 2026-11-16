@@ -1256,6 +1256,7 @@ class LanguageButton(QToolButton):
             return
         self.selected = new
         self._label()
+        QTimer.singleShot(0, self._fill_readers)  # every "Read … with" shows the choice as it now stands
         self.changed.emit(list(self.selected))
 
     def _toggled(self, code: str, on: bool) -> None:
@@ -2976,7 +2977,15 @@ class MainWindow(QMainWindow):
     def add_languages(self, kraken_tab: bool = False) -> None:
         dialog = AddLanguagesDialog(self, kraken_tab=kraken_tab)
         if dialog.exec() and dialog.downloaded:
-            codes = self.project.languages() + [c for c in dialog.downloaded if c not in self.project.languages()]
+            codes = self.project.languages()
+            for c in dialog.downloaded:  # a Kraken model just downloaded becomes its scripts' reader
+                if c.startswith("kraken_"):
+                    from .kraken import reads
+
+                    for script in reads(c):
+                        codes = languages.choose_reader_for_script(codes, script, c)
+                elif c not in codes:
+                    codes.insert(len(languages.tesseract_codes(codes)), c)
             self.project.set_languages(codes)
             self.langs.set_languages(codes)
             self._languages_changed(codes)

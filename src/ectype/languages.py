@@ -182,20 +182,29 @@ def reader_of(lang_list: list[str], lang_code: str) -> str | None:
 
 
 def reader_for_script(lang_list: list[str], script: str) -> str | None:
+    """The model that reads this script, as reading picks it (ocr.py): of the models in the list
+    that read it, the one of fewest scripts, the first listed among equals."""
     from .kraken import reads
 
-    return next((k for k in kraken_codes(lang_list) if script in reads(k)), None)
+    found = [k for k in kraken_codes(lang_list) if script in reads(k)]
+    return min(found, key=lambda k: len(reads(k))) if found else None
 
 
 def choose_reader_for_script(lang_list: list[str], script: str, kraken_code: str | None) -> list[str]:
     """The list with the Kraken models that read this script taken out, and the chosen one
-    (or none: Tesseract alone) put in the place of the first removed, else at the end."""
+    (or none: Tesseract alone) put in the place of the first removed, else at the end. A model
+    that also reads another ticked language's script stays for that one: reading gives each
+    script the chosen model of fewest scripts (`reader_for_script`), so a model of one script
+    chosen here takes this script from it. (Choosing Tesseract alone can't take a script from
+    such a model; the menu then still shows the model as this script's reader.)"""
     from .kraken import reads
+    from .scripts import script_of
 
+    others = {script_of(c) for c in tesseract_codes(lang_list)} - {script}
     out: list[str] = []
     placed = kraken_code is None
     for code in lang_list:
-        if code.startswith("kraken_") and script in reads(code):
+        if code.startswith("kraken_") and script in reads(code) and not others & set(reads(code)):
             if not placed:
                 out.append(kraken_code)
                 placed = True

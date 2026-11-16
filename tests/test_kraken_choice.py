@@ -135,3 +135,15 @@ def test_the_menu_lists_tesseract_languages_and_a_reader_choice(monkeypatch):
     assert set(submenus()) == {"Read Hebrew with", "Read Greek (Ancient) with"}
     submenus()["Read Hebrew with"].actions()[0].trigger()
     assert sent[-1] == ["eng", "heb", "grc"]
+
+
+def test_a_model_of_two_scripts_keeps_the_other_language():
+    # Hebrew and Arabic both read by the Arabic-and-Hebrew model; a Hebrew-only model chosen for
+    # Hebrew takes Hebrew from it (fewest scripts wins, as reading does) and Arabic keeps it.
+    lst = ["heb", "ara", "kraken_333"]
+    new = languages.choose_reader(lst, "heb", "kraken_111")
+    assert new == ["heb", "ara", "kraken_333", "kraken_111"]
+    assert languages.reader_of(new, "heb") == "kraken_111"
+    assert languages.reader_of(new, "ara") == "kraken_333"
+    # without Arabic ticked, the two-script model goes
+    assert languages.choose_reader(["heb", "kraken_333"], "heb", "kraken_111") == ["heb", "kraken_111"]
