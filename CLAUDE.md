@@ -509,6 +509,14 @@ plan in it, not only the menus and crash recorder):
   `--kraken LANG=MODEL` on run, ocr, text, text-files (applied in `cli.apply_kraken_options`);
   `ectype languages` lists the models under their script; `--lang heb+kraken_<n>` still works.
   Tests: tests/test_kraken_choice.py. Not tried against a real engine or Zenodo (add/available).
+- *Reading stopped: "min() iterable argument is empty"* (Beaux, 0.10.0, the Hebrew grammar with the
+  multilingual PP-OCRv6 medium model, kraken_21788410, which reads ten scripts): `kraken.read_runs`
+  read a line's runs script by script and put each in at once, so after the Hebrew run came back
+  as more words, a later run's place in the line (taken before) pointed at the wrong words (the
+  test shows "and" replaced by Arabic) or past the end (the crash). Every run is now read first,
+  then all put in back to front per line. Also `ocr.kraken_scripts`: a model of several scripts
+  reads only the ticked languages' scripts (ticking Hebrew no longer sends words the detector took
+  for Arabic/Syriac to it); a model with none of its scripts ticked reads all, as before.
 - *Free up space* lists "Book projects" with their size and never removes them
   (`freespace.report()["projects"]`). tests/conftest.py points ECTYPE_DATA_DIR at a throwaway
   folder for the whole test session.

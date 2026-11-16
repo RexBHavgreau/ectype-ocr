@@ -424,7 +424,11 @@ def read_runs(page, png: Path, models: dict[str, tuple[str, str | None]], sessio
                 j += 1
             jobs.append((line, i, j, script))
             i = j + 1
-    done = 0
+    # Every run is read before any is put in: a model of several scripts reads a line's Hebrew and
+    # its Arabic as two runs, and putting the first in changes how many words the line has, so the
+    # second's place, taken before, would point at the wrong words (Beaux, 0.10.0: "min() iterable
+    # argument is empty" on a Hebrew grammar read with a multilingual model).
+    readings = []  # (line, first, last, new words)
     for script, (model_file, pack) in models.items():
         mine = [job for job in jobs if job[3] == script]
         if not mine:
@@ -438,12 +442,15 @@ def read_runs(page, png: Path, models: dict[str, tuple[str, str | None]], sessio
             pad = max(4, (y1 - y0) // 6)
             boxes.append([max(0, x0 - pad), max(0, y0 - pad), min(page.size_px[0], x1 + pad), min(page.size_px[1], y1 + pad)])
         results = session.read(model_file, png, boxes, pack)
-        # Replace the runs back to front, so earlier indexes stay right.
-        for (line, i, j, _), box, result in sorted(zip(mine, boxes, results), key=lambda t: (id(t[0][0]), -t[0][1])):
+        for (line, i, j, _), box, result in zip(mine, boxes, results):
             new = _words(result, box, Char, Word)
             if new:
-                line.words[i:j + 1] = new
-                done += len(new)
+                readings.append((line, i, j, new))
+    # Put in back to front within each line (runs don't overlap), so earlier places stay right.
+    done = 0
+    for line, i, j, new in sorted(readings, key=lambda t: (id(t[0]), -t[1])):
+        line.words[i:j + 1] = new
+        done += len(new)
     return done
 
 

@@ -328,3 +328,37 @@ def test_a_model_of_many_scripts_reads_each_of_them(data):
     assert languages.name("kraken_9") == "Arabic, Greek, Hebrew, Syriac (Kraken): Multilingual print"
     assert scripts.scripts_read("kraken_9") == ["Arabic", "Greek", "Hebrew", "Syriac"]
     assert kraken.reads("kraken_123") == ["Hebrew"]
+
+
+def test_two_scripts_on_one_line_by_one_model(data):
+    """Beaux, 0.10.0, a multilingual model (PP-OCRv6) on a Hebrew grammar: "min() iterable argument is
+    empty". The Hebrew run, read first, came back as more words than Tesseract's, so the Arabic run's
+    place in the line (taken before) pointed past its words. Every run is now read before any is put in."""
+    line = Line([0, 100, 900, 140], [0, 0], 30.0, None, None,
+                [_word("דבר", 100, 60), _word("and", 300), _word("كتب", 500, 60), _word("x", 700)])
+    page = OcrPage("tesseract", "heb+kraken_9", [1000, 300], 300.0, [line])
+    hebrew = {"text": "דָּבָר אֵת", "chars": [[c, [170 - 8 * i, 100, 176 - 8 * i, 140], 90.0]
+                                             for i, c in enumerate("דָּבָר אֵת")]}
+    arabic = {"text": "كتب", "chars": [[c, [560 - 15 * i, 100, 570 - 15 * i, 140], 85.0] for i, c in enumerate("كتب")]}
+    session = FakeSession([hebrew, arabic])
+    model = ("multi.safetensors", None)
+    assert kraken.read_runs(page, Path("p.png"), {"Hebrew": model, "Arabic": model}, session) == 3
+    assert [w.text for w in line.words] == ["דָּבָר", "אֵת", "and", "كتب", "x"]
+
+
+def test_a_many_script_model_reads_only_the_ticked_scripts(monkeypatch):
+    from ectype import ocr
+    from ectype.models import Resolved
+
+    monkeypatch.setattr(kraken, "reads", lambda code: {"kraken_9": ["Arabic", "Greek", "Hebrew", "Syriac"],
+                                                       "kraken_5": ["Greek"]}[code])
+    heb = Resolved(code="heb", engine="tesseract", model="heb")
+    multi = Resolved(code="kraken_9", engine="kraken", model="multi.safetensors")
+    assert ocr.kraken_scripts([heb, multi]) == {"Hebrew": ("multi.safetensors", None)}
+    grc = Resolved(code="grc", engine="tesseract", model="grc")
+    greek = Resolved(code="kraken_5", engine="kraken", model="greek.safetensors")
+    assert ocr.kraken_scripts([heb, grc, multi, greek]) == {"Greek": ("greek.safetensors", None),
+                                                            "Hebrew": ("multi.safetensors", None)}
+    # an older project holding the model alone: it reads all its scripts, as before
+    assert set(ocr.kraken_scripts([Resolved(code="eng", engine="tesseract", model="eng"), multi])) == \
+        {"Arabic", "Greek", "Hebrew", "Syriac"}
