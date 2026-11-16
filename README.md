@@ -2,12 +2,9 @@
 
 Ectype OCR is an experimental OCR application. It turns a scanned book page into a PDF whose text is real, visible, searchable vector type traced from the scan itself, like Acrobat's ClearScan, but free and scriptable. The original design is kept in [`docs/history/original-plan.md`](docs/history/original-plan.md); current work is in [`TASKS.md`](TASKS.md).
 
-**Status: Phases 0–5 are done, and Phase 6 is under way:** the desktop app, parallel processing, caching, and corrections saved as training data. `ectype run scan.pdf` goes from a scan to a PDF whose visible text is set in fonts traced from the scan itself. Results by phase:
-- preprocessing, OCR and tying each character to its ink ([results](docs/phase1.md))
-- substitute mode ([results](docs/phase2.md))
-- glyph grouping and averaging ([results](docs/phase3.md))
-- font synthesis and traced mode ([results](docs/phase4-5.md))
+**What it does:** **Run** can make a Traced PDF, with each glyph drawn from a typeface traced from the scan; a Substitute PDF, with OCR words set in a real typeface at their scanned positions; a Text layer only PDF, which keeps the scan and adds invisible, searchable OCR text; or a Plain text only file, which saves the OCR text as a `.txt` file without making a PDF. **Review** shows the scan and output side by side, flags uncertain words and likely glyph misreadings, and lets you correct or confirm them; corrections become training data. **IDML export** creates an InDesign document either reflowed as a book or laid out to match the scan. **Kraken** can reread Greek, Hebrew and other scripts with a downloaded model after Tesseract reads the page. **Training** learns from Review corrections, text set in your fonts and scans matched to known texts, and installs a model only when it reads better. **Manuscript Mode** uses Kraken's line-finding and named hands to read handwritten books, compare readings, correct lines and train the hands.
 
+Early results, by build phase: [Preprocessing, OCR and tying each character to its ink](docs/phase1.md) · [Substitute mode](docs/phase2.md) · [Glyph grouping and averaging](docs/phase3.md) · [Font synthesis and traced mode](docs/phase4-5.md)
 On the Young chapter, the traced PDF is 619 KB against Acrobat ClearScan's 914 KB, and its text is searchable and copies out. There are tools to take PDFs apart, make test pages with known ground truth, and compare results. The Acrobat ClearScan baseline for the Young chapter is in [`docs/acrobat-baseline.md`](docs/acrobat-baseline.md).
 
 ## Install
@@ -159,16 +156,15 @@ This compares two documents page by page. You get side-by-side renders, a differ
 
 ## Layout
 
-- `src/ectype/`: the library and CLI.
-  - `analyze`, `synth` and `compare` are the Phase 0 tools.
-  - `preprocess`, `ocr` and `segment` are Phase 1.
-  - `background`, `pdfwrite` and `substitute` are Phase 2. `pdfwrite` is shared with traced mode.
-  - `cluster` is Phase 3.
-  - `trace` and `fontbuild` are Phase 4.
-  - `traced` is Phase 5.
-  - `project` (a book project: settings, overrides, running stages, corrections, export), `gui` (the desktop app) and `review` (corrections and their training data) are Phase 6.
-  - `textlayer` (the scan with an invisible OCR text layer), `languages` (OCR languages and their download), `layout` (text blocks and paragraphs), `fontmatch` (installed fonts most like the scan's), `idml` (the InDesign export), `docx` and `converter` (Reflow's Word manuscript and running Ectype IDML), and `idmlkit` (Ectype IDML's IDML writer, copied, used by Facsimile).
-  - `lept` holds ctypes bindings to Leptonica's symbol classifier.
+- `src/ectype/`: the library and command-line interface.
+  - `analyze` dumps a PDF's fonts, glyph sheets and page structure; `compare` compares renderings of the same pages; `synth` makes synthetic test pages with known text; `report` supplies helpers for the HTML reports.
+  - `preprocess` orients pages, splits spreads and deskews scans; `ocr` runs the OCR engines to produce words, lines, baselines and characters; `segment` ties each OCR character to its ink; `scripts` finds words in scripts the chosen OCR languages do not cover and reads them again; `raised` rereads raised characters such as note numbers and verse parts; `imagefiles` reads and writes images even when paths contain characters outside Windows' old code page.
+  - `background` erases text from a page image while leaving the paper and figures; `substitute` sets scanned words in a real typeface at their scanned positions; `pdfwrite` writes positioned glyph runs over background images; `cluster` groups glyph instances by style and averages each group; `trace` turns averaged composites into Bezier contours; `fontbuild` builds a font for each style; `traced` draws each glyph from its own cluster.
+  - `fontmatch` chooses installed fonts that look like the scan; `layout` turns each page into text blocks, paragraphs, lines and styled words; `textlayer` puts invisible OCR text over the scan; `plaintext` writes the OCR text as a plain text file; `textfiles` makes a text file beside each scan in a folder; `docx` writes the Word manuscript for Reflow; `idml` exports the OCR text as an InDesign document; `converter` runs the installed Ectype IDML converter; `idmlkit` is the IDML writer used by Facsimile.
+  - `project` holds a book's scan, workspace, settings and corrections; `gui` is the desktop app; `gui_manuscript` supplies Manuscript Mode's Kraken view and dialogs; `review` keeps OCR corrections as training data; `manuscript` reads handwritten books with Kraken and user-named hands; `characters` supplies the special characters for typing corrections; `stopping` handles the Stop button; `crashlog` records what the app was doing before a crash.
+  - `kraken` runs the second OCR engine on scripts such as Greek and Hebrew; `kraken_worker` runs that engine in its own process; `languages` lists OCR languages and downloads more; `models` manages the trained models and chooses among them; `families` identifies typeface families so books can be read with a suitable model.
+  - `pool` keeps the shared training material for each language; `training` trains the general and typeface-family models; `train` fits OCR models from that pool; `trainall` runs the complete training process from a settings file; `synthtrain` makes training lines from known text in your fonts; `align` makes training lines from scans whose text is known; `texts` supplies the known texts used for training; `translit` makes transliteration text for training the Latin-script model.
+  - `resources` locates Ectype's tools and data; `datafolder` moves the data folder to another drive; `freespace` frees space in that folder; `updates` checks GitHub for a newer release and installs it; `verify` checks downloads against a known fingerprint; `stamps` decides whether saved results are still current by their contents; `lept` holds ctypes bindings to Leptonica's symbol classifier; `cli` is the command-line interface.
 - `spikes/` and `docs/spikes/`: exploratory scripts and their write-ups (Leptonica composites, Scribe OCR's font approach).
 - `corpus/`: test scans. Never modified.
 - `tests/`: the pytest suite.
