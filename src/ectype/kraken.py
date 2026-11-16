@@ -429,6 +429,7 @@ def read_runs(page, png: Path, models: dict[str, tuple[str, str | None]], sessio
     # second's place, taken before, would point at the wrong words (Beaux, 0.10.0: "min() iterable
     # argument is empty" on a Hebrew grammar read with a multilingual model).
     readings = []  # (line, first, last, new words)
+    gray = None
     for script, (model_file, pack) in models.items():
         mine = [job for job in jobs if job[3] == script]
         if not mine:
@@ -442,8 +443,12 @@ def read_runs(page, png: Path, models: dict[str, tuple[str, str | None]], sessio
             pad = max(4, (y1 - y0) // 6)
             boxes.append([max(0, x0 - pad), max(0, y0 - pad), min(page.size_px[0], x1 + pad), min(page.size_px[1], y1 + pad)])
         results = session.read(model_file, png, boxes, pack)
+        if gray is None:
+            from .imagefiles import imread
+
+            gray = imread(str(png), 0)  # the page, to fit each letter's box to its ink
         for (line, i, j, _), box, result in zip(mine, boxes, results):
-            new = _words(result, box, Char, Word)
+            new = _words(result, box, Char, Word, gray)
             if new:
                 readings.append((line, i, j, new))
     # Put in back to front within each line (runs don't overlap), so earlier places stay right.
@@ -454,9 +459,79 @@ def read_runs(page, png: Path, models: dict[str, tuple[str, str | None]], sessio
     return done
 
 
-def _words(result: dict, box: list[int], Char, Word) -> list:
-    """Kraken's reading of a run as words: split at spaces, each character with its box
-    (Kraken's cuts are narrow columns; they are widened to the run's height)."""
+def letter_spans(points: list[float], box: list[int], gray=None) -> list[tuple[int, int]]:
+    """Each letter's left and right edge on the page, from Kraken's points.
+
+    Kraken doesn't give a letter's width: each letter comes with one narrow column, at or just
+    before its left edge, in both directions (measured: Hebrew א at 1295 with ink 1290-1332;
+    Greek ε at 30 with ink 40-65), placed in steps of about 10 pixels. Taken as the letter itself,
+    every word box ended at its first letter's left edge, which in Hebrew left that letter out of
+    the box and so out of the traced type (Beaux, 0.11.0: every word's first letter missed).
+    So a letter runs from its own point to the next letter's point to the right, the cut moved to
+    the emptiest column near there (letters touch, or the point falls a little early), the outer
+    letters reach a little past the end points, and every span is trimmed to the ink in it.
+    `points` in any order; the spans come back in the same order. `gray`: the page (0-255), or
+    None to use the points as they are."""
+    import numpy as np
+
+    n = len(points)
+    if not n:
+        return []
+    x0, x1 = int(box[0]), int(box[2])
+    order = sorted(range(n), key=lambda i: points[i])
+    pts = [float(points[i]) for i in order]
+    gaps = [b - a for a, b in zip(pts, pts[1:]) if b - a > 0]
+    spacing = float(np.median(gaps)) if gaps else float(max(1, x1 - x0))
+    reach = max(3.0, 0.35 * spacing)
+    profile = None
+    if gray is not None:
+        rows = gray[max(0, int(box[1])):max(0, int(box[3])), max(0, x0):max(0, x1)]
+        if rows.size:
+            profile = (rows < 128).sum(axis=0)
+
+    def ink(col: int) -> int:
+        k = col - x0
+        return int(profile[k]) if profile is not None and 0 <= k < len(profile) else 0
+
+    cuts = [max(x0, int(round(pts[0] - reach)))]
+    for a, b in zip(pts, pts[1:]):
+        lo, hi = max(int(a) + 1, int(round(b - reach))), int(round(b + reach / 2))
+        if profile is None or hi <= lo:
+            cuts.append(int(round(b)))
+        else:  # the emptiest column, the nearest to the point among equals
+            cuts.append(min(range(lo, hi + 1), key=lambda c: (ink(c), abs(c - b))))
+    cuts.append(min(x1, int(round(pts[-1] + 1.5 * spacing))))
+    spans = []
+    for k in range(n):
+        a, b = cuts[k], max(cuts[k] + 1, cuts[k + 1])
+        if profile is not None:
+            cols = [c for c in range(a, b) if ink(c)]
+            if cols:
+                a, b = cols[0], cols[-1] + 1
+        spans.append((a, b))
+    out = [None] * n
+    for k, i in enumerate(order):
+        out[i] = spans[k]
+    return out
+
+
+def _words(result: dict, box: list[int], Char, Word, gray=None) -> list:
+    """Kraken's reading of a run as words: split at spaces, accents and points joined to their
+    letter (Kraken gives them apart), each letter's box from `letter_spans` (to the run's
+    height), each word's box around its letters."""
+    letters = []  # [text, point, conf] in reading order; None between words
+    for text, (cx0, _cy0, cx1, _cy1), conf in result.get("chars", []):
+        if text.isspace():
+            letters.append(None)
+        elif letters and letters[-1] is not None and unicodedata.combining(text):
+            last = letters[-1]
+            last[0] = unicodedata.normalize("NFC", last[0] + text)
+            last[2] = min(last[2], float(conf))
+        else:
+            letters.append([text, (float(cx0) + float(cx1)) / 2, float(conf)])
+    real = [l for l in letters if l is not None]
+    spans = letter_spans([l[1] for l in real], box, gray)
+    span_of = {id(l): s for l, s in zip(real, spans)}
     words, chars = [], []
 
     def flush():
@@ -466,16 +541,11 @@ def _words(result: dict, box: list[int], Char, Word) -> list:
             words.append(Word(text=text, box=wb, conf=round(sum(c.conf for c in chars) / len(chars), 1), chars=list(chars)))
             chars.clear()
 
-    for text, (x0, y0, x1, y1), conf in result.get("chars", []):
-        if text.isspace():
+    for l in letters:
+        if l is None:
             flush()
             continue
-        if chars and unicodedata.combining(text):  # Kraken gives accents and points apart from their letter
-            last = chars[-1]
-            last.text = unicodedata.normalize("NFC", last.text + text)
-            last.box[2] = max(last.box[2], int(x1))
-            last.conf = min(last.conf, float(conf))
-            continue
-        chars.append(Char(text=text, box=[int(x0), box[1], max(int(x1), int(x0) + 1), box[3]], conf=float(conf)))
+        a, b = span_of[id(l)]
+        chars.append(Char(text=l[0], box=[a, box[1], b, box[3]], conf=l[2]))
     flush()
     return words

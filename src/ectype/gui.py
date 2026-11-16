@@ -838,6 +838,7 @@ class ReviewTab(QWidget):
         if item is None:
             return
         page = item.data(Qt.ItemDataRole.UserRole)
+        crashlog.note(f"Review: page {page}")  # so a crash report says where Review was
         self.page = page
         self.page_styles = self.project.word_styles(page)
         self.scan.show_image(QImage(str(self.project.page_image(page))))
@@ -985,6 +986,10 @@ class ReviewTab(QWidget):
         if self.selected is not None and self.selected is not item:
             self.selected.set_status(self.selected.status)
         self.selected = item
+        # Kept in the crash report (Beaux, 0.11.0: Ectype died on clicking a word, and the report
+        # couldn't say which): the word and its characters, written to disk before anything is shown.
+        crashlog.note(f"Review: line {item.line + 1}, word {item.word + 1}: {item.text} "
+                      f"[{' '.join(f'{ord(c):04X}' for c in item.text)}]")
         item.setPen(QPen(COLOURS["selected"], 3))
         if self.adding or self.editor is None or self.editor.start != self._rect(item.word_box):
             self._show_editor(item.word_box)  # another word: its box, to stretch over a letter it missed
@@ -1202,7 +1207,9 @@ class LanguageButton(QToolButton):
         self.selected = list(selected) or ["eng"]
         self.menu_.clear()
         self.boxes = {}
-        self.reader_actions = []
+        for sub in getattr(self, "reader_menus", []):  # the last menu's "Read … with" submenus
+            sub.deleteLater()
+        self.reader_menus = []
         self.menu_.addAction("Switch to Manuscript Mode", lambda: self.script_requested.emit("manuscript"))
         self.menu_.addSeparator()
         installed = languages.installed()
@@ -1230,10 +1237,13 @@ class LanguageButton(QToolButton):
     def _fill_readers(self) -> None:
         """One submenu per script of a ticked language that has Kraken models: Tesseract alone,
         or one model. The submenus are rebuilt when a language is ticked or unticked."""
-        for action in self.reader_actions:
-            self.menu_.removeAction(action)
-            action.deleteLater()
-        self.reader_actions = []
+        # The submenus themselves are taken out and deleted. (0.11.0 deleted each submenu's own
+        # action instead, which the submenu owns and still points to: a crash waiting for Qt to
+        # touch it, the likely cause of Beaux's "access violation" after a finished run.)
+        for sub in self.reader_menus:
+            self.menu_.removeAction(sub.menuAction())
+            sub.deleteLater()
+        self.reader_menus = []
         rows = languages.reader_rows(self.selected)
         for script, label, models in rows:
             sub = QMenu(f"Read {label} with", self.menu_)
@@ -1248,7 +1258,7 @@ class LanguageButton(QToolButton):
                 group.addAction(item)
                 item.triggered.connect(lambda _=False, sc=script, m=model: self._reader_chosen(sc, m))
             self.menu_.insertMenu(self.readers_end, sub)
-            self.reader_actions.append(sub.menuAction())
+            self.reader_menus.append(sub)
 
     def _reader_chosen(self, script: str, model: str | None) -> None:
         new = languages.choose_reader_for_script(self.selected, script, model)

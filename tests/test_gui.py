@@ -604,3 +604,27 @@ def test_a_task_dropped_while_running_is_kept_until_it_ends():
     while Task._running and timer.elapsed() < 5000:
         app.processEvents()
     assert not Task._running
+
+
+def test_review_notes_the_word_clicked_in_the_crash_report(project, monkeypatch):
+    """Beaux, 0.11.0: Ectype died on clicking a word in Review, and the crash report couldn't say
+    which word. The page and the word, with its characters' code points, are noted first."""
+    from PySide6.QtWidgets import QApplication
+
+    from ectype import crashlog
+    from ectype.gui import MainWindow
+
+    notes = []
+    monkeypatch.setattr(crashlog, "note", notes.append)
+    app = QApplication.instance() or QApplication([])
+    w = MainWindow(project)
+    review = w.review
+    review.show_page(review.list.currentRow())
+    item = next(it for it in review.items if it.text.isalpha())
+    review.select(item)
+    codes = " ".join(f"{ord(c):04X}" for c in item.text)
+    assert any(n.startswith("Review: page ") for n in notes)
+    assert notes[-1] == f"Review: line {item.line + 1}, word {item.word + 1}: {item.text} [{codes}]"
+    w.close()
+    w.deleteLater()
+    app.processEvents()
