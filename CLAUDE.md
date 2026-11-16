@@ -61,10 +61,16 @@ of "Planned".
   (text mode 3) goes by default, since visible type is the page's look in ClearScan and
   Ectype's traced PDFs (`--all` takes that too); a text block holding both kinds is left
   whole. Its tests are already in `tests/test_striptext.py` (skipped until the module exists).
-- **Text encodings** (from that run): `src/` already states UTF-8 for every file it reads
-  or writes; what was left is other programs' output read with `text=True` and no encoding
-  (T-010, with `tests/test_text_encoding.py` to keep it so; `converter.py` is T-013), and
-  the tests' own `read_text()` (T-011).
+- **Text encodings** (from that run): `src/` already stated UTF-8 for every file it reads
+  or writes; other programs' output read with `text=True` now does too (T-010, done;
+  `tests/test_text_encoding.py` keeps it so; `converter.py` is left out of it until T-013).
+  Still open: the tests' own `read_text()` (T-011).
+- **Second round (2026-11-16)**: T-003, T-004 (ChatGPT, documents) and T-010 (Copilot, code
+  with a test given in the task) merged by Beaux and checked after: all sound, nothing
+  invented, T-010's test file identical to the one in the task. Giving the test's text in
+  the task worked. Added "a list only" tasks (T-016, T-017: a worker measures or compares
+  and writes a report, changing nothing), which suit cheap agents and feed the manager's
+  next tasks.
 
 ## Working with Beaux
 
