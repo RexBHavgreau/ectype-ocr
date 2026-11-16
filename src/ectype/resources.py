@@ -93,7 +93,7 @@ def base_tessdata_dir() -> Path | None:
     if not cmd:
         return None
     try:
-        out = subprocess.run([cmd, "--list-langs"], capture_output=True, text=True, timeout=30, **subprocess_flags())
+        out = subprocess.run([cmd, "--list-langs"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, **subprocess_flags())
     except (OSError, subprocess.SubprocessError):
         return None
     # First line: List of available languages in "/usr/share/tesseract-ocr/5/tessdata/" (2):

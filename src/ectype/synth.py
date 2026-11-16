@@ -77,7 +77,7 @@ def find_font(family: str | None = None) -> Path:
         if found is None and shutil.which("fc-match"):
             out = subprocess.run(
                 ["fc-match", "-f", "%{family}\n%{file}", f"{name}:style=Regular"],
-                capture_output=True, text=True, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
             ).stdout.splitlines()
             if len(out) == 2 and name.lower() in out[0].lower():
                 found = Path(out[1])

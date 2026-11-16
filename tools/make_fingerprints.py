@@ -115,7 +115,7 @@ def make(only: list[str] | None = None) -> dict:
 def latest() -> None:
     for source, (repo, commit, _folder) in verify.PINS.items():
         head = subprocess.run(["git", "ls-remote", f"https://github.com/{repo}.git", "HEAD"], capture_output=True,
-                              text=True, timeout=120).stdout.split()
+                              text=True, encoding="utf-8", errors="replace", timeout=120).stdout.split()
         now = head[0] if head else "unknown"
         print(f"{source:14} pinned {commit[:10]}  newest {now[:10]}{'' if now == commit else '  (newer)'}")
 
