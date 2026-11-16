@@ -51,7 +51,12 @@ def project(tmp_path_factory):
 
 
 def test_project_runs_and_splits(project):
-    assert project.workspace.name == "book.ectype"
+    import re
+
+    from ectype.project import projects_dir
+
+    # In Ectype's projects folder; "book (2).ectype"… when other tests' books are also called book.pdf
+    assert project.workspace.parent == projects_dir() and re.fullmatch(r"book( \(\d+\))?\.ectype", project.workspace.name)
     assert project.pages() == ["p001L", "p001R"]
     assert project.output_pdf() is not None and project.output_pdf().is_file()
 
