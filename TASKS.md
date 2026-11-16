@@ -301,11 +301,6 @@ Things only Beaux can do. Each unblocks the task named.
   it kept a report and offers Open folder; the file is `crash-<date>-<time>.txt`). Unblocks T-008.
 - [ ] **After the next release: Training → Train from fonts → Arabic**, and say whether it
   downloaded the Arabic Bible (its download was switched on in T-005) or said "(no text)".
-- [ ] **Say whether `corpus/arb-vd_vpl.txt` and `.xml` should stay.** They came in with an
-  upload on 16 November (the whole Arabic Bible, 62,000 lines); nothing uses them, and the
-  app downloads the text itself.
-- [ ] **Try a Kraken model download from Zenodo** in the installed app and say whether it
-  worked (the download check has never met the real Zenodo).
 - [ ] **Try a Hebrew manuscript model** (BiblIA, from Zenodo) in Manuscript Mode.
 
 ---
@@ -324,7 +319,9 @@ The manager turns one of these into Ready tasks when its condition is met. Worke
   time) would protect that as the code changes.
 - **Better reading of Driver's *Treatise*.** Train Hebrew on fonts like Driver's and measure
   on the checked pages.
-- **Rashi script.** No stock model; needs transcribed pages to train one.
+- **Rashi script.** Beaux has trained Hebrew on at least one Rashi font (Train from fonts),
+  and Ectype read the Rashi type in the Ben Ze'ev grammar. Not yet measured: a checked page
+  of Rashi type would say how well, and whether more Rashi fonts or corrections are needed.
 - **Syriac with vowels.** The Peshitta text used for training has none.
 - **Manuscripts:** straightening curved pages (Beaux: not now); training on Intel graphics.
 - **An English known text** for Train from fonts (Beaux: only a maybe).
@@ -345,6 +342,9 @@ printed books; no platform other than Windows.
 Newest first. The manager moves a task here when its pull request is merged, as one line,
 and deletes the task's full text above. Older history: `CLAUDE.md`, "What each version brought".
 
+- 2026-11-16 · Kraken models download from Zenodo in the installed app (Beaux: the model
+  they read with was installed through Ectype), so the download check works on the real thing.
+- 2026-11-16 · `corpus/arb-vd_vpl.txt` and `.xml` removed (Beaux: uploaded, not needed).
 - 2026-11-16 · T-006 · Tests run on Beaux's PC and written up (`docs/windows-tests-2026-11-16.md`).
   The PC lacked Python 3.12 and Tesseract, so most failures were the setup; led to T-010 to T-012.
 - 2026-11-16 · T-005 · The Arabic Smith–Van Dyck Bible's download is switched on (its

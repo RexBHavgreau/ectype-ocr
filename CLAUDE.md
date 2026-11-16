@@ -42,6 +42,12 @@ of "Planned".
   changes it. Real leads from the Windows run are in T-012. Two were test faults fixed at
   the check: `test_lossless_background…` rewrote a PDF its helper still held open (Windows
   refuses), and the Van Dyck test's name and its "Tanzil is never asked" check.
+- **Rashi script is not untrained** (Beaux, 2026-11-16, correcting TASKS.md and the dated
+  evaluation in `docs/`): they have at least one Rashi font and trained Hebrew on it with
+  Train from fonts (Rashi uses the same Unicode letters as square Hebrew, so it trains
+  `heb`); Beaux takes that to be why Ectype read the Rashi type in the Ben Ze'ev grammar
+  (`corpus/Pages from Grammar_Hebrew - talmudlashonibrg00lb.pdf`). Not measured. Don't
+  describe Rashi as having no model.
 - **Text encodings** (from that run): `src/` already states UTF-8 for every file it reads
   or writes; what was left is other programs' output read with `text=True` and no encoding
   (T-010, with `tests/test_text_encoding.py` to keep it so; `converter.py` is T-013), and
@@ -389,7 +395,8 @@ plan in it, not only the menus and crash recorder):
   (`texts.VAN_DYCK_FINGERPRINT`, set on 2026-11-16 from Beaux's PC, TASKS.md T-005). Kraken models: the worker (`get`) checks every file against Zenodo's MD5 from the
   record's API and removes the download on a mismatch or when no MD5 can be read; a model file
   under a name not on record (the downloader may rename it) must have one listed file's MD5.
-  Untested against real Zenodo (blocked here). The updater and
+  Works against the real Zenodo (Beaux, 2026-11-16: the model they read with was installed
+  through Ectype's Kraken panel; blocked from the cloud). The updater and
   the engine now also refuse a release file with no SHA-256 digest. To move a pin: change the
   constant, run `tools/make_fingerprints.py`, commit both. (Tooling note: this was made where the
   GitHub API was closed, so sizes come from HEAD requests and git ids from a blobless fetch.)
@@ -542,7 +549,7 @@ plan in it, not only the menus and crash recorder):
   the installed models by script and says how to use one. CLI: `ectype kraken list|available|add|remove`,
   `--kraken LANG=MODEL` on run, ocr, text, text-files (applied in `cli.apply_kraken_options`);
   `ectype languages` lists the models under their script; `--lang heb+kraken_<n>` still works.
-  Tests: tests/test_kraken_choice.py. Not tried against a real engine or Zenodo (add/available).
+  Tests: tests/test_kraken_choice.py. The app's panel works with the real engine and Zenodo (Beaux); the CLI's add/available not tried there.
 - *Reading stopped: "min() iterable argument is empty"* (Beaux, 0.10.0, the Hebrew grammar with the
   multilingual PP-OCRv6 medium model, kraken_21788410, which reads ten scripts): `kraken.read_runs`
   read a line's runs script by script and put each in at once, so after the Hebrew run came back
@@ -911,8 +918,7 @@ number of workable font sizes and styles"):
 The list of planned work is in `TASKS.md` (kept there so every agent sees one list). What
 stays here is what was measured or learned behind those items:
 
-- **Left from 0.8.0** (TASKS.md T-007): Kraken model checks tried on a real Zenodo download
-  (Beaux's PC); training stamps still use file times (`pool.py`, `synthtrain.py`, `trainall.py`,
+- **Left from 0.8.0** (TASKS.md T-007): training stamps still use file times (`pool.py`, `synthtrain.py`, `trainall.py`,
   `training.py`, `manuscript._stamp`) and hand-kept `SCRIPT_VERSION`/`VERSION` in synthtrain.
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
