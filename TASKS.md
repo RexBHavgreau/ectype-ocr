@@ -63,7 +63,7 @@ Report (<tool>, <date>):
 ## Ready
 
 ### T-003 · docs/releasing.md: match what the release actually does
-- **Status:** Ready
+- **Status:** In progress (ChatGPT GitHub, 2026-11-16)
 - **Who:** any agent · **Size:** S · documents only: no setup and no tests needed
 - **Why:** `docs/releasing.md` describes the first release (0.1.0). The release now also
   builds a second download, the Kraken engine, and tests more.
