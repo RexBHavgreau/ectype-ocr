@@ -99,7 +99,7 @@ Report (ChatGPT GitHub, 2026-11-16):
 - For Beaux to try on Windows: nothing; this is a documentation change.
 
 ### T-004 · README: describe the project as it is now, not by build phases
-- **Status:** Ready
+- **Status:** In progress (ChatGPT GitHub, 2026-11-16)
 - **Who:** any agent · **Size:** M · documents only: no setup and no tests needed
 - **Why:** The README opens with "Phases 0–5 are done, and Phase 6 is under way", which was
   true in October 2026. The app is far past that, and readers can't tell what it does today.
