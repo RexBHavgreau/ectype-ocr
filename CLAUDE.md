@@ -32,6 +32,26 @@ of "Planned".
 - Other agents may not edit this file; the manager adds their lessons when checking their work.
 - An agent running on Beaux's PC can do what a cloud session can't (run on Windows, reach
   ebible.org and Zenodo, try the installed app): give it those tasks.
+- **First round (2026-11-16)**: Beaux ran T-001, T-002 (ChatGPT), T-005, T-006 (Copilot on
+  their PC) and merged them the same day, before a manager's check; all four were sound.
+  What it taught, now in the guide in `TASKS.md`: a worker uses whatever machine it has
+  (T-006 ran on Python 3.14 with no Tesseract, so its 80 failures are mostly the setup, not
+  faults; ChatGPT had no checkout and couldn't run commands), so a task must say what the
+  machine needs and to stop without it; and T-005 could only pass by changing a test that
+  asserted the download was off, so search `tests/` for a value before writing a task that
+  changes it. Real leads from the Windows run are in T-012. Two were test faults fixed at
+  the check: `test_lossless_background…` rewrote a PDF its helper still held open (Windows
+  refuses), and the Van Dyck test's name and its "Tanzil is never asked" check.
+- **Rashi script is not untrained** (Beaux, 2026-11-16, correcting TASKS.md and the dated
+  evaluation in `docs/`): they have at least one Rashi font and trained Hebrew on it with
+  Train from fonts (Rashi uses the same Unicode letters as square Hebrew, so it trains
+  `heb`); Beaux takes that to be why Ectype read the Rashi type in the Ben Ze'ev grammar
+  (`corpus/Pages from Grammar_Hebrew - talmudlashonibrg00lb.pdf`). Not measured. Don't
+  describe Rashi as having no model.
+- **Text encodings** (from that run): `src/` already states UTF-8 for every file it reads
+  or writes; what was left is other programs' output read with `text=True` and no encoding
+  (T-010, with `tests/test_text_encoding.py` to keep it so; `converter.py` is T-013), and
+  the tests' own `read_text()` (T-011).
 
 ## Working with Beaux
 
@@ -117,8 +137,8 @@ not been tagged), so the release "0.5.0" holds everything below too.
   fallback. Tanzil's notice is kept in the cached copy (its terms), skipped when read. The
   Qurʾān uses only U+0621-0652, which Times New Roman has. A language whose text couldn't be
   downloaded is marked "(no text)" in the font table, and the status line says why
-  (`support(failed=)`). Van Dyck (eBible) is still untested; Arabic uses the Qurʾān alone if
-  it fails.
+  (`support(failed=)`). Arabic uses the Qurʾān alone if Van Dyck's download fails (Van Dyck
+  was switched on on 2026-11-16, see "Tasks and other agents").
 
 **0.6.2** (Beaux agreed; from a training on v0.5.0 that ran 4+ hours):
 - *Why it was slow*: Hebrew trained **77 typeface families**, nearly one per font set in Train
@@ -371,11 +391,12 @@ plan in it, not only the menus and crash recorder):
   record; `verify.fetch` hashes as it downloads and renames into place only on a match (else
   `DownloadMismatch`, no .part left); a file not on record isn't downloaded. Kept known texts carry
   a `.check` stamp (pin + SHA-256); one without it or not matching is fetched again. Tanzil's form
-  fallback is gone; **Van Dyck's download is off** (`texts.VAN_DYCK_FINGERPRINT` None; set it to
-  turn it on). Kraken models: the worker (`get`) checks every file against Zenodo's MD5 from the
+  fallback is gone; Van Dyck's download was off until its fingerprint was recorded
+  (`texts.VAN_DYCK_FINGERPRINT`, set on 2026-11-16 from Beaux's PC, TASKS.md T-005). Kraken models: the worker (`get`) checks every file against Zenodo's MD5 from the
   record's API and removes the download on a mismatch or when no MD5 can be read; a model file
   under a name not on record (the downloader may rename it) must have one listed file's MD5.
-  Untested against real Zenodo (blocked here). The updater and
+  Works against the real Zenodo (Beaux, 2026-11-16: the model they read with was installed
+  through Ectype's Kraken panel; blocked from the cloud). The updater and
   the engine now also refuse a release file with no SHA-256 digest. To move a pin: change the
   constant, run `tools/make_fingerprints.py`, commit both. (Tooling note: this was made where the
   GitHub API was closed, so sizes come from HEAD requests and git ids from a blobless fetch.)
@@ -528,7 +549,7 @@ plan in it, not only the menus and crash recorder):
   the installed models by script and says how to use one. CLI: `ectype kraken list|available|add|remove`,
   `--kraken LANG=MODEL` on run, ocr, text, text-files (applied in `cli.apply_kraken_options`);
   `ectype languages` lists the models under their script; `--lang heb+kraken_<n>` still works.
-  Tests: tests/test_kraken_choice.py. Not tried against a real engine or Zenodo (add/available).
+  Tests: tests/test_kraken_choice.py. The app's panel works with the real engine and Zenodo (Beaux); the CLI's add/available not tried there.
 - *Reading stopped: "min() iterable argument is empty"* (Beaux, 0.10.0, the Hebrew grammar with the
   multilingual PP-OCRv6 medium model, kraken_21788410, which reads ten scripts): `kraken.read_runs`
   read a line's runs script by script and put each in at once, so after the Hebrew run came back
@@ -825,7 +846,8 @@ number of workable font sizes and styles"):
   unchanged, credit, notice kept), from a verbatim copy in a public repository
   (`texts.QURAN_URL`, since 0.6.1; tested), else Tanzil's POST form `download.php`
   (quranType=simple, outType=txt-2, agree=true; untested); and the Smith–Van Dyck Bible
-  (`ebible.org/Scriptures/arb-vd_vpl.zip`, public domain, **untested**: ebible.org and
+  (`ebible.org/Scriptures/arb-vd_vpl.zip`, public domain; downloaded and fingerprinted on
+  Beaux's PC 2026-11-16, 5,268,940 bytes; not yet tried in the app; ebible.org and
   tanzil.net are blocked from the cloud session), verses interleaved; trains `ara`. A failing
   download leaves only that script unavailable (`synthtrain.support`, `generate`), marked
   "(no text)" in the window with the reason. Hebrew lines set from fonts (0.5.0,
@@ -896,9 +918,7 @@ number of workable font sizes and styles"):
 The list of planned work is in `TASKS.md` (kept there so every agent sees one list). What
 stays here is what was measured or learned behind those items:
 
-- **Left from 0.8.0** (TASKS.md T-005, T-007): Van Dyck's fingerprint (ebible.org is blocked
-  here; its download is off); Kraken model checks tried on a real Zenodo download (Beaux's
-  PC); training stamps still use file times (`pool.py`, `synthtrain.py`, `trainall.py`,
+- **Left from 0.8.0** (TASKS.md T-007): training stamps still use file times (`pool.py`, `synthtrain.py`, `trainall.py`,
   `training.py`, `manuscript._stamp`) and hand-kept `SCRIPT_VERSION`/`VERSION` in synthtrain.
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
@@ -922,8 +942,6 @@ stays here is what was measured or learned behind those items:
   the training lines since 0.5.0): train Hebrew on lines in fonts like Driver's and measure on
   the Treatise. A checked transcription of a few Treatise
   pages (Beaux can correct or confirm one) would give real error rates.
-- **Check the untested download** on Beaux's machine: eBible.org's Van Dyck (Arabic), blocked
-  from the cloud session (the Qurʾān now comes from a repository copy).
 - **Lone punctuation left as image**: the 30 words the Treatise still draws as image are
   nearly all ; : , with no ink tied to them (`traced.place_page`, "no glyph").
 - Syriac with vowels: the Peshitta text is unvowelled; vowelled Syriac is learned only from

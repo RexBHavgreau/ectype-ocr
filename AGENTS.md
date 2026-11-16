@@ -27,8 +27,20 @@ sudo apt-get install -y tesseract-ocr libleptonica-dev fonts-liberation fonts-de
 pip install -e ".[dev,gui]"
 ```
 
-On Windows: install Python 3.12 and Tesseract (the UB Mannheim installer), then
-`pip install -e ".[dev,gui]"`.
+On Windows (PowerShell, in the repository's folder):
+
+```
+py -3.12 -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev,gui]"
+tesseract --version
+```
+
+**Check before you start.** `python --version` must say 3.12 (not another Python that
+happens to be installed), and `tesseract --version` must print a version (Tesseract from the
+UB Mannheim installer, with English). If either is missing, **stop and tell Beaux what to
+install**. Do not run the tests with another Python or without Tesseract: most of them will
+fail for that reason alone and the result means nothing.
 
 ## Running the tests
 
