@@ -147,3 +147,23 @@ def test_a_model_of_two_scripts_keeps_the_other_language():
     assert languages.reader_of(new, "ara") == "kraken_333"
     # without Arabic ticked, the two-script model goes
     assert languages.choose_reader(["heb", "kraken_333"], "heb", "kraken_111") == ["heb", "kraken_111"]
+
+
+def test_a_model_alone_reads_with_its_scripts_tesseract_language():
+    """Beaux read the Hebrew grammar with the PP-OCRv6 model alone (no Hebrew ticked): Tesseract,
+    which finds the lines and words, read the pages as English, left to right, and the text came out
+    in pieces back to front."""
+    assert languages.reading_codes(["kraken_111"]) == ["heb", "kraken_111"]
+    assert languages.reading_codes(["eng", "kraken_111"]) == ["eng", "heb", "kraken_111"]
+    assert languages.reading_codes(["heb", "kraken_333"]) == ["heb", "kraken_333"]  # its Hebrew is ticked
+    with pytest.raises(languages.ReaderWithoutLanguage, match="Tick the book's language"):
+        languages.reading_codes(["eng", "kraken_333"])  # Arabic and Hebrew: which?
+
+
+def test_reading_stops_in_plain_words_for_a_many_script_model_alone(tmp_path):
+    from ectype import ocr
+
+    pages = tmp_path / "book.ectype" / "pages"
+    pages.mkdir(parents=True)
+    with pytest.raises(ocr.EngineUnavailable, match="reads several scripts"):
+        ocr.ocr_pages(pages, tmp_path / "book.ectype" / "ocr", lang="kraken_333")

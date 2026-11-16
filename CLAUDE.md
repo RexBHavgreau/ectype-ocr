@@ -529,6 +529,14 @@ plan in it, not only the menus and crash recorder):
   remaining errors: the book's syllable-divider stroke inside example words (אב׀רם) read as yod
   ("אבירם", "קירא"), and ר/ד once. The bracketed glosses are German in Hebrew letters (זילבע =
   Silbe), which no Hebrew model knows.
+  **Beaux's jumbled text** (their export's header: `(kraken_21788410)`, the model alone, no `heb`):
+  Tesseract finds the lines and words Kraken rereads, and with no Tesseract language it read as
+  `eng` (ocr.py's fallback), left to right, cutting the Hebrew oddly, so Kraken's runs came out
+  back to front within lines and the rest as English noise. `languages.reading_codes` (used by
+  `ocr_pages` and `_ocr_one`): a one-script Kraken model with no ticked language of its script
+  brings that script's Tesseract language (SUGGEST; Latin -> eng); a many-script model with none
+  of its languages ticked stops the reading (`ReaderWithoutLanguage` -> `EngineUnavailable`)
+  saying to tick the book's language and choose the model under "Read <language> with".
   Also fixed: the closing note named no words for a missing English ("this book has  that heb
   doesn't read": `missing_languages` matched scripts through SUGGEST, which has no Latin).
 - *Free up space* lists "Book projects" with their size and never removes them

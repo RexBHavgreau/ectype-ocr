@@ -319,7 +319,9 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
              session=None, resolved=None) -> dict:
     from .models import resolve_all
 
-    codes = lang.split("+")
+    from .languages import reading_codes
+
+    codes = reading_codes(lang.split("+"))  # a Kraken model alone brings its script's Tesseract language
     resolved = resolved if resolved is not None else resolve_all(codes)
     keys = [r.key() for r in resolved if r.which != "stock"]  # stock: as pages read before training were
     target = out_dir / f"{png.stem}.ocr.json"
@@ -401,7 +403,12 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
 
     from . import models
 
-    codes = lang.split("+")
+    from .languages import ReaderWithoutLanguage, reading_codes
+
+    try:
+        codes = reading_codes(lang.split("+"))  # a Kraken model alone brings its script's Tesseract language
+    except ReaderWithoutLanguage as exc:
+        raise EngineUnavailable(str(exc)) from None
     workspace = out_dir.parent
     resolved = models.resolve_all(codes, workspace)
     session = None

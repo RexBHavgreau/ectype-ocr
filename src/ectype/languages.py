@@ -302,3 +302,38 @@ def apply_kraken_choices(lang_list: list[str], choices: list[str]) -> list[str]:
                                                          f"{script})"))
         out = choose_reader(out, lang, code)
     return out
+
+
+class ReaderWithoutLanguage(ValueError):
+    """A Kraken model of several scripts chosen with none of its languages ticked: which script
+    the book is in can't be known, so the reading stops with this message in plain words."""
+
+
+def reading_codes(codes: list[str]) -> list[str]:
+    """The languages a page is read with. Tesseract reads every page first (it finds the lines and
+    words Kraken rereads), so a Kraken model chosen without a ticked language of its script brings
+    that script's Tesseract language along: before, Tesseract quietly read such pages as English,
+    left to right, and Kraken's Hebrew came out in pieces back to front (Beaux, the Hebrew grammar
+    read with the PP-OCRv6 model alone). A model of several scripts with none ticked can't say
+    which script the book is in: ReaderWithoutLanguage."""
+    from .kraken import reads
+    from .scripts import SUGGEST, script_of
+
+    out = list(codes)
+    ticked = {script_of(c) for c in tesseract_codes(codes)}
+    for k in kraken_codes(codes):
+        scripts = reads(k)
+        if not scripts or ticked & set(scripts):
+            continue
+        if len(scripts) > 1:
+            raise ReaderWithoutLanguage(
+                f"The Kraken model “{reader_title(k).removeprefix('Kraken: ')}” reads several scripts "
+                f"({', '.join(scripts)}), and none of their languages is ticked, "
+                "so Ectype can't tell which the book is in. Tick the book's language (for a Hebrew book: Hebrew), "
+                "then choose the model under “Read Hebrew with” (command line: --lang heb --kraken heb="
+                f"{k.removeprefix('kraken_')}).")
+        partner = SUGGEST.get(scripts[0]) or ("eng" if scripts[0] == "Latin" else None)
+        if partner:
+            out.insert(len(tesseract_codes(out)), partner)
+            ticked.add(scripts[0])
+    return out
