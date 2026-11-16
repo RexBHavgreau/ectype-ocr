@@ -1442,9 +1442,12 @@ class FreeSpaceDialog(QDialog):
                   "when needed", r["cache"]["bytes"], "cache", None, True)
         self._add(f"Leftovers of stopped runs: {r['leftovers']['bytes'] / 1e9:.1f} GB", r["leftovers"]["bytes"],
                   "leftovers", None, True)
+        work = r.get("project_work", {"bytes": 0})
+        self._add(f"Working files of book projects: {work['bytes'] / 1e9:.1f} GB — made again automatically when a "
+                  "book is run again", work["bytes"], "project_work", None, True)
         books = r.get("projects", {"bytes": 0, "folders": 0})
         projects = QLabel(f"Book projects: {books['bytes'] / 1e9:.1f} GB in {books['folders']} books — your books' "
-                          "projects, with their corrections: not removed here")
+                          "readings and corrections are not removed here")
         projects.setWordWrap(True)
         self.layout_.addWidget(projects)
         synthetic = {lang: by["synthetic"] for lang, by in r["pool"].items() if by["synthetic"]["lines"]}
@@ -1475,6 +1478,7 @@ class FreeSpaceDialog(QDialog):
     def chosen(self) -> dict:
         picked = [(kind, lang) for box, _, kind, lang in self.checks if box.isChecked()]
         return {"cache": any(k == "cache" for k, _ in picked), "leftovers": any(k == "leftovers" for k, _ in picked),
+                "project_work": any(k == "project_work" for k, _ in picked),
                 "langs": [lang for k, lang in picked if k == "font"]}
 
     def free(self) -> None:
@@ -2849,7 +2853,7 @@ class MainWindow(QMainWindow):
         """Remove what the Free up space window ticked (progress window with Stop)."""
         from . import freespace
 
-        if not (choice["cache"] or choice["leftovers"] or choice["langs"]):
+        if not (choice["cache"] or choice["leftovers"] or choice.get("project_work") or choice["langs"]):
             return
 
         def work(progress):
@@ -2858,6 +2862,8 @@ class MainWindow(QMainWindow):
                 freed += freespace.remove_cache(progress)
             if choice["leftovers"]:
                 freed += freespace.remove_leftovers(progress)
+            if choice.get("project_work"):
+                freed += freespace.remove_project_work(progress)
             if choice["langs"]:
                 freed += sum(r["bytes"] for r in freespace.remove_font_lines(choice["langs"], progress).values())
             return freed

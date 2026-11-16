@@ -198,7 +198,7 @@ def _save(path: Path, **arrays) -> None:
             (value,) = arrays.values()
             np.save(f, value, allow_pickle=False)
         else:
-            np.savez(f, **arrays)
+            np.savez_compressed(f, **arrays)  # lossless; glyph pictures are mostly empty paper
     tmp.replace(path)
 
 
@@ -211,7 +211,24 @@ class Cache:
     Nothing is read with pickle: a result that can't be read as expected is made again."""
 
     def __init__(self, folder: Path):
-        self.folder = Path(folder)
+        """Kept results live in a folder for this version of the program (`stamps.code_version`).
+        The folders of other versions, and results left at the top level by versions before this
+        one, are removed here, at the start of a run: they were removed only at the end of a run
+        that finished, so every update and every stopped run left a whole copy behind (Beaux's
+        479-page grammar: a project of 124 GB). The pages' own results (`pages/`) stay: they are
+        checked by their stamp and replaced page by page."""
+        import shutil
+
+        root = Path(folder)
+        self.folder = root / f"v-{stamps.code_version()[:16]}"
+        if root.is_dir():
+            for old in root.iterdir():
+                if old.name in ("pages", self.folder.name):
+                    continue
+                if old.is_dir():
+                    shutil.rmtree(old, ignore_errors=True)
+                else:
+                    old.unlink(missing_ok=True)
         self.used: set[Path] = set()
 
     def key(self, kind: str, members: list[Instance], *params) -> Path:
@@ -885,11 +902,13 @@ def cluster_workspace(workspace: Path, threshold: float = 0.25, progress=None) -
         for members_idx in clusters:
             cid = instances[members_idx[0]].cluster
             members = by_cluster[cid]
-            name = cache.key("average", members)
-            kept = cache.get(name)
+            # A glyph of one letter is quick to make again: kept only when averaged from several.
+            name = cache.key("average", members) if len(members) > 1 else None
+            kept = cache.get(name) if name else None
             if kept is None:
                 kept = average(members)
-                cache.put(name, kept)
+                if name:
+                    cache.put(name, kept)
             composite, canvas = kept
             feats[cid] = composite_feature(composite, canvas)
             name = f"g{cid:05d}.png"

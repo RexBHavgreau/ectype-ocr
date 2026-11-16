@@ -420,8 +420,9 @@ def cmd_free_space(args: argparse.Namespace) -> int:
         print(f"Ectype's data is in {r['folder']} ({_gb(r['total']['bytes'])} in all)")
         print(f"  Prepared copies of training lines: {_gb(r['cache']['bytes'])} (made again when needed)   [--cache]")
         print(f"  Leftovers of stopped runs: {_gb(r['leftovers']['bytes'])}   [--cache]")
+        print(f"  Working files of book projects: {_gb(r['project_work']['bytes'])} (made again when needed)   [--cache]")
         print(f"  Book projects: {_gb(r['projects']['bytes'])} in {r['projects']['folders']} books "
-              "(your books' projects, with their corrections: not removed here)")
+              "(their readings and corrections: not removed here)")
         for lang, by in r["pool"].items():
             synth, corr = by["synthetic"], by["correction"]
             print(f"  {lang}: lines set from fonts {synth['lines']:,} ({_gb(synth['bytes'])})   [--font-lines {lang}];"
@@ -432,9 +433,9 @@ def cmd_free_space(args: argparse.Namespace) -> int:
     progress = _ConsoleProgress()
     freed = 0
     if args.cache:
-        n = freespace.remove_cache(progress) + freespace.remove_leftovers(progress)
+        n = freespace.remove_cache(progress) + freespace.remove_leftovers(progress) + freespace.remove_project_work(progress)
         progress.end_line()
-        print(f"Removed prepared copies and leftovers: {_gb(n)} freed.")
+        print(f"Removed prepared copies, leftovers and the book projects' working files: {_gb(n)} freed.")
         freed += n
     if args.font_lines is not None:
         langs = args.font_lines or None
@@ -1042,7 +1043,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_data_folder)
 
     p = sub.add_parser("free-space", help="show what takes space in Ectype's data folder; --cache and --font-lines free some")
-    p.add_argument("--cache", action="store_true", help="remove prepared copies of training lines and leftovers of stopped runs")
+    p.add_argument("--cache", action="store_true", help="remove prepared copies of training lines, leftovers of stopped runs and book projects' working files")
     p.add_argument("--font-lines", nargs="*", metavar="LANG",
                    help="remove lines set from fonts (all languages, or those named); Train from fonts makes them again")
     p.set_defaults(func=cmd_free_space)

@@ -127,11 +127,32 @@ def projects_dir() -> Path:
     return user_data_dir() / "projects"
 
 
+def project_work_folders() -> list[Path]:
+    """The book projects' working files: each project's glyph-grouping cache (cluster/cache), kept
+    only to make "Update after corrections" quick and made again when needed. A project's
+    readings, corrections, fonts and PDFs are not among them."""
+    root = projects_dir()
+    if not root.is_dir():
+        return []
+    return [p / "cluster" / "cache" for p in sorted(root.glob("*.ectype")) if (p / "cluster" / "cache").is_dir()]
+
+
+def remove_project_work(progress: Callable[[str, str], None] | None = None) -> int:
+    """Delete the book projects' working files (`project_work_folders`). Returns the bytes freed."""
+    freed = 0
+    folders = project_work_folders()
+    for k, folder in enumerate(folders):
+        stopping.check()
+        freed += _remove_tree(folder, progress, "working files of book projects", k / len(folders), (k + 1) / len(folders))
+    return freed
+
+
 def report() -> dict:
     files, size = _tree(cache_dir())
     leftovers = [_tree(p) for p in leftover_folders()]
     total_files, total = _tree(user_data_dir())
     project_files, project_bytes = _tree(projects_dir())
+    work = [_tree(p) for p in project_work_folders()]
     return {
         "folder": str(user_data_dir()),
         "total": {"files": total_files, "bytes": total},
@@ -140,6 +161,7 @@ def report() -> dict:
                       "folders": len(leftovers)},
         "projects": {"files": project_files, "bytes": project_bytes, "folders": len(
             [p for p in projects_dir().glob("*.ectype") if p.is_dir()]) if projects_dir().is_dir() else 0},
+        "project_work": {"files": sum(f for f, _ in work), "bytes": sum(b for _, b in work)},
         "pool": {lang: lines_report(lang) for lang in pool.languages()},
     }
 

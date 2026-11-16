@@ -641,6 +641,19 @@ number of workable font sizes and styles"):
   rounded to 0.1. Grammar: 6-7 sizes, 1,316 -> 1,070 glyphs, 65 -> 40 styles. Treatise: notes (0.82)
   kept apart from the text (0.98) as the 0.7.1 fix needs; sizes 0.8, 1.0, 1.2, 1.5; 255 -> 243 styles.
   A smoothing of 0.04 merged the Treatise's notes into its text.
+- *A book's project swelled to 124 GB* (Beaux, the 479-page grammar; they deleted it). Almost all of
+  a project is the glyph-grouping cache (`cluster/cache`: ~20 MB a page measured here, uncompressed:
+  glyph composites as float arrays, one per glyph even of one letter; each page's crops). Its
+  entries were named with the code version and removed only at the end of a run that **finished**
+  (`Cache.prune`), so every update and every stopped run left a whole copy (several GB each on
+  that book). Now (`cluster.Cache`): results live in `cache/v-<code version>/`, and other versions'
+  folders and anything an older version left at the top are deleted when the next run opens the
+  cache (`pages/` stays: checked by stamp, replaced page by page); `.npz` files are written with
+  `savez_compressed` (lossless); a glyph of one letter isn't kept (made again: cheap). Grammar
+  extract: cache 346 MB -> 63 MB, glyph pictures and clusters.json identical, a second run 7 s
+  (54 s first). Free up space (window and `ectype free-space --cache`) also removes the book
+  projects' working files (`freespace.project_work_folders`/`remove_project_work`: each project's
+  `cluster/cache`; readings, corrections, fonts, PDFs untouched).
 - *Kraken letter boxes keep to the line's own height*: the padding Kraken reads with reached into
   the lines above and below (`read_runs` passes the unpadded `bands` to `_words`); odd shapes 456 -> 442.
 
