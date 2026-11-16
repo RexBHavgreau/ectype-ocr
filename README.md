@@ -72,7 +72,8 @@ All reports are written to `reports/`, which git ignores.
 ectype run scan.pdf [-o workspace] [--mode traced|substitute] [--font …] [--keep]
 ```
 
-This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute. `--mode text` runs just preprocess, ocr and the text layer (`--page-image gray|bw`); `--mode plaintext` runs preprocess, ocr and writes the text file beside the scan. Text and plaintext runs work in a temporary folder and keep nothing but the result (`--keep` keeps the project for Review); traced and substitute runs keep their project in Ectype's projects folder. `--lang eng+grc` sets the OCR languages. Repeat `--kraken LANG=MODEL` (for example, `--kraken heb=7051645`) to read a language with a Kraken model (repeatable; see `ectype kraken list`).
+This runs every stage below in one workspace: preprocess, ocr, segment, then either cluster, fonts and traced, or substitute. `--mode text` runs just preprocess, ocr and the text layer (`--page-image gray|bw`); `--mode plaintext` runs preprocess, ocr and writes the text file beside the scan. Text and plaintext runs work in a temporary folder and keep nothing but the result (`--keep` keeps the project for Review); traced and substitute runs keep their project in Ectype's projects folder. `--lang eng+grc` sets the OCR languages.
+Repeat `--kraken LANG=MODEL` (for example, `--kraken heb=7051645`) to read a language with a Kraken model (repeatable; see `ectype kraken list`).
 
 ```
 ectype languages [--all]              # installed OCR languages (--all: and those that can be added)
