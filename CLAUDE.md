@@ -522,6 +522,13 @@ plan in it, not only the menus and crash recorder):
   כאשר בין בלתי מבוא לבוא כי …) wrong 22 of 162; with PP-OCRv6 medium (kraken_21788410, Beaux's
   pre-release `kraken-test-models`) rereading the Hebrew: 3,386 words, 69.8%, 5 of 178 wrong; 4.5 min
   against about 1. Not yet against a checked transcription (Beaux will add corrected pages).
+  **Against a transcription** (corpus/truth/, PDF page 5 of the extract, 238 words, made by Claude from
+  the scan, not yet checked by Beaux; letters only: points, punctuation and the German glosses left
+  out): Tesseract alone 24.4% of words wrong (8.2% of letters), with Kraken rereading 2.5% (1.2%).
+  Beaux's own text export (0.10.0, Tesseract) was "unusable even as a starting point". Kraken's
+  remaining errors: the book's syllable-divider stroke inside example words (אב׀רם) read as yod
+  ("אבירם", "קירא"), and ר/ד once. The bracketed glosses are German in Hebrew letters (זילבע =
+  Silbe), which no Hebrew model knows.
   Also fixed: the closing note named no words for a missing English ("this book has  that heb
   doesn't read": `missing_languages` matched scripts through SUGGEST, which has no Latin).
 - *Free up space* lists "Book projects" with their size and never removes them
