@@ -63,7 +63,7 @@ Report (<tool>, <date>):
 ## Ready
 
 ### T-003 · docs/releasing.md: match what the release actually does
-- **Status:** Ready
+- **Status:** For review (task/T-003-release-guide)
 - **Who:** any agent · **Size:** S · documents only: no setup and no tests needed
 - **Why:** `docs/releasing.md` describes the first release (0.1.0). The release now also
   builds a second download, the Kraken engine, and tests more.
@@ -91,6 +91,12 @@ Report (<tool>, <date>):
   fixed): Python 3.10 to 3.13 are all fine, and this task changes one document, so it needs
   no Python at all. Nothing was wrong with the worker's stopping. Start again from step 1.
 - **Report:**
+
+Report (ChatGPT GitHub, 2026-11-16):
+- Did: Updated the release guide for the installer and Kraken engine jobs, explained the two downloads and tag ownership, and replaced the example version with X.Y.Z.
+- Checks: Confirmed no `0.1.0` remains. Installer-job pairing: checkout → 1; Python setup → 2; Version from the tag → 3; Tesseract and Inno Setup → 4; Python packages → 5; Bundle Tesseract → 6; Bundle EB Garamond → 7; Build the program folder (PyInstaller) → 8; Smoke test the packaged app → 9; Installer (Inno Setup) → 10; artifact upload → 11; Attach to the release → 12. The second list covers the Kraken job's checkout, Python setup, version, packages, build, smoke test, zip, artifact upload and release attachment. Branch comparison: only `docs/releasing.md` and this task's status/report changed.
+- Not done / unsure: nothing.
+- For Beaux to try on Windows: nothing; this is a documentation change.
 
 ### T-004 · README: describe the project as it is now, not by build phases
 - **Status:** Ready
