@@ -625,6 +625,49 @@ plan in it, not only the menus and crash recorder):
   letter's box. After: 0.3% of the ink outside, 52 of 3,532 word edges through ink (touching
   neighbours). Tests: synthetic right-to-left and left-to-right lines.
 
+**0.11.2** (on the branch; fixes toward fewer glyphs, Beaux: "a book can only have a limited
+number of workable font sizes and styles"):
+- *Measured first* (the grammar extract after the 0.11.1 box fix, Kraken rereading): 1,316 glyphs in
+  65 styles (5,127 / 751 with Tesseract alone in 0.10.0). Of the one-off glyphs, 132 come from
+  doubtful words (verbatim, few now that Kraken reads the Hebrew), 157 from a letter's only
+  instance in a size or style, and **442 from a letter's own odd shape**, which on sight are mostly
+  ink given to the wrong letter: one "letter" holding a whole word (ירוה), parts of the lines above
+  or below, smudges. So capping or averaging wouldn't help them; the ink-to-letter step
+  (segment.py) would. Not done yet: ask Beaux before taking it on.
+- *Type sizes from the book's own sizes* (`cluster.size_levels`): each line's size was rounded
+  alone to 0.1 (`_size_class`), so a few per cent of measuring noise made eleven sizes of the
+  grammar (0.7-3.3). Now the peaks of all its letters' sizes (log scale, smoothed by 0.025), split
+  at low points under half the smaller peak; the text's level is 1.0, the others their median
+  rounded to 0.1. Grammar: 6-7 sizes, 1,316 -> 1,070 glyphs, 65 -> 40 styles. Treatise: notes (0.82)
+  kept apart from the text (0.98) as the 0.7.1 fix needs; sizes 0.8, 1.0, 1.2, 1.5; 255 -> 243 styles.
+  A smoothing of 0.04 merged the Treatise's notes into its text.
+- *A book's project swelled to 124 GB* (Beaux, the 479-page grammar; they deleted it). Almost all of
+  a project is the glyph-grouping cache (`cluster/cache`: ~20 MB a page measured here, uncompressed:
+  glyph composites as float arrays, one per glyph even of one letter; each page's crops). Its
+  entries were named with the code version and removed only at the end of a run that **finished**
+  (`Cache.prune`), so every update and every stopped run left a whole copy (several GB each on
+  that book). Now (`cluster.Cache`): results live in `cache/v-<code version>/`, and other versions'
+  folders and anything an older version left at the top are deleted when the next run opens the
+  cache (`pages/` stays: checked by stamp, replaced page by page); `.npz` files are written with
+  `savez_compressed` (lossless); a glyph of one letter isn't kept (made again: cheap). Grammar
+  extract: cache 346 MB -> 63 MB, glyph pictures and clusters.json identical, a second run 7 s
+  (54 s first). Free up space (window and `ectype free-space --cache`) also removes the book
+  projects' working files (`freespace.project_work_folders`/`remove_project_work`: each project's
+  `cluster/cache`; readings, corrections, fonts, PDFs untouched).
+- *Ink to letters, first look* (Beaux asked for it after the measurements above). A fresh sample of
+  the 361 odd one-off glyphs (after the size and box fixes): (1) a letter with its neighbour's ink
+  (י holding יר, מ holding ים, ) holding (4): the reading had a letter fewer than the ink; (2)
+  letters with vowel points (the pointed examples: real variants, rightly apart); (3) specks and
+  blots read as punctuation; (4) a little of the small glosses' ink. For (1), `segment._align`
+  now charges `ALIGN["wide"]` (2.0) per x-height by which split pieces make a letter wider than
+  1.5x its usual width + 0.25 x-height (a broken letter's pieces stay within it): odd one-offs
+  361 -> 354 (grammar), 347 -> 338 (Treatise); 5.0 gained nothing more. So most of (1) is letters
+  touching in the print (one ink component over two letters), which no alignment can split:
+  cutting a component at the reader's letter boundary would be the next step. Ink left out stays
+  in the page's background image (better than a wrong letter drawn).
+- *Kraken letter boxes keep to the line's own height*: the padding Kraken reads with reached into
+  the lines above and below (`read_runs` passes the unpadded `bands` to `_words`); odd shapes 456 -> 442.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

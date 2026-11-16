@@ -434,7 +434,7 @@ def read_runs(page, png: Path, models: dict[str, tuple[str, str | None]], sessio
         mine = [job for job in jobs if job[3] == script]
         if not mine:
             continue
-        boxes = []
+        boxes, bands = [], []
         for line, i, j, _ in mine:
             words = line.words[i:j + 1]
             x0, x1 = min(w.box[0] for w in words), max(w.box[2] for w in words)
@@ -442,12 +442,15 @@ def read_runs(page, png: Path, models: dict[str, tuple[str, str | None]], sessio
             y1 = max(line.box[3], *(w.box[3] for w in words))
             pad = max(4, (y1 - y0) // 6)
             boxes.append([max(0, x0 - pad), max(0, y0 - pad), min(page.size_px[0], x1 + pad), min(page.size_px[1], y1 + pad)])
+            # The letters' boxes keep to the line's own height: the padding Kraken reads with
+            # reaches into the lines above and below, whose ink then went to these letters.
+            bands.append([boxes[-1][0], y0, boxes[-1][2], y1])
         results = session.read(model_file, png, boxes, pack)
         if gray is None:
             from .imagefiles import imread
 
             gray = imread(str(png), 0)  # the page, to fit each letter's box to its ink
-        for (line, i, j, _), box, result in zip(mine, boxes, results):
+        for (line, i, j, _), box, result in zip(mine, bands, results):
             new = _words(result, box, Char, Word, gray)
             if new:
                 readings.append((line, i, j, new))

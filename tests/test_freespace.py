@@ -139,11 +139,11 @@ def test_gui(data, monkeypatch):
     d = FreeSpaceDialog(w)
     d.sizer.wait()
     app.processEvents()
-    assert [k for _, _, k, _ in d.checks] == ["cache", "leftovers", "font", "font"]
-    assert [b.isChecked() for b, *_ in d.checks] == [True, True, False, False]
-    assert d.chosen() == {"cache": True, "leftovers": True, "langs": []}
-    d.checks[2][0].setChecked(True)
-    assert d.chosen()["langs"] == [d.checks[2][3]]
+    assert [k for _, _, k, _ in d.checks] == ["cache", "leftovers", "project_work", "font", "font"]
+    assert [b.isChecked() for b, *_ in d.checks] == [True, True, True, False, False]
+    assert d.chosen() == {"cache": True, "leftovers": True, "project_work": True, "langs": []}
+    d.checks[3][0].setChecked(True)
+    assert d.chosen()["langs"] == [d.checks[3][3]]
     d.close()
     d.deleteLater()
     w.close()
@@ -170,3 +170,34 @@ def test_gui_free(data, monkeypatch):
     w.close()
     w.deleteLater()
     app.processEvents()
+
+
+def test_project_working_files(data):
+    """Beaux: a book's project swelled to 124 GB. Its glyph-grouping cache is working files only:
+    listed and removable; the project's readings and corrections stay."""
+    book = data / "projects" / "Grammar.ectype"
+    (book / "cluster" / "cache" / "v-abc").mkdir(parents=True)
+    (book / "cluster" / "cache" / "v-abc" / "g.npz").write_bytes(b"g" * 900)
+    (book / "ocr").mkdir()
+    (book / "ocr" / "p001.ocr.json").write_text("{}")
+    (book / "corrections").mkdir()
+    (book / "corrections" / "p001.json").write_text("{}")
+    assert freespace.report()["project_work"]["bytes"] == 900
+    assert freespace.remove_project_work() == 900
+    assert not (book / "cluster" / "cache").exists()
+    assert (book / "ocr" / "p001.ocr.json").is_file() and (book / "corrections" / "p001.json").is_file()
+
+
+def test_an_older_versions_glyph_cache_is_removed_at_the_next_run(tmp_path):
+    """Every update and every stopped run left a whole copy of the cache behind (only a finished
+    run removed what it hadn't used). Another version's folder, or files an older version left at
+    the top, go when the cache is opened; the pages' own results stay."""
+    from ectype.cluster import Cache
+
+    root = tmp_path / "cache"
+    for old in (root / "v-0000000000000000", root / "average", root / "group", root / "pages"):
+        old.mkdir(parents=True)
+        (old / "x.npz").write_bytes(b"o" * 100)
+    cache = Cache(root)
+    assert sorted(p.name for p in root.iterdir()) == ["pages"]
+    assert cache.folder.parent == root and cache.folder.name.startswith("v-")

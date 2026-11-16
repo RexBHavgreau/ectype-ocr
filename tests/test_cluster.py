@@ -122,7 +122,9 @@ def test_kept_results_make_the_same_glyphs(clustered, monkeypatch):
     root, _, first = clustered
     calls = []
     real = cluster.average
-    monkeypatch.setattr(cluster, "average", lambda members, **kw: calls.append(1) or real(members, **kw))
+    # a glyph of one letter is made again (not kept); one averaged from several never is
+    monkeypatch.setattr(cluster, "average",
+                        lambda members, **kw: (len(members) > 1 and calls.append(1)) or real(members, **kw))
     monkeypatch.setattr(cluster, "_page_instances", lambda *a: (_ for _ in ()).throw(AssertionError("measured again")))
     again = cluster_workspace(root)
     assert calls == [] and json.dumps(again, sort_keys=True) == json.dumps(first, sort_keys=True)

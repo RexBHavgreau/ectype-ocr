@@ -112,3 +112,23 @@ def test_fonts_report_stop_and_complete(book, tmp_path):
     assert not (ws / "fonts" / "fonts.json").exists()
     assert build_workspace_fonts(ws) == plain
     assert {p.name: p.read_bytes() for p in (ws / "fonts").glob("style-*.json")} == infos
+
+
+def test_size_levels_follow_the_books_own_sizes():
+    """Each line rounded alone made eleven sizes of Beaux's Hebrew grammar (noise of a few per
+    cent split one size), and each became styles and fonts. The book's own sizes are the peaks
+    of all its letters' sizes; a small note size beside a far larger text keeps its own level
+    (the Treatise's notes at 0.82 against its text at 0.98)."""
+    import numpy as np
+
+    from ectype.cluster import size_levels
+
+    rng = np.random.default_rng(1)
+    text = rng.normal(0.98, 0.03, 29000)
+    notes = rng.normal(0.825, 0.012, 7000)
+    heads = rng.normal(1.42, 0.03, 900)
+    level = size_levels(np.concatenate([text, notes, heads]))
+    got = {level(x) for x in text[:2000]} | {level(x) for x in notes[:2000]} | {level(x) for x in heads}
+    assert got == {1.0, 0.8, 1.4}
+    assert level(0.91) == 1.0 and level(1.08) == 1.0, "the text's spread is one size"
+    assert level(0.83) == 0.8

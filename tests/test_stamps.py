@@ -53,7 +53,10 @@ class Counter:
 
     def _wrap(self, fn, key):
         def counted(*a, **k):
-            self.n[key] += 1
+            # a glyph of one letter is made again each run (not kept: quick, and kept copies
+            # swelled a project to 124 GB); one averaged from several is kept
+            if not (key == "average" and len(a[0]) == 1):
+                self.n[key] += 1
             return fn(*a, **k)
         return counted
 

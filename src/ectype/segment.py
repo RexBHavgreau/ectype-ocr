@@ -386,7 +386,7 @@ def _join_marks(groups, skipped: list[int], chars, clusters: list[dict], stats: 
     return groups, left
 
 
-ALIGN = {"merge": 1.2, "split": 0.8, "noink": 2.0, "skip": 1.5, "edge": 0.25, "cap": 0.5, "place": 0.3}
+ALIGN = {"merge": 1.2, "split": 0.8, "noink": 2.0, "skip": 1.5, "edge": 0.25, "cap": 0.5, "place": 0.3, "wide": 2.0}
 
 
 def _align(chars, clusters: list[dict], x_size: float, speck: int, expected: list[float] | None = None, max_span: int = 3):
@@ -438,6 +438,12 @@ def _align(chars, clusters: list[dict], x_size: float, speck: int, expected: lis
                         # How well the clusters' ink width fits the characters' usual widths.
                         want = sum(expected[i:i + a]) * x_size
                         place = ALIGN["place"] * place + abs((k1 - k0) - want)
+                        if b > 1:
+                            # Pieces of a broken letter span about its own width; ink making a
+                            # letter far wider is a neighbour's (a letter the reading missed, a
+                            # bracket), glued on when leaving it out cost only a little more
+                            # (Beaux's grammar: י holding יר, מ holding ים, ) holding (4).
+                            place += ALIGN["wide"] * max(0.0, (k1 - k0) - (1.5 * want + 0.25 * x_size))
                     step = place + (a - 1) * merge_pen + (b - 1) * split_pen
                     if here + step < cost[i + a][j + b]:
                         cost[i + a][j + b], back[i + a][j + b] = here + step, (i, j, "pair")
