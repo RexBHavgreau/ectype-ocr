@@ -19,7 +19,9 @@ programmer.
 3. If the task is unclear, or turns out bigger than it says, **stop and report**. Do not guess
    and do not widen the task.
 
-## Setup (Linux; the same as the project's automatic tests)
+## Setup (only for tasks that change code or tests)
+
+On Linux (the same as the project's automatic tests):
 
 ```
 sudo apt-get update
@@ -36,11 +38,18 @@ python -m pip install -e ".[dev,gui]"
 tesseract --version
 ```
 
-**Check before you start.** `python --version` must say 3.12 (not another Python that
-happens to be installed), and `tesseract --version` must print a version (Tesseract from the
-UB Mannheim installer, with English). If either is missing, **stop and tell Beaux what to
-install**. Do not run the tests with another Python or without Tesseract: most of them will
-fail for that reason alone and the result means nothing.
+**Which Python.** Ectype runs on Python 3.10, 3.11, 3.12 and 3.13; any of them is fine.
+(3.12 is only what the released app is built with, so `py -3.12` above may be `py -3.13`
+and so on.) Python 3.14 is not ready: some tests crash on it on Windows.
+
+**Check before you run the tests.** `python --version` must say 3.10 to 3.13, and
+`tesseract --version` must print a version (with English installed). If not, **stop and
+tell Beaux what to install**: without them most tests fail for that reason alone and the
+result means nothing.
+
+**Tasks that only change documents** (their "Files to change" lists only `.md` files) need
+none of this setup and no test run. Do them with whatever you have, and say in your report
+that no tests were run because only documents changed.
 
 ## Running the tests
 

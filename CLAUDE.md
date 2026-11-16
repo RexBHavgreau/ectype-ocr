@@ -42,6 +42,13 @@ of "Planned".
   changes it. Real leads from the Windows run are in T-012. Two were test faults fixed at
   the check: `test_lossless_background…` rewrote a PDF its helper still held open (Windows
   refuses), and the Van Dyck test's name and its "Tanzil is never asked" check.
+- **Which Python** (Beaux asked, 2026-11-16, after T-003 was stopped for having 3.13):
+  Ectype does not need an old Python. `pyproject.toml` asks for 3.10 or later; the whole
+  suite passes on 3.13 (the cloud sessions' Python; 270 passed); 3.12 is only what
+  `release.yml` and `ci.yml` build and test with. 3.14 is the one not ready: on Beaux's PC
+  the traced-font tests ended in an access violation in vtracer (T-006; to be looked at in
+  T-012). The "must be 3.12" rule in `AGENTS.md` was the manager's overcorrection after
+  T-006 and is gone; document tasks need no setup at all.
 - **Rashi script is not untrained** (Beaux, 2026-11-16, correcting TASKS.md and the dated
   evaluation in `docs/`): they have at least one Rashi font and trained Hebrew on it with
   Train from fonts (Rashi uses the same Unicode letters as square Hebrew, so it trains

@@ -22,7 +22,8 @@ Any agent: read [`AGENTS.md`](AGENTS.md) first. It has the setup, the test comma
 4. **Read** every file listed under **Read first**, and nothing else unless you need it.
 5. **Do** the numbered **Steps**, in order. Change only the files under **Files to change**.
 6. **Check**: run every command under **Done when**. All must pass. Then run the whole test
-   suite once (`AGENTS.md` has the command).
+   suite once (`AGENTS.md` has the command), unless the task changed only documents (`.md`
+   files): then no tests are needed.
 7. **Report**: fill in the task's **Report** (template below), set Status to
    `For review (<branch name>)`, commit, push your branch, and open a pull request to `main`
    titled `<ID>: <task title>`. If you cannot push or open a pull request, tell Beaux the
@@ -62,8 +63,8 @@ Report (<tool>, <date>):
 ## Ready
 
 ### T-003 · docs/releasing.md: match what the release actually does
-- **Status:** Waiting (for Python 3.12 in the test environment)
-- **Who:** any agent · **Size:** S
+- **Status:** Ready
+- **Who:** any agent · **Size:** S · documents only: no setup and no tests needed
 - **Why:** `docs/releasing.md` describes the first release (0.1.0). The release now also
   builds a second download, the Kraken engine, and tests more.
 - **Read first:** `docs/releasing.md`; `.github/workflows/release.yml` (read every step's
@@ -85,16 +86,15 @@ Report (<tool>, <date>):
   - Each step `name:` in `release.yml` is covered by an item in the doc (list the pairing
     in your report).
   - `grep -n "0\.1\.0" docs/releasing.md` prints nothing.
+- **Review note (manager, 2026-11-16):** the first attempt stopped because Python was 3.13
+  and `AGENTS.md` then said "must be 3.12". That rule was wrong (the manager's mistake, now
+  fixed): Python 3.10 to 3.13 are all fine, and this task changes one document, so it needs
+  no Python at all. Nothing was wrong with the worker's stopping. Start again from step 1.
 - **Report:**
 
-Report (ChatGPT GitHub, 2026-11-16):
-- Did: No change to `docs/releasing.md`; stopped at the required setup check.
-- Checks: `python --version`: 3.13.5 (required: 3.12); `tesseract --version`: 5.5.0; task checks and whole suite not run.
-- Not done / unsure: Install and activate Python 3.12 in the test environment, then resume T-003.
-- For Beaux to try on Windows: nothing.
 ### T-004 · README: describe the project as it is now, not by build phases
 - **Status:** Ready
-- **Who:** any agent · **Size:** M
+- **Who:** any agent · **Size:** M · documents only: no setup and no tests needed
 - **Why:** The README opens with "Phases 0–5 are done, and Phase 6 is under way", which was
   true in October 2026. The app is far past that, and readers can't tell what it does today.
 - **Read first:** `README.md` (top paragraph, "Status", and the "Layout" section at the end);
@@ -462,6 +462,9 @@ remember anything, and will do literally what the words say.
 - Put facts the worker needs in the task (names, addresses, numbers); don't send it to
   search for them.
 - Say what to leave alone; that is where small models wander.
+- Ask of the worker's machine only what the task needs. (T-003, one document, was stopped
+  by a "Python must be 3.12" rule that was both needless for a document and wrong: 3.10 to
+  3.13 all work.) Mark document tasks "documents only: no setup and no tests needed".
 - Say what the worker's machine must have, and that it stops if it doesn't. (T-006 was run
   on Python 3.14 with no Tesseract: 78 failures that meant nothing. T-001 was done by an
   agent that couldn't run a command at all.)
