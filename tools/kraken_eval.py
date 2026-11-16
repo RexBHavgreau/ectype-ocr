@@ -64,7 +64,8 @@ def test_sets(script: str) -> dict[str, list[str]]:
 
 def font_path(family: str) -> Path | None:
     try:
-        out = subprocess.run(["fc-match", "-f", "%{file}|%{family}", family], capture_output=True, text=True).stdout
+        out = subprocess.run(["fc-match", "-f", "%{file}|%{family}", family], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace").stdout
     except OSError:
         return None
     file, _, found = out.partition("|")
@@ -102,7 +103,8 @@ def tesseract_reads(lang: str, lines: list[tuple[Path, str]]) -> list[str] | Non
         return None
     out = []
     for png, _ in lines:
-        r = subprocess.run([cmd, str(png), "-", "--psm", "7", "-l", lang], capture_output=True, text=True)
+        r = subprocess.run([cmd, str(png), "-", "--psm", "7", "-l", lang], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
         if r.returncode != 0:
             return None
         out.append(_clean(r.stdout))

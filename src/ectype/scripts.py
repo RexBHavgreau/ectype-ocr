@@ -117,7 +117,7 @@ def detect(cmd: str, env: dict | None, crop: np.ndarray, flags: dict) -> tuple[s
         Image.fromarray(tile).save(src, dpi=(300, 300))
         try:
             out = subprocess.run([cmd, str(src), "-", "--psm", "0"], capture_output=True, text=True,
-                                 timeout=60, env=env, **flags).stdout
+                                 encoding="utf-8", errors="replace", timeout=60, env=env, **flags).stdout
         except (OSError, subprocess.SubprocessError):
             return None, 0.0
     script = re.search(r"Script: (\w+)", out)
