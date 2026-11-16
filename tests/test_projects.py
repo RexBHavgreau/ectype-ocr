@@ -164,3 +164,16 @@ def test_a_pdf_making_step_given_a_scan_runs_it(tmp_path, capsys, monkeypatch):
     assert cli._as_run(["textlayer", str(tmp_path / "Treatise.ectype")])[0] == "textlayer"  # a folder: the step
     assert cli.main(["textlayer", str(pdf), "--lang", "eng"]) == 0
     assert (tmp_path / "Treatise - OCR.pdf").is_file()
+
+
+def test_latin_words_are_named_when_english_is_missing(tmp_path, monkeypatch):
+    """The Hebrew grammar read as heb only: the note said "this book has  that heb doesn't read"
+    (English suggested for its Latin words, which weren't named)."""
+    from ectype.project import Project, found_words
+
+    project = Project(tmp_path / "grammar.ectype")
+    monkeypatch.setattr(Project, "language_suggestions", lambda self: ["eng"])
+    monkeypatch.setattr(Project, "unread_scripts", lambda self: {"Latin": 19, "Devanagari": 12})
+    codes, found = project.missing_languages()
+    assert codes == ["eng"] and found == {"Latin": 19}
+    assert found_words(found) == "Latin (19 words)"

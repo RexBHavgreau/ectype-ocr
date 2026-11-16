@@ -463,7 +463,8 @@ class Project:
         codes = self.language_suggestions()
         if not codes:
             return None
-        found = {script: n for script, n in self.unread_scripts().items() if SUGGEST.get(script) in codes}
+        found = {script: n for script, n in self.unread_scripts().items()
+                 if (SUGGEST.get(script) or ("eng" if script == "Latin" else None)) in codes}  # Latin: English, as suggest()
         return codes, found
 
     def decline_languages(self, codes: list[str]) -> None:

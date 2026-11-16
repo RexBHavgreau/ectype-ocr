@@ -517,6 +517,13 @@ plan in it, not only the menus and crash recorder):
   then all put in back to front per line. Also `ocr.kraken_scripts`: a model of several scripts
   reads only the ticked languages' scripts (ticking Hebrew no longer sends words the detector took
   for Arabic/Syriac to it); a model with none of its scripts ticked reads all, as before.
+- *Measured* (the grammar extract, 17 pages, stock `heb`, here on 4 cores): Tesseract alone 3,085
+  unpointed Hebrew words, 63.2% found in the hebrew-prose vocabulary, common ב/כ words (כמו כלל כל
+  כאשר בין בלתי מבוא לבוא כי …) wrong 22 of 162; with PP-OCRv6 medium (kraken_21788410, Beaux's
+  pre-release `kraken-test-models`) rereading the Hebrew: 3,386 words, 69.8%, 5 of 178 wrong; 4.5 min
+  against about 1. Not yet against a checked transcription (Beaux will add corrected pages).
+  Also fixed: the closing note named no words for a missing English ("this book has  that heb
+  doesn't read": `missing_languages` matched scripts through SUGGEST, which has no Latin).
 - *Free up space* lists "Book projects" with their size and never removes them
   (`freespace.report()["projects"]`). tests/conftest.py points ECTYPE_DATA_DIR at a throwaway
   folder for the whole test session.

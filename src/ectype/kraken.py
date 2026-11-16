@@ -40,7 +40,7 @@ ENGINE_EXE = "ectype-kraken.exe" if sys.platform == "win32" else "ectype-kraken"
 # ISO 15924 codes (the repository's) to the script names used elsewhere (scripts.py).
 ISO15924 = {"Latn": "Latin", "Grek": "Greek", "Hebr": "Hebrew", "Arab": "Arabic", "Syrc": "Syriac",
             "Syre": "Syriac", "Syrj": "Syriac", "Syrn": "Syriac", "Cyrl": "Cyrillic", "Armn": "Armenian",
-            "Geor": "Georgian", "Ethi": "Ethiopic", "Deva": "Devanagari", "Copt": "Coptic", "Latf": "Latin"}
+            "Geor": "Georgian", "Ethi": "Ethiopic", "Deva": "Devanagari", "Copt": "Coptic", "Latf": "Latin", "Mlym": "Malayalam"}
 LISTING_MAX_AGE = 7 * 24 * 3600
 
 
