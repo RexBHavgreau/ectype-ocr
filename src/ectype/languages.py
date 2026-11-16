@@ -138,3 +138,167 @@ def download(codes: list[str], progress: Callable[[str, int, int], None] | None 
                      progress=(lambda got, total, code=code: progress(code, got, total)) if progress else None)
         done.append(code)
     return done
+
+
+# -- Choosing a Kraken model for a language (Beaux, 0.11.0: "they're all lumped together") ----
+# A project still keeps its Kraken models as codes ("kraken_7051645") inside its language list;
+# these functions only separate the two kinds, so the menu and the command line can offer
+# "read Hebrew with: Tesseract alone / this model / that model".
+
+
+def tesseract_codes(lang_list: list[str]) -> list[str]:
+    """The Tesseract languages (and Ectype's trained ones) in a list, in order."""
+    return [c for c in lang_list if not c.startswith("kraken_")]
+
+
+def kraken_codes(lang_list: list[str]) -> list[str]:
+    """The Kraken models in a list, in order."""
+    return [c for c in lang_list if c.startswith("kraken_")]
+
+
+def kraken_for(lang_code: str) -> list[str]:
+    """The installed Kraken models that read this language's script, by name. A model of
+    several scripts is offered for each of them."""
+    from .kraken import installed_models, reads
+    from .scripts import script_of
+
+    return models_for_script(script_of(lang_code), installed_models(), reads)
+
+
+def models_for_script(script: str, installed=None, reads_fn=None) -> list[str]:
+    from .kraken import installed_models, reads
+
+    installed = installed_models() if installed is None else installed
+    reads_fn = reads if reads_fn is None else reads_fn
+    return sorted((k for k in installed if script in reads_fn(k)), key=lambda k: name(k).lower())
+
+
+def reader_of(lang_list: list[str], lang_code: str) -> str | None:
+    """The Kraken model chosen for this language (the first in the list that reads its
+    script), or None: Tesseract alone."""
+    from .scripts import script_of
+
+    return reader_for_script(lang_list, script_of(lang_code))
+
+
+def reader_for_script(lang_list: list[str], script: str) -> str | None:
+    """The model that reads this script, as reading picks it (ocr.py): of the models in the list
+    that read it, the one of fewest scripts, the first listed among equals."""
+    from .kraken import reads
+
+    found = [k for k in kraken_codes(lang_list) if script in reads(k)]
+    return min(found, key=lambda k: len(reads(k))) if found else None
+
+
+def choose_reader_for_script(lang_list: list[str], script: str, kraken_code: str | None) -> list[str]:
+    """The list with the Kraken models that read this script taken out, and the chosen one
+    (or none: Tesseract alone) put in the place of the first removed, else at the end. A model
+    that also reads another ticked language's script stays for that one: reading gives each
+    script the chosen model of fewest scripts (`reader_for_script`), so a model of one script
+    chosen here takes this script from it. (Choosing Tesseract alone can't take a script from
+    such a model; the menu then still shows the model as this script's reader.)"""
+    from .kraken import reads
+    from .scripts import script_of
+
+    others = {script_of(c) for c in tesseract_codes(lang_list)} - {script}
+    out: list[str] = []
+    placed = kraken_code is None
+    for code in lang_list:
+        if code.startswith("kraken_") and script in reads(code) and not others & set(reads(code)):
+            if not placed:
+                out.append(kraken_code)
+                placed = True
+            continue
+        if code != kraken_code:
+            out.append(code)
+    if not placed:
+        out.append(kraken_code)
+    return out
+
+
+def choose_reader(lang_list: list[str], lang_code: str, kraken_code: str | None) -> list[str]:
+    """The language list with this language read by the chosen Kraken model (None: by
+    Tesseract alone). The language itself is ticked too. Other languages and models stay."""
+    from .scripts import script_of
+
+    out = choose_reader_for_script(list(lang_list), script_of(lang_code), kraken_code)
+    if lang_code not in out:
+        out.insert(out.index(kraken_code) if kraken_code else 0, lang_code)
+    return out
+
+
+def orphan_readers(lang_list: list[str]) -> list[str]:
+    """Kraken models in a list that no ticked language of their script goes with (older
+    projects held a model alone). They are still shown, as that script's reader."""
+    from .kraken import reads
+    from .scripts import script_of
+
+    scripts = {script_of(c) for c in tesseract_codes(lang_list)}
+    return [k for k in kraken_codes(lang_list) if reads(k) and not scripts & set(reads(k))]
+
+
+def reader_rows(lang_list: list[str]) -> list[tuple[str, str, list[str]]]:
+    """What the menu shows to choose a reader: (script, what it's for, models available), one
+    row per script that has a ticked language and a model installed or chosen, or a model
+    chosen alone. 'what it's for' is the language name(s), e.g. "Hebrew"."""
+    from .kraken import reads
+    from .scripts import script_of
+
+    rows: dict[str, list[str]] = {}
+    for code in tesseract_codes(lang_list):
+        rows.setdefault(script_of(code), []).append(code)
+    for k in orphan_readers(lang_list):
+        for s in reads(k)[:1]:
+            rows.setdefault(s, [])
+    out = []
+    for script, codes in rows.items():
+        have = models_for_script(script)
+        chosen = reader_for_script(lang_list, script)
+        if chosen and chosen not in have:
+            have.append(chosen)
+        if have:
+            label = " and ".join(name(c) for c in codes) if codes else script
+            out.append((script, label, have))
+    return out
+
+
+def reader_title(code: str) -> str:
+    """"Kraken: <title>" or "Kraken: trained on <book>" - a model as the menus name it."""
+    from .kraken import installed_models
+
+    m = installed_models().get(code)
+    if m is None:
+        return f"Kraken: {code} (not installed)"
+    if m.get("book"):
+        return f"Kraken: trained on {m['book']}"
+    return f"Kraken: {m.get('title') or code}"
+
+
+def apply_kraken_choices(lang_list: list[str], choices: list[str]) -> list[str]:
+    """Command line: --kraken LANG=MODEL (MODEL a code, or just its number). Raises ValueError
+    in plain words if the model isn't installed or doesn't read the language's script."""
+    from .kraken import installed_models, reads
+    from .scripts import script_of
+
+    installed = installed_models()
+    out = list(lang_list)
+    for item in choices:
+        lang, sep, model = item.partition("=")
+        lang, model = lang.strip(), model.strip()
+        if not sep or not lang or not model:
+            raise ValueError(f"--kraken {item!r}: write it as LANG=MODEL, for example --kraken heb=7051645 "
+                             "(see: ectype kraken list)")
+        if lang.startswith("kraken_"):
+            raise ValueError(f"--kraken {item!r}: the first part is the language (heb, grc, eng…), the second the model.")
+        code = model if model.startswith("kraken_") else "kraken_" + model.lstrip("#")
+        if code not in installed:
+            raise ValueError(f"The Kraken model {model} isn't installed. See what is: ectype kraken list. "
+                             f"To add one: ectype kraken available, then ectype kraken add <number>.")
+        script = script_of(lang)
+        if script not in reads(code):
+            raise ValueError(f"The Kraken model {model} reads {', '.join(reads(code))}, not {name(lang)} ({script}). "
+                             f"Models for {script}: " + (", ".join(k.removeprefix('kraken_') for k in models_for_script(script))
+                                                         or "none installed yet (ectype kraken available --script "
+                                                         f"{script})"))
+        out = choose_reader(out, lang, code)
+    return out

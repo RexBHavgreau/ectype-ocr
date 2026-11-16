@@ -494,6 +494,21 @@ plan in it, not only the menus and crash recorder):
   under `textfiles.work_root()` and deletes it (try/finally, so also on failure or Ctrl+C) unless
   `--keep` (then it is the book's project in `projects/`, openable in Review) or `-o`. Traced and
   substitute keep their project. A stopped text run starts over (cheap).
+- *Choosing Kraken models* (Beaux: "all lumped together in the GUI, and in the CLI I just select
+  the languages"). The stored form is unchanged (Kraken codes `kraken_<number>` inside
+  `Settings.lang`, reading in ocr.py as before); only the showing and choosing changed.
+  `languages.py`: `tesseract_codes`/`kraken_codes`, `kraken_for`, `reader_of`, `choose_reader`
+  (`choose_reader_for_script`: removes the models that read that script, puts the chosen one in),
+  `reader_rows`/`orphan_readers` (an older project with a model and no language of its script still
+  shows it as that script's reader), `apply_kraken_choices` (the CLI's refusals in plain words).
+  Menu (`LanguageButton.set_languages`, Print Mode only): the checklist holds Tesseract languages
+  only; each ticked language with models gets a "Read <language> with" submenu (Tesseract alone /
+  Kraken: <title> / Kraken: trained on <book>), rebuilt after a tick; then "Kraken models…" (opens the
+  languages window on its Kraken tab), "Add languages…", "Trained models…". The Kraken panel lists
+  the installed models by script and says how to use one. CLI: `ectype kraken list|available|add|remove`,
+  `--kraken LANG=MODEL` on run, ocr, text, text-files (applied in `cli.apply_kraken_options`);
+  `ectype languages` lists the models under their script; `--lang heb+kraken_<n>` still works.
+  Tests: tests/test_kraken_choice.py. Not tried against a real engine or Zenodo (add/available).
 - *Free up space* lists "Book projects" with their size and never removes them
   (`freespace.report()["projects"]`). tests/conftest.py points ECTYPE_DATA_DIR at a throwaway
   folder for the whole test session.
@@ -768,6 +783,10 @@ plan in it, not only the menus and crash recorder):
   separate `party` package, not Kraken's line reader; check its speed on CPU, its size, and
   whether it gives each letter's place (traced PDFs need it) before offering it. Listed error
   rates come from each model's own test pages, so they don't compare across models.
+- **Kraken reads the whole page**: a per-language choice "Kraken: <model> (reads the whole page)"
+  beside today's re-reading; Kraken finds the lines (blla, as Manuscript Mode does), reads them and
+  gives each letter's place; to be measured against Tesseract on corrected pages of Beaux's books
+  before becoming the default.
 - Manuscripts, later: straightening curved pages (Beaux: not now); training on Intel graphics
   (needs changes to Kraken); a Hebrew manuscript model tried on Beaux's PC (BiblIA, Zenodo).
 - Possibly an English known text for Train from fonts (Latin is done: the Vulgate).
