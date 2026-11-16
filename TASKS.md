@@ -62,7 +62,7 @@ Report (<tool>, <date>):
 ## Ready
 
 ### T-003 · docs/releasing.md: match what the release actually does
-- **Status:** Ready
+- **Status:** Waiting (for Python 3.12 in the test environment)
 - **Who:** any agent · **Size:** S
 - **Why:** `docs/releasing.md` describes the first release (0.1.0). The release now also
   builds a second download, the Kraken engine, and tests more.
@@ -87,6 +87,11 @@ Report (<tool>, <date>):
   - `grep -n "0\.1\.0" docs/releasing.md` prints nothing.
 - **Report:**
 
+Report (ChatGPT GitHub, 2026-11-16):
+- Did: No change to `docs/releasing.md`; stopped at the required setup check.
+- Checks: `python --version`: 3.13.5 (required: 3.12); `tesseract --version`: 5.5.0; task checks and whole suite not run.
+- Not done / unsure: Install and activate Python 3.12 in the test environment, then resume T-003.
+- For Beaux to try on Windows: nothing.
 ### T-004 · README: describe the project as it is now, not by build phases
 - **Status:** Ready
 - **Who:** any agent · **Size:** M
