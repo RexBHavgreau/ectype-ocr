@@ -528,6 +528,29 @@ plan in it, not only the menus and crash recorder):
   (`_ConsoleProgress.phase`). `clusters.json` is now written **last** (after the report sheets), so a
   stopped run leaves none (or the earlier one) and it is never stale-but-fresh. Results unchanged
   (tests/test_cluster_progress.py). The built .otf files differ run to run (build timestamp).
+- *Unpointed Hebrew prose for every Hebrew font* (Beaux's Hebrew grammar, 19th-century, unpointed,
+  full spelling כמו כלל התנועות לבוא ובעבור: the model confused ב/כ; the WLC is pointed and spelled
+  defectively, and a font with points never got unpointed lines). New known text `hebrew-prose`
+  (`texts.py`: 60 fixed works, `PROSE_WORKS`, 1.16 M characters, 2.1 MB kept) from the Project
+  Ben-Yehuda public domain dump, pinned (`verify.BENYEHUDA_COMMIT`, `PINS["hebrew-prose"]`, folder
+  `txt_stripped/`) and fingerprinted like the others (`python tools/make_fingerprints.py hebrew-prose`
+  now fingerprints one source and keeps the rest). Chosen from its catalogue: no translator, no
+  original language, genre article, eight authors of expository prose (14 Ahad Ha'am, 8 each
+  Smolenskin, Lilienblum, Sokolow, A. D. Gordon, 6 Brainin, 4 each Ussishkin, Magnes), 20-90 KB
+  works spread evenly by catalogue number. `_prose_pieces`: pieces of 6-30 words cut at sentence
+  ends, Hebrew marks removed (maqaf kept; NFC first, which unpacks pointed presentation forms),
+  no Latin letters, titles and numbers dropped; ASCII quotes left as the source has them (no
+  conversion to gershayim). The kept copy's pin names the works and `PROSE_VERSION`
+  (`texts.prose_pin`). `synthtrain.unpointed_lines`: each Hebrew font gets a second book
+  `font: <name> (unpointed)` with its own stamp (`UNPOINTED_VERSION`), 40% as many lines as the
+  pointed set (`UNPOINTED_SHARE`), so a font whose pointed lines exist (Beaux's 112,000, over an
+  hour) is not set again, only the new set made, and a second run makes nothing. A font without
+  the points takes 70% from the prose, 30% from the WLC without points. If the prose can't be
+  downloaded: said in the progress and `skipped`, lines come from the WLC without points, stamped
+  `-bible`, and are made again once the prose can be had (`-prose`). Hebrew still isn't made
+  unavailable by this (`support(failed=)` untouched). Free up space removes the set with the
+  font's other lines (it is a synthetic book). Tried here: 13,107 pieces; FreeSerif, 20 lines,
+  8 unpointed added, second run nothing.
 
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
@@ -656,7 +679,8 @@ plan in it, not only the menus and crash recorder):
 - Known texts: Hebrew Bible (WLC), Greek New Testament (SBLGNT), Latin Vulgate (Clementine,
   public domain, one TSV from github.com/lukesmithxyz/vul; Train from fonts → Latin trains
   `lat`, a quarter of its lines with word-final æ). More languages need a reliable
-  public-domain text the app can download. Syriac: the Peshitta OT (with deuterocanon, 46
+  public-domain text the app can download. Hebrew prose (0.11.0, `hebrew-prose`): Project Ben-Yehuda's public domain
+  works, unpointed, for unpointed lines in every Hebrew font (see 0.11.0). Syriac: the Peshitta OT (with deuterocanon, 46
   books, unvowelled) from ETCBC/peshitta's `plain/0.2/<Book>.txt` (Beaux chose it; its text is
   CC BY-NC 4.0, credited in CREDITS.md, downloaded on the user's machine for their own
   training; the repo's MIT licence covers its programs only). Train from fonts → Syriac

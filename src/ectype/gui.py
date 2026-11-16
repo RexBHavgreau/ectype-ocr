@@ -2193,7 +2193,7 @@ class FontTrainingDialog(QDialog):
         self.failed: dict[str, str] = {}  # languages whose known text couldn't be downloaded
         self.scanner: Task | None = None
         layout = QVBoxLayout(self)
-        intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible, the Greek New Testament, the Latin "
+        intro = QLabel("Ectype sets passages of a known text (the Hebrew Bible and Hebrew prose without points, the Greek New Testament, the Latin "
                        "Vulgate, the Peshitta, the Qurʾān and the Arabic Bible) in each "
                        "font you choose, makes the lines look scanned, and trains each language's model on them: no "
                        "correcting by hand. Fonts are only read, never copied. The more typefaces like your books' "

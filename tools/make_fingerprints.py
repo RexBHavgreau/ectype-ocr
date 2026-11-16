@@ -3,7 +3,8 @@ from GitHub, so a download that was swapped, cut short or tampered with is never
 
 Run it from the repository root, with the source on the path:
 
-    PYTHONPATH=src python tools/make_fingerprints.py
+    PYTHONPATH=src python tools/make_fingerprints.py            # every source
+    PYTHONPATH=src python tools/make_fingerprints.py hebrew-prose   # one source; the others stay as they are
 
 It is re-runnable. To move a pin (take a newer version of a source), change that commit in
 `ectype/verify.py` (`--latest` prints each repository's newest commit), run this, check the
@@ -49,6 +50,8 @@ def wanted(source: str) -> list[str]:
         return ["vul.tsv"]
     if source == "quran":
         return ["quran-simple.txt"]
+    if source == "hebrew-prose":
+        return [f"{w}.txt" for w in texts.PROSE_WORKS]
     raise KeyError(source)
 
 
@@ -82,9 +85,13 @@ def size_of(url: str) -> int:
         return int(r.headers["Content-Length"])
 
 
-def make() -> dict:
-    out = {}
+def make(only: list[str] | None = None) -> dict:
+    """Fingerprints of every source, or of the `only` sources alone (the rest of fingerprints.json
+    is kept as it is, so adding a source needs no new look at the others)."""
+    out = json.loads(OUT.read_text(encoding="utf-8")) if only and OUT.exists() else {}
     for source, (repo, commit, folder) in verify.PINS.items():
+        if only and source not in only:
+            continue
         print(f"{source}: {repo} at {commit[:10]}", file=sys.stderr)
         listed = tree(repo, commit)
         files = {}
@@ -116,7 +123,11 @@ def latest() -> None:
 def main() -> None:
     if "--latest" in sys.argv:
         return latest()
-    data = make()
+    only = [a for a in sys.argv[1:] if not a.startswith("-")]
+    unknown = [a for a in only if a not in verify.PINS]
+    if unknown:
+        raise SystemExit(f"Not a pinned source: {', '.join(unknown)} (one of {', '.join(verify.PINS)})")
+    data = make(only)
     OUT.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {OUT} ({OUT.stat().st_size} bytes)", file=sys.stderr)
 

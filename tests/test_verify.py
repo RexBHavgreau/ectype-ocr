@@ -103,6 +103,10 @@ def test_the_shipped_fingerprints_cover_every_download():
                                (texts.PESHITTA_BOOKS, "peshitta", ".txt")):
         for book in books:
             assert len(verify.known(source, book + ext)["sha256"]) == 64
+    for work in texts.PROSE_WORKS:
+        assert len(verify.known("hebrew-prose", work + ".txt")["sha256"]) == 64
+    assert len(texts.PROSE_WORKS) == len(set(texts.PROSE_WORKS)) == 60
+    assert verify.BENYEHUDA_COMMIT in verify.url_for("hebrew-prose", "p23/m10.txt")
     assert verify.known("vulgate", "vul.tsv")["sha256"] and verify.known("quran", texts.QURAN_FILE)["sha256"]
     for source, (_repo, commit, _folder) in verify.PINS.items():
         assert len(commit) == 40 and verify.fingerprints()[source]["commit"] == commit
@@ -172,6 +176,34 @@ def test_a_swapped_text_download_is_not_used(tmp_path, monkeypatch):
     with pytest.raises(verify.DownloadMismatch):
         texts.load("vulgate")
     assert not (texts.folder() / "vulgate.txt").exists()
+
+
+PROSE = ("\n".join(["כותרת", "\t", "ואני אך לפני חודש ימים בקרתי את הגימנסיה, ארבעה ימים ארבע שעות בכל יום, הקשבתי אל "
+                     "הלמודים במחלקות השונות. וחוץ לזה נזדמנתי כמה פעמים עם מורים ועם תלמידים והרביתי שיחה עם אלו ועם אלו."])
+         + "\n").encode("utf-8")
+
+
+def test_hebrew_prose_is_checked_kept_and_refused_when_swapped(tmp_path, monkeypatch):
+    monkeypatch.setenv("ECTYPE_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(texts, "PROSE_WORKS", ("p1/m1", "p1/m2"))
+    _text_fingerprints(monkeypatch, {"hebrew-prose": {"p1/m1.txt": PROSE, "p1/m2.txt": PROSE + PROSE}})
+    seen = []
+    monkeypatch.setattr("urllib.request.urlopen", served({"p1/m1.txt": PROSE, "p1/m2.txt": PROSE + PROSE}, seen))
+    lines = texts.load("hebrew-prose")
+    assert lines and len(seen) == 2 and all(verify.BENYEHUDA_COMMIT in u and "/txt_stripped/" in u for u in seen)
+    assert texts.load("hebrew-prose") == lines and len(seen) == 2, "a kept copy that matches is used"
+    cache = texts.folder() / "hebrew-prose.txt"
+    cache.write_text("tampered\n", encoding="utf-8")
+    assert texts.load("hebrew-prose") == lines and len(seen) == 4, "a damaged copy is fetched again"
+    monkeypatch.setattr(texts, "PROSE_WORKS", ("p1/m1",))  # another list of works: another kept text
+    assert len(texts.load("hebrew-prose")) < len(lines)
+    # a file that isn't the one on record is never used, and nothing is kept
+    monkeypatch.setattr(texts, "PROSE_WORKS", ("p1/m2",))
+    monkeypatch.setattr("urllib.request.urlopen", served({"p1/m2.txt": (PROSE + PROSE).replace("גימנסיה".encode(), "גמנסיה".encode())}))
+    cache.unlink()
+    with pytest.raises(verify.DownloadMismatch):
+        texts.load("hebrew-prose")
+    assert not cache.exists()
 
 
 def test_arabic_uses_the_quran_alone_while_van_dyck_is_off(tmp_path, monkeypatch):

@@ -341,6 +341,312 @@
   },
   "repo": "openscriptures/morphhb"
  },
+ "hebrew-prose": {
+  "commit": "5e4277fead7b565f32cc4b352abd3565023a77d8",
+  "files": {
+   "p12/m2536.txt": {
+    "git": "ffd70a500c3c617178e5ef20ce485fc9dc76ee19",
+    "sha256": "f05d469f7fe682f391c664c80cb0d7f24a758f3ca287c4b5538b4ebae35aed87",
+    "size": 23847
+   },
+   "p12/m3612.txt": {
+    "git": "957f4feac94ad3d0ad2a86c0f76c0c3b2a673446",
+    "sha256": "781579f2df84ff4fdd5999e32f3ff6575df8489d7624ea976e55101b29b32237",
+    "size": 23724
+   },
+   "p12/m447.txt": {
+    "git": "5edc3990cefbb9c3aa72e85375aee1d1f629e263",
+    "sha256": "3b082f588e581207af23f08d159a05cecc5edc488ccd8c19ae664adde00a79ba",
+    "size": 32830
+   },
+   "p12/m5207.txt": {
+    "git": "693af395417caa852edba45d4efa4c9e611dc904",
+    "sha256": "455480719e5fa2a94d09fc713cfbcc3311c6f736e7625e52a3cf1ab82468d6ef",
+    "size": 39370
+   },
+   "p12/m6170.txt": {
+    "git": "99fd2d7f8a905efde0bb784d37eebabc15dc394c",
+    "sha256": "3792e8024895d20e9842710b3e94116448c433c9a86adbb8a8873adde3e9d001",
+    "size": 23982
+   },
+   "p12/m8505.txt": {
+    "git": "c59571a62795bf574d5514d9a2f94925beb4948c",
+    "sha256": "49bb32b7ee85a88bca916fe46626923ee36d1c37ea476f3799992ed181a487a2",
+    "size": 23786
+   },
+   "p18/m125.txt": {
+    "git": "f283455fb4238369750734e7afb14bf2ccad160a",
+    "sha256": "18822a1ccd20883dc5fc284105a10a4b7a1565f41d18b8c4bad7946d218322e2",
+    "size": 20217
+   },
+   "p18/m1555.txt": {
+    "git": "d5556b7b2a3de355a514bcde7c0e36f5b3924472",
+    "sha256": "33c6263848c854fe8ac38c34960477cedd6ebf849af87078f2c476cd0c4521d2",
+    "size": 38195
+   },
+   "p18/m18002.txt": {
+    "git": "010edde70b598536a21cb5f3747d655d02367245",
+    "sha256": "4ed0cedd7ab2691abc09eb1ddf0e39499bd67b3293359dcc26fedfe7029be597",
+    "size": 78095
+   },
+   "p18/m18051.txt": {
+    "git": "8804dc05c7473db49149b5854b0de8e14c23ac05",
+    "sha256": "e851fe48e1882f234c59958baef5ce902701c64c9cd73866759a84a2f70fa96b",
+    "size": 30409
+   },
+   "p18/m3110.txt": {
+    "git": "480dc292c601cb0a9c71a5127167e687e8968299",
+    "sha256": "a11846746b564203607ed0495fdd2a582e0e102718d4e3cc23def18814201632",
+    "size": 41064
+   },
+   "p18/m5164.txt": {
+    "git": "4820f1eb03b257c1c06dd7554a1df3d58a55ccab",
+    "sha256": "6a3919cd738e09541fbbf9563b11af933b30e792fc5f898339b29da8f5325b0e",
+    "size": 35299
+   },
+   "p18/m6391.txt": {
+    "git": "e7659deaff840562148f6b3781f029567261b647",
+    "sha256": "fbafec33b3e2257ae363b49d562cfeff657a0b57ed518669ef958f21bf43f9eb",
+    "size": 64401
+   },
+   "p18/m7883.txt": {
+    "git": "0b462fe15034e7ed1c479ac5596e78b42c8657b7",
+    "sha256": "a7012fcc329e66891b924af9facaf72c5b0402b881c162585cae0d4a8738a0f1",
+    "size": 25450
+   },
+   "p23/m13935.txt": {
+    "git": "45dcbb872042658d690733fea8d0b9ed24371ddc",
+    "sha256": "cdf730f28c8a5cb23c5adb3adf71f141ed72f8e713b91e60bf60b09d600061f0",
+    "size": 21603
+   },
+   "p23/m1415.txt": {
+    "git": "e11893ccf3e18c526f69edcbe4dd210b9afdea86",
+    "sha256": "2fb8b9110a01934810b6fe220c4ca20e58cd15ff0ded5d8917c60478ff1e92df",
+    "size": 24633
+   },
+   "p23/m15050.txt": {
+    "git": "95715d0255e27d2097f9bb263ba6dea13e728665",
+    "sha256": "8f47a73cc5dd86d35ecd2d7d0431d8fbeebcac248fc33d557e6e89f3a14f8e99",
+    "size": 30635
+   },
+   "p23/m171.txt": {
+    "git": "92be3ae491dcab61b6c19d56d7c8fc124f462e57",
+    "sha256": "4f57d513e580dd8dc08ec2f695b86a5e7854742d7c1769500f1eddd43cc9efd7",
+    "size": 22562
+   },
+   "p23/m2594.txt": {
+    "git": "09d5c8fd348146ccf9a206a9ff298b6454342700",
+    "sha256": "ef32cbd0161f506ddb0236aa5fd83e251647dd71ef2da2b4f7a02bbf61ab3cc8",
+    "size": 76737
+   },
+   "p23/m3602.txt": {
+    "git": "2235d6404bee35991327b19f731b526a899c202d",
+    "sha256": "d9d692168605f0fa7d2dd40eee3108f548dc7622498887ba5b7ac468e040eba7",
+    "size": 21416
+   },
+   "p23/m5086.txt": {
+    "git": "41ad7e69f462ab9652d24ccf841b54fbac298532",
+    "sha256": "f7ea93d38c3e50a5ee87e610a0778fb969c3d15d2657ce749ff63ff62033bad5",
+    "size": 22171
+   },
+   "p23/m5589.txt": {
+    "git": "a11146891d9181bb0c0a69031d2433c55788cd1c",
+    "sha256": "3f137f237b1a128f6e3bbd7f80f49bdcc96b9649ec1276d452db7257f793f6e7",
+    "size": 21782
+   },
+   "p23/m6303.txt": {
+    "git": "eadd697fcd43e4d2b192c3002f0205487283432e",
+    "sha256": "60e7bf83b0e8742fe143b95c8828dc4c9834e3b4ceb09de7c829eaad42820398",
+    "size": 49250
+   },
+   "p23/m6959.txt": {
+    "git": "c23fea89601e09c12e49059ac677b2859740d913",
+    "sha256": "b9e977130480dc61657b98b3ea853a4f13ede7bfa50bf102d9728dd7e329ec53",
+    "size": 40827
+   },
+   "p23/m7415.txt": {
+    "git": "18eb0e9f571344e874d48ea75e1ad11c43f5a2a7",
+    "sha256": "a9135d373f7fb8fb975004d55a1759f81f8b8ed70a4c02ac2849b957033e849a",
+    "size": 20932
+   },
+   "p23/m774.txt": {
+    "git": "ae6a28f3e9d2e8c4623fcebc31b842cf1694b3b0",
+    "sha256": "76ae2abfdf97d81a294d44eb2381914ee76581af218da3c3e0fb5712c1554dc9",
+    "size": 47860
+   },
+   "p23/m7990.txt": {
+    "git": "72a4261ed628f8bdd55821d4aaaa00af1ea440c6",
+    "sha256": "ae3d10c55cab8cbeb5282b3aa05e84147c208d28d72dc92deeaaca036d3b38d6",
+    "size": 22707
+   },
+   "p23/m8447.txt": {
+    "git": "6043284c84eb7c5da0dd3a2e8da5236db00292fd",
+    "sha256": "1f28ac3fb1a258cf8347b9691cb9967fc54ba63e665ac941806fd923dea440a3",
+    "size": 40199
+   },
+   "p2706/m50388.txt": {
+    "git": "10f9c8ef5f93e67607f1bc6753b672cf4a24e269",
+    "sha256": "31e6bae80e631195f1d91830e4101b02bb1c120bd03d37ea2bdd1112939ea7f6",
+    "size": 21811
+   },
+   "p2706/m50400.txt": {
+    "git": "80d2c2f25bf6d96d0deaf788aa6aec773ac9e924",
+    "sha256": "bcf61753330b2af54b38100f8d2c012e53462f71645225d2356688d5c3d97e35",
+    "size": 33111
+   },
+   "p2706/m50520.txt": {
+    "git": "8fc62085785a956cf7743f72e8d98d7a3144ba1d",
+    "sha256": "a57d98e747951e0546992af5e959551169f2e316cbaef1fa8bbd2e024390739c",
+    "size": 26449
+   },
+   "p2706/m52807.txt": {
+    "git": "bab5d51da7906dc3926f5b714f7914a9002f197f",
+    "sha256": "c5a9c27c40b5dbe022177af4e8360b67c7ffda47db7e2c48211318c2d606cbb2",
+    "size": 23198
+   },
+   "p437/m10781.txt": {
+    "git": "80fa61ee5469a8ed35556c14d88b5fc2da555a22",
+    "sha256": "5d43ce802050a516fb3b605819481e544e3973dd0d80d46199834da557a4e3f7",
+    "size": 42615
+   },
+   "p437/m10789.txt": {
+    "git": "2d7f15b8fa9f45b2e354074451c1e89118f64feb",
+    "sha256": "31f38d7706ae35307f91e8bef442f5264e2efcd3f6ff9212094c8ef50ab91f53",
+    "size": 26055
+   },
+   "p437/m10803.txt": {
+    "git": "867c1465838581d9cfcc4f84d139996305aae60d",
+    "sha256": "f82d4b7dee6375bdeec75196b9f224dac41c6b9d724d15e4afe4aca6c9097d8e",
+    "size": 21246
+   },
+   "p437/m10815.txt": {
+    "git": "e0f38249d94d69a84f1af7a39ceb85955b67f42b",
+    "sha256": "33a36e1af958ca8d6595268a709ec5514f665f1be9f031dded09e2b577e2f2cc",
+    "size": 29707
+   },
+   "p58/m127.txt": {
+    "git": "929401156410d218ff9eb3adc6cf6c5b2f3ab57d",
+    "sha256": "19239cc3d4c62a84ef72d316b6aca3149dc6b57c40328cb86892e46278b268f1",
+    "size": 32191
+   },
+   "p58/m2318.txt": {
+    "git": "47807e4e90d7fb7e0f92d31e1813ab89c3a5369c",
+    "sha256": "be63cc13517050719090d8518c7ff00558c26be83aad64605765e64522785d30",
+    "size": 23609
+   },
+   "p58/m4745.txt": {
+    "git": "b46c7512d7b7df7b3619cc13896062aa8b3f2605",
+    "sha256": "380d6409d13c274197ce29799923e89be1a50a428d25a07667c8e2ac77ab7406",
+    "size": 41263
+   },
+   "p58/m5685.txt": {
+    "git": "444b228d5aa11476207b931ef9b0872e67bd0d5b",
+    "sha256": "0225609d59c9cef3eb3af682188d1cfd4cc587d279c0851383e58fd38c9f078d",
+    "size": 27725
+   },
+   "p58/m6402.txt": {
+    "git": "1f0110d629c7db1409e12e942b32248e1a72acd7",
+    "sha256": "60860601712c55f5926e275e586d09e3a90027545907002f8181c1ff5b71441a",
+    "size": 33176
+   },
+   "p58/m7118.txt": {
+    "git": "1e217ceb5bbaa02261134cb675e12921923d49c1",
+    "sha256": "0e4864f839b7c9cb3f5d56afe2d6704e1c563e72c5e5b6fb4b133c88dc947424",
+    "size": 35107
+   },
+   "p58/m716.txt": {
+    "git": "87db0d99aca0cd0b9e55b46ec1d7ef4d44b9d430",
+    "sha256": "7b820fe9ce52c7ce2637072325ef31d8d45bc65e57cb511eee273d791c721a3e",
+    "size": 22512
+   },
+   "p58/m7836.txt": {
+    "git": "e8a751fd56df2b3b3fc2e958d4eff4bb2be82925",
+    "sha256": "b711c1729066a39c91d1949c67e0f38dc7fbdf91de028129cc6c040d8c89cf6a",
+    "size": 80743
+   },
+   "p80/m12956.txt": {
+    "git": "6c4d37de0b6c6cf630a85e022381d21910bafdbb",
+    "sha256": "4efe472f7dd3c3e40f68ee2d31260fdb9b29dd6d7d5aef38915807a89571bb96",
+    "size": 30673
+   },
+   "p80/m193.txt": {
+    "git": "e060fd7cf743e0d1c9383e75d5cdf8f329b5758a",
+    "sha256": "2de4b8ba8e106eb90cdab6a587bc3b1803e8d4f971967be018eaf6a1815e8958",
+    "size": 29622
+   },
+   "p80/m19871.txt": {
+    "git": "96677a1560162904aafc1623fcb9217f901a30aa",
+    "sha256": "ad8c9881de7e40889c82c5ee9bc43baf8099abd1ec524858f1b8e67d990dda7e",
+    "size": 25238
+   },
+   "p80/m3420.txt": {
+    "git": "cbda2f95077b68c0f6d0b1af1812b98375d1df92",
+    "sha256": "2bee8ba3d2686ec95fddb7ebb193634e3377e678de58bf22e19036700e2a8515",
+    "size": 25851
+   },
+   "p80/m5064.txt": {
+    "git": "1f66622815e8396ee859dcfb098966636d59dc18",
+    "sha256": "249bb065978c7b6a46d54ece507f1731c5064f6cffaadad040ac7364e8435473",
+    "size": 44868
+   },
+   "p80/m5391.txt": {
+    "git": "9e147fe3047fcb2583a2733a6799d836dba0b647",
+    "sha256": "974f2b59fbf3851e1944a48ab1c78fe541a0baf6b3c363abd93913e4b56204f4",
+    "size": 28288
+   },
+   "p80/m6162.txt": {
+    "git": "af27a3c5db10df6d250e14fa9eceaa0f41a02ca4",
+    "sha256": "356be7df31b78c4aa73a960a5dbdaaf9973b43ca28648b74db8fc0e7b8d10cd3",
+    "size": 36596
+   },
+   "p80/m7861.txt": {
+    "git": "5cb015396ac783ac23b0d6bd128a06607f1c5e39",
+    "sha256": "75437b401f6d75700ddf1006f74a070bf6fd182554d370535b2240127bdc5724",
+    "size": 46992
+   },
+   "p95/m105.txt": {
+    "git": "7c92e84ce017129ea1b40bb377476db0bd62bdca",
+    "sha256": "ca3060ffa8536ba8578e612956fa0053e64c4bd976e9a85d3c8b2c97fc921b1b",
+    "size": 29369
+   },
+   "p95/m2039.txt": {
+    "git": "e59ff4e645c402d6817c67b911942d98c1c29327",
+    "sha256": "cdf3936504aa2a7ccf3d69cc751c57c0f8c6de318a69bda54e78df0a576a852c",
+    "size": 22905
+   },
+   "p95/m21982.txt": {
+    "git": "5eb61365cc7d846d7c16225661fcff2899407d75",
+    "sha256": "4b2288f302d2cc8324e4cf0ec33c184e668e5166a16fd182f7d60ed6ce29c6f5",
+    "size": 60107
+   },
+   "p95/m5155.txt": {
+    "git": "e4a9b9bfeb56e94c09dbcc788f031618421f26d6",
+    "sha256": "4be6bf31018d417a3aa0880066f1c6c902925c5e8488ae6c739756544e001756",
+    "size": 74900
+   },
+   "p95/m57256.txt": {
+    "git": "878153bb551a6daaa62540a26bcb95e430b6a159",
+    "sha256": "0971418bf3a8d67cc7f18702eae89d4f19f2d9e67cfd6e52ca20e2e9ff790f54",
+    "size": 50628
+   },
+   "p95/m57426.txt": {
+    "git": "5bbeb8c51318ed679aa8ae4702df3d2500770e8d",
+    "sha256": "43911050b718745b4fc03204f361b32f5df6667466aa88888ecc583f7e30768e",
+    "size": 21102
+   },
+   "p95/m6442.txt": {
+    "git": "23efd6286c9ebc6917da15ba5b4537f0de802f9f",
+    "sha256": "ddddd27b6238389ae944268d8dcd4b7f74655eafc9fcfaeaf144d5e0c55e3fe0",
+    "size": 77755
+   },
+   "p95/m7747.txt": {
+    "git": "32bbf3413b36a2f425eee5f98ec429b41e244248",
+    "sha256": "ab71ea15b8b206f7bee6d9bd4f2dd4c4dc834153b7d6265e0a6972542517692e",
+    "size": 68819
+   }
+  },
+  "repo": "projectbenyehuda/public_domain_dump"
+ },
  "peshitta": {
   "commit": "9850f5addade26f681334aa475570bef9b0b440a",
   "files": {
