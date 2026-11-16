@@ -228,6 +228,80 @@ Report (<tool>, <date>):
     it first and note the number).
 - **Report:**
 
+### T-014 · `ectype strip-text`: take a bad OCR text layer out of a PDF
+- **Status:** Ready
+- **Who:** any agent that can run the tests · **Size:** M
+- **Why:** Beaux has PDFs whose hidden OCR text (put there by a scanner or another program)
+  is bad, and wants a copy with no text layer at all: the page images only. Command line
+  only; nothing in the app's window.
+- **What "hidden text" means:** in a PDF, text drawn in text mode 3 (the operator `3 Tr`) is
+  invisible; OCR programs lay it over the page picture so it can be searched. Text in any
+  other mode is visible type that is part of how the page looks.
+- **The tests are already written:** `tests/test_striptext.py` (10 tests). They are skipped
+  until `src/ectype/striptext.py` exists; your work is done when all 10 pass. **Do not
+  change that file.** Read it first: it shows exactly what is wanted.
+- **Read first:** `tests/test_striptext.py`; in `src/ectype/analyze.py`, the loop that
+  starts `for operands, op in pikepdf.parse_content_stream(stream_owner):` (it shows how to
+  follow `q`, `Q` and `Tr`); in `src/ectype/cli.py`, `cmd_data_folder` and the lines that
+  begin `p = sub.add_parser("data-folder"` (the pattern for a command).
+- **Files to change:** new `src/ectype/striptext.py`; `src/ectype/cli.py` (one new function
+  and one new `add_parser` block, placed just before the `data-folder` ones); `README.md`
+  (one line). Nothing else. No new dependency: `pikepdf` is already used.
+- **Steps:**
+  1. In `src/ectype/striptext.py` write
+     `strip_text(src, dest=None, everything=False) -> dict`:
+     - Open `src` with `pikepdf.open`. For each page, read its content with
+       `pikepdf.parse_content_stream(page)`. Go through the operators in order, keeping the
+       current text mode: it starts at 0; `Tr` sets it; `q` saves it and `Q` puts the saved
+       one back.
+     - Collect each text block (from `BT` to `ET`). The operators that show text are `Tj`,
+       `TJ`, `'` and `"`. One is *hidden* when the text mode at that point is 3, or always
+       when `everything` is true.
+     - If every text-showing operator in a block is hidden, remove those operators (leave
+       the rest of the block). If a block has both hidden and visible ones, leave the whole
+       block unchanged and count it as `mixed` (the visible words' place depends on the
+       hidden ones before them). Visible ones left are counted in `visible_left`.
+     - If a page changed, write it back:
+       `page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(instructions))`.
+     - Do the same for each form on the page: every entry of the page's
+       `/Resources` `/XObject` whose `/Subtype` is `/Form` (read it with
+       `parse_content_stream(xobject)`, write it back with `xobject.write(data)`). Do each
+       form once even if several pages use it (remember its `objgen`). Its text mode
+       starts at 0.
+     - Where to save: if `dest` is None, beside `src` as `<name> - no text.pdf`, or
+       `<name> - no text (2).pdf`, `(3)` … if that exists. If `dest` is given and is the
+       same file as `src`, raise `ValueError`; if it already exists, raise
+       `FileExistsError`. Never write to `src`.
+     - Save only if something was removed: to `<dest>.part` first, then `os.replace` it to
+       `dest`. If nothing was removed, write no file.
+     - Return `{"output": dest or None, "pages": …, "pages_changed": …, "removed": …,
+       "visible_left": …, "mixed": …}` (`removed` counts text-showing operators removed).
+  2. In `src/ectype/cli.py` add the command `strip-text`: one or more PDFs (`pdfs`,
+     `nargs="+"`; do **not** call the argument `workspace`), `-o/--output` (only with one
+     PDF; with more, say so and return 2), `--all` (sets `everything`). For each PDF print,
+     in plain words: the result's path and how many of its pages had hidden text removed;
+     or that the PDF has "no hidden text layer" and nothing was written; and, when
+     `visible_left` is above 0, one line saying it also has visible text that was left and
+     that `--all` removes it too. A PDF that doesn't exist: say so and return a number
+     other than 0, with no Python traceback. Help text for `--all` must warn that it
+     removes type that is part of how the page looks (Acrobat ClearScan and Ectype's own
+     traced PDFs are made of such type).
+  3. In `README.md`, in the code block under "Commands" that starts with
+     `ectype languages [--all]`, add one line:
+     `ectype strip-text book.pdf [more.pdf] [-o out.pdf] [--all]   # a copy without its hidden (OCR) text layer`
+  4. Leave alone: password-protected PDFs (let pikepdf's error through; `cli.main` already
+     turns it into a plain message), the PDF's title and other details, bookmarks, and
+     fonts no longer used (a later task, if the files turn out too big).
+- **Done when:**
+  - `python -m pytest -q tests/test_striptext.py` gives `10 passed` (not skipped).
+  - `git diff --stat main` shows only the three files above (and this task's lines here).
+  - `python -m pytest -q tests/test_text_encoding.py` still passes, if that file exists.
+  - The whole suite passes.
+- **For the report, "For Beaux to try on Windows":**
+  `ectype strip-text "D:\path\to\a book with bad OCR.pdf"`, then open the new
+  "… - no text.pdf": it should look the same, and searching it should find nothing.
+- **Report:**
+
 ---
 
 ## For Claude
@@ -389,8 +463,11 @@ remember anything, and will do literally what the words say.
 - Before writing a task that changes a value, search `tests/` for that value. (T-005's
   check could only pass by changing a test that said the download was off; the worker had
   to choose between two rules.) If a test must change, say so in the task and say how.
-- For code tasks, write the failing test yourself first, or describe it exactly, and make
-  "the test passes" the check.
+- For code tasks, write the tests yourself first and make "they pass" the check. For a new
+  module, commit the test file with `pytest.importorskip("ectype.<module>")` at its top:
+  it is skipped until the worker adds the module, and the worker is told not to touch it
+  (T-014, `tests/test_striptext.py`). Try the tests against a rough version of your own
+  before committing them, then throw the rough version away.
 - Keep for Claude: anything touching kept data on Beaux's PC (pools, models, stamps,
   projects, the data folder), downloads and their checks, the updater and installer, threads
   and stopping, Qt object lifetimes, and anything whose check is "Beaux looks at it".

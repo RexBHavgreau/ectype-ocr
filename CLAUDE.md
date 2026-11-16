@@ -48,6 +48,12 @@ of "Planned".
   `heb`); Beaux takes that to be why Ectype read the Rashi type in the Ben Ze'ev grammar
   (`corpus/Pages from Grammar_Hebrew - talmudlashonibrg00lb.pdf`). Not measured. Don't
   describe Rashi as having no model.
+- **Stripping a bad text layer** (Beaux, 2026-11-16: a PDF with no OCR text layer, command
+  line only): TASKS.md T-014, `ectype strip-text`, a new PDF beside the old ("<name> - no
+  text.pdf"), never the PDF itself. Decided in writing the task: only *invisible* text
+  (text mode 3) goes by default, since visible type is the page's look in ClearScan and
+  Ectype's traced PDFs (`--all` takes that too); a text block holding both kinds is left
+  whole. Its tests are already in `tests/test_striptext.py` (skipped until the module exists).
 - **Text encodings** (from that run): `src/` already states UTF-8 for every file it reads
   or writes; what was left is other programs' output read with `text=True` and no encoding
   (T-010, with `tests/test_text_encoding.py` to keep it so; `converter.py` is T-013), and
