@@ -97,6 +97,7 @@ Report (ChatGPT GitHub, 2026-11-16):
 - Checks: Confirmed no `0.1.0` remains. Installer-job pairing: checkout → 1; Python setup → 2; Version from the tag → 3; Tesseract and Inno Setup → 4; Python packages → 5; Bundle Tesseract → 6; Bundle EB Garamond → 7; Build the program folder (PyInstaller) → 8; Smoke test the packaged app → 9; Installer (Inno Setup) → 10; artifact upload → 11; Attach to the release → 12. The second list covers the Kraken job's checkout, Python setup, version, packages, build, smoke test, zip, artifact upload and release attachment. Branch comparison: only `docs/releasing.md` and this task's status/report changed.
 - Not done / unsure: nothing.
 - For Beaux to try on Windows: nothing; this is a documentation change.
+
 ### T-004 · README: describe the project as it is now, not by build phases
 - **Status:** Ready
 - **Who:** any agent · **Size:** M · documents only: no setup and no tests needed
