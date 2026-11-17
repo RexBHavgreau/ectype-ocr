@@ -67,11 +67,11 @@ def test_analyze_clearscan_like(clearscan_like_pdf, tmp_path):
     assert s["pages"][1]["images"][0]["file"] == "p001-Im0.png", "shared image is extracted once"
 
     assert (out / "analysis.json").is_file()
-    assert json.loads((out / "analysis.json").read_text())["page_count"] == 2
-    sheet = (out / "fonts" / f["files"]["glyph_sheet"]).read_text()
+    assert json.loads((out / "analysis.json").read_text(encoding="utf-8"))["page_count"] == 2
+    sheet = (out / "fonts" / f["files"]["glyph_sheet"]).read_text(encoding="utf-8")
     assert sheet.count("<path") == 6
     assert "U+FFFD" in sheet
-    assert (out / "index.html").read_text().count("<img") >= 2
+    assert (out / "index.html").read_text(encoding="utf-8").count("<img") >= 2
 
 
 def test_analyze_scan_only(tmp_path):

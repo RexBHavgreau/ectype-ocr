@@ -86,7 +86,7 @@ def test_window_review_and_correction(project, tmp_path):
     w.review.edit.setText("Corrected")
     w.review.save()
     assert all(it.status == "fixed" for it in w.review.items if (it.line, it.word) == (item.line, item.word))
-    ocr = json.loads((project.workspace / "ocr" / "p001L.ocr.json").read_text())
+    ocr = json.loads((project.workspace / "ocr" / "p001L.ocr.json").read_text(encoding="utf-8"))
     assert ocr["lines"][item.line]["words"][item.word]["text"].startswith("Corrected")
     assert (project.workspace / "training").is_dir()
     # A flagged word that was read right: saved unchanged, it is confirmed (green).

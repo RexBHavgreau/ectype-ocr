@@ -128,7 +128,7 @@ def _validate(path):
     if not source or not Path(source, "tools", "idml_check.py").is_file():
         return
     out = subprocess.run([sys.executable, str(Path(source, "tools", "idml_check.py")), str(path)],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert out.returncode == 0 and ": OK" in out.stdout, out.stdout + out.stderr
 
 
@@ -195,8 +195,8 @@ def test_converter_missing(tmp_path, monkeypatch):
         converter.convert(tmp_path / "x.docx", tmp_path, "x")
     (tmp_path / "docx-to-idml").mkdir()
     exe = tmp_path / "docx-to-idml-0.8.0.exe"
-    exe.write_text("")
-    (tmp_path / "docx-to-idml" / "program.json").write_text(json.dumps({"exe": str(exe), "version": "0.8.0", "api": 1}))
+    exe.write_text("", encoding="utf-8")
+    (tmp_path / "docx-to-idml" / "program.json").write_text(json.dumps({"exe": str(exe), "version": "0.8.0", "api": 1}), encoding="utf-8")
     program = converter.find_program()
     assert program.command == [str(exe)] and program.version == "0.8.0"
 
@@ -214,17 +214,17 @@ def test_converter_found_without_program_json(tmp_path, monkeypatch):
     downloads.mkdir()
     apps.mkdir(parents=True)
     monkeypatch.setattr(converter, "search_places", lambda: [downloads, tmp_path / "Apps"])
-    (downloads / "docx-to-idml-0.7.0.exe").write_text("")
+    (downloads / "docx-to-idml-0.7.0.exe").write_text("", encoding="utf-8")
     assert converter.find_program() is None
     assert converter.too_old().name == "docx-to-idml-0.7.0.exe"
     assert "older" in converter.missing_message()
-    (downloads / "docx-to-idml-0.8.0.exe").write_text("")
-    (apps / "docx-to-idml-0.10.1.exe").write_text("")
+    (downloads / "docx-to-idml-0.8.0.exe").write_text("", encoding="utf-8")
+    (apps / "docx-to-idml-0.10.1.exe").write_text("", encoding="utf-8")
     program = converter.find_program()
     assert program.command == [str(apps / "docx-to-idml-0.10.1.exe")] and program.version == "0.10.1", "the newest"
     elsewhere = tmp_path / "Tools" / "docx-to-idml-0.9.0.exe"
     elsewhere.parent.mkdir()
-    elsewhere.write_text("")
+    elsewhere.write_text("", encoding="utf-8")
     converter.remember(elsewhere)
     assert converter.find_program().command == [str(elsewhere.resolve())], "the copy the user pointed to"
 
@@ -242,19 +242,19 @@ def test_converter_found_under_its_new_name(tmp_path, monkeypatch):
     downloads = tmp_path / "Downloads"
     (downloads / "Ectype IDML").mkdir(parents=True)
     monkeypatch.setattr(converter, "search_places", lambda: [downloads])
-    (downloads / "docx-to-idml-0.9.0.exe").write_text("")
-    (downloads / "Ectype IDML" / "Ectype-IDML-1.1.0.exe").write_text("")
+    (downloads / "docx-to-idml-0.9.0.exe").write_text("", encoding="utf-8")
+    (downloads / "Ectype IDML" / "Ectype-IDML-1.1.0.exe").write_text("", encoding="utf-8")
     assert converter.version_of(Path("Ectype-IDML-1.1.0.exe")) == (1, 1, 0)
     assert converter.find_program().command == [str(downloads / "Ectype IDML" / "Ectype-IDML-1.1.0.exe")]
     old_dir, new_dir = tmp_path / "appdata" / "docx-to-idml", tmp_path / "appdata" / "Ectype IDML"
     old_dir.mkdir(parents=True)
     old_exe = downloads / "docx-to-idml-0.9.0.exe"
-    (old_dir / "program.json").write_text(json.dumps({"exe": str(old_exe), "version": "0.9.0", "api": 1}))
+    (old_dir / "program.json").write_text(json.dumps({"exe": str(old_exe), "version": "0.9.0", "api": 1}), encoding="utf-8")
     assert converter.find_program().command == [str(old_exe)], "the old folder's program.json"
     new_dir.mkdir()
     new_exe = tmp_path / "Ectype-IDML-1.2.0.exe"
-    new_exe.write_text("")
-    (new_dir / "program.json").write_text(json.dumps({"exe": str(new_exe), "version": "1.2.0", "api": 1}))
+    new_exe.write_text("", encoding="utf-8")
+    (new_dir / "program.json").write_text(json.dumps({"exe": str(new_exe), "version": "1.2.0", "api": 1}), encoding="utf-8")
     assert converter.find_program().command == [str(new_exe)], "the new folder's comes first"
 
 
