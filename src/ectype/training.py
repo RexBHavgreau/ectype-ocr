@@ -223,6 +223,15 @@ def _save_known(code: str, ids) -> None:
 
 
 def _stamp(path) -> str:
+    """What a model file is, by its content (kept in memory beside its size and time: a model is
+    tens of megabytes and is asked about for every language at every check)."""
+    from .stamps import remembered_digest
+
+    return "sha1:" + remembered_digest(path)
+
+
+def _old_stamp(path) -> str:
+    """The form before content stamps (size and time), still accepted once."""
     st = Path(path).stat()
     return f"{st.st_size}:{st.st_mtime_ns}"
 
@@ -236,12 +245,16 @@ def _checked(code: str, which: str, model_file, items: list[pool.Item], read) ->
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
+    upgraded = data.get("stamp") == _old_stamp(model_file)
+    if upgraded:
+        data["stamp"] = stamp          # kept in the old form for this same model file: accepted once
     if data.get("stamp") != stamp:
         data = {"stamp": stamp, "items": {}}
     missing = [i for i in items if i.id not in data["items"]]
-    if missing:
+    if missing or upgraded:
         per: dict = {}
-        read(missing, per)
+        if missing:
+            read(missing, per)
         data["items"].update({k: list(v) for k, v in per.items()})
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data), encoding="utf-8", newline="\n")

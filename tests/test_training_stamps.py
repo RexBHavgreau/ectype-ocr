@@ -55,3 +55,37 @@ def test_edition_stamp_is_content_and_old_form_is_accepted_once(tmp_path, monkey
     scan.write_bytes(b"%PDF scan two")
     trainall.run(cfg)
     assert len(ran) == 2
+
+
+def test_model_errors_kept_by_content_and_old_stamp_accepted_once(tmp_path, monkeypatch):
+    from ectype import training
+    from ectype.pool import Item
+
+    monkeypatch.setattr(training, "_model_dir", lambda code: tmp_path / "m")
+    model = tmp_path / "model.traineddata"
+    model.write_bytes(b"model one")
+    items = [Item(id=i, lang="heb", book="b", unit="line", source="synthetic", split="test",
+                  png=tmp_path / f"{i}.png", text="x") for i in ("a", "b")]
+    read_calls = []
+
+    def read(missing, per):
+        read_calls.append([i.id for i in missing])
+        for i in missing:
+            per[i.id] = (1, 10)
+
+    assert training._checked("heb", "general", model, items, read) == {"b": (2, 20)}
+    kept = json.loads((tmp_path / "m" / "general.errors.json").read_text(encoding="utf-8"))
+    assert kept["stamp"] == training._stamp(model)
+    os.utime(model, ns=(1, 1))                      # same content, another time
+    training._checked("heb", "general", model, items, read)
+    assert len(read_calls) == 1
+
+    kept["stamp"] = training._old_stamp(model)      # as the earlier version wrote it
+    (tmp_path / "m" / "general.errors.json").write_text(json.dumps(kept), encoding="utf-8")
+    assert training._checked("heb", "general", model, items, read) == {"b": (2, 20)}
+    assert len(read_calls) == 1, "old stamp accepted: no image read again"
+    assert json.loads((tmp_path / "m" / "general.errors.json").read_text(encoding="utf-8"))["stamp"] == training._stamp(model)
+
+    model.write_bytes(b"model two!")                # other content: read again
+    training._checked("heb", "general", model, items, read)
+    assert len(read_calls) == 2
