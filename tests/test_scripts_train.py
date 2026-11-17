@@ -95,17 +95,17 @@ def test_corrections_carry_over_to_a_new_reading(tmp_path):
     (tmp_path / "corrections").mkdir()
     old = OcrPage("tesseract", "eng", [1000, 300], 300.0,
                   [Line([0, 100, 600, 140], [0, 0], 30.0, None, None, [_word("Tbid.", 0, 50), _word("230", 100, 90)])])
-    (tmp_path / "ocr" / "p001.ocr.original.json").write_text(json.dumps(old.to_json()))
-    (tmp_path / "corrections" / "p001.json").write_text(json.dumps([{"line": 0, "word": 0, "old": "Tbid.", "new": "Ibid."}]))
+    (tmp_path / "ocr" / "p001.ocr.original.json").write_text(json.dumps(old.to_json()), encoding="utf-8")
+    (tmp_path / "corrections" / "p001.json").write_text(json.dumps([{"line": 0, "word": 0, "old": "Tbid.", "new": "Ibid."}]), encoding="utf-8")
     # The new reading has an extra word in front, so the corrected word moved.
     new = OcrPage("tesseract", "eng_book", [1000, 300], 300.0,
                   [Line([0, 100, 600, 140], [0, 0], 30.0, None, None,
                         [_word("2", -90, 80), _word("Tbid.", 2, 60), _word("230", 100, 95)])])
     assert carry_corrections(tmp_path, "p001", new) == 1
     assert [w.text for w in new.words()] == ["2", "Ibid.", "230"]
-    log = json.loads((tmp_path / "corrections" / "p001.json").read_text())
+    log = json.loads((tmp_path / "corrections" / "p001.json").read_text(encoding="utf-8"))
     assert (log[0]["line"], log[0]["word"]) == (0, 1), "the log points at the new word"
-    original = json.loads((tmp_path / "ocr" / "p001.ocr.original.json").read_text())
+    original = json.loads((tmp_path / "ocr" / "p001.ocr.original.json").read_text(encoding="utf-8"))
     assert original["lang"] == "eng_book", "the new reading is the page's original now"
 
 

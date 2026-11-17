@@ -163,7 +163,7 @@ def test_a_kept_text_that_doesnt_match_is_fetched_again(tmp_path, monkeypatch):
     assert len(seen) == 2
     cache.write_text("tampered\n", encoding="utf-8")
     assert texts.load("vulgate") == verses and len(seen) == 3
-    texts._stamp(cache).write_text(json.dumps({"pin": "old", "sha256": hashlib.sha256(cache.read_bytes()).hexdigest()}))
+    texts._stamp(cache).write_text(json.dumps({"pin": "old", "sha256": hashlib.sha256(cache.read_bytes()).hexdigest()}), encoding="utf-8")
     texts.load("vulgate")
     assert len(seen) == 4 and cache.read_text(encoding="utf-8").startswith("In principio")
 

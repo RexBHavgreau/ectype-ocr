@@ -22,7 +22,7 @@ def workspace(tmp_path_factory):
 
 
 def test_apply_correction_keeps_or_spreads_boxes(workspace):
-    ocr = OcrPage.from_json(json.loads((workspace / "ocr" / "s01.ocr.json").read_text()))
+    ocr = OcrPage.from_json(json.loads((workspace / "ocr" / "s01.ocr.json").read_text(encoding="utf-8")))
     w = ocr.lines[0].words[0]
     boxes = [c.box for c in w.chars]
     apply_correction(ocr, 0, 0, w.text.upper())
@@ -81,12 +81,12 @@ def test_box_stretched_over_a_missed_letter():
 def test_correction_saves_the_text_and_a_training_pair(workspace):
     result = correct(workspace, "s01", 1, 0, "First")
     assert result["new"] == "First"
-    ocr = json.loads((workspace / "ocr" / "s01.ocr.json").read_text())
+    ocr = json.loads((workspace / "ocr" / "s01.ocr.json").read_text(encoding="utf-8"))
     assert ocr["lines"][1]["words"][0]["text"] == "First"
     assert (workspace / "ocr" / "s01.ocr.original.json").is_file()
-    log = json.loads((workspace / "corrections" / "s01.json").read_text())
+    log = json.loads((workspace / "corrections" / "s01.json").read_text(encoding="utf-8"))
     assert log[-1]["new"] == "First"
-    gt = (workspace / "training" / "s01-l001.gt.txt").read_text()
+    gt = (workspace / "training" / "s01-l001.gt.txt").read_text(encoding="utf-8")
     assert gt.startswith("First ")
     assert (workspace / "training" / "s01-l001.png").is_file()
 
@@ -116,7 +116,7 @@ def test_stretched_and_added_words_kept_when_read_again(tmp_path):
     correct(tmp_path, "p", 0, 1, "ZDMG", span=(0, 3), box=[176, 20, 280, 50])
     added = add_word(tmp_path, "p", [150, 22, 170, 50], "a")
     assert (added["line"], added["word"]) == (0, 1)
-    log = json.loads((tmp_path / "corrections" / "p.json").read_text())
+    log = json.loads((tmp_path / "corrections" / "p.json").read_text(encoding="utf-8"))
     assert [(e["line"], e["word"]) for e in log] == [(0, 3), (0, 2), (0, 1)], "the later words moved along"
 
     again = copy.deepcopy(reading)  # read again: the same misreading, nothing added
@@ -154,12 +154,12 @@ def test_a_wrong_box_deleted_and_drawn_again(tmp_path):
     delete_word(tmp_path, "p", 0, 0)  # "inthe", now first
     add_word(tmp_path, "p", [100, 20, 140, 50], "in")
     add_word(tmp_path, "p", [150, 20, 200, 50], "the")
-    ocr = OcrPage.from_json(json.loads((tmp_path / "ocr" / "p.ocr.json").read_text()))
+    ocr = OcrPage.from_json(json.loads((tmp_path / "ocr" / "p.ocr.json").read_text(encoding="utf-8")))
     assert [w.text for w in ocr.lines[0].words] == ["in", "the", "Iand", "off"]
-    log = json.loads((tmp_path / "corrections" / "p.json").read_text())
+    log = json.loads((tmp_path / "corrections" / "p.json").read_text(encoding="utf-8"))
     fixed = [(e["line"], e["word"], e["new"]) for e in log if not e.get("deleted")]
     assert sorted(fixed) == [(0, 0, "in"), (0, 1, "the"), (0, 3, "off")], "the later words' entries moved back, then on"
-    lines = (tmp_path / "training" / "p-l000.gt.txt").read_text().split()
+    lines = (tmp_path / "training" / "p-l000.gt.txt").read_text(encoding="utf-8").split()
     assert lines == ["in", "the", "Iand", "off"]
 
     again = copy.deepcopy(reading)  # read again: the same mistakes

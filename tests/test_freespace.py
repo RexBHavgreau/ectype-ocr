@@ -179,9 +179,9 @@ def test_project_working_files(data):
     (book / "cluster" / "cache" / "v-abc").mkdir(parents=True)
     (book / "cluster" / "cache" / "v-abc" / "g.npz").write_bytes(b"g" * 900)
     (book / "ocr").mkdir()
-    (book / "ocr" / "p001.ocr.json").write_text("{}")
+    (book / "ocr" / "p001.ocr.json").write_text("{}", encoding="utf-8")
     (book / "corrections").mkdir()
-    (book / "corrections" / "p001.json").write_text("{}")
+    (book / "corrections" / "p001.json").write_text("{}", encoding="utf-8")
     assert freespace.report()["project_work"]["bytes"] == 900
     assert freespace.remove_project_work() == 900
     assert not (book / "cluster" / "cache").exists()

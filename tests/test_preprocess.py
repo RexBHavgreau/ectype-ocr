@@ -107,7 +107,7 @@ def test_preprocess_spread(spread, tmp_path):
     assert out[int(oy) - 3:int(oy) + 4, int(ox) - 3:int(ox) + 4].min() < 128
     assert abs(ox - cx - (right["size_px"][0] - w)) < 15
 
-    sidecar = json.loads((tmp_path / "pages" / "p001R.json").read_text())
+    sidecar = json.loads((tmp_path / "pages" / "p001R.json").read_text(encoding="utf-8"))
     assert sidecar["transform"] == right["transform"]
     assert (tmp_path / "preprocess" / "index.html").is_file()
 

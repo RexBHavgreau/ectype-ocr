@@ -73,7 +73,7 @@ def test_traced_pdf(workspace):
     desc = font.DescendantFonts[0]
     assert desc.Subtype == "/CIDFontType0" and desc.FontDescriptor.FontFile3.Subtype == "/CIDFontType0C"
     assert b"TJ" in pdf.pages[0].Contents.read_bytes()
-    info = json.loads((root / "fonts" / "style-0.json").read_text())
+    info = json.loads((root / "fonts" / "style-0.json").read_text(encoding="utf-8"))
     assert len(info["glyphs"]) < 120, "one glyph per character and style, roughly"
 
 

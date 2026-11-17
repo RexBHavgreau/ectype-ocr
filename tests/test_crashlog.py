@@ -42,7 +42,7 @@ def _run(tmp_path, code, name):
     script = tmp_path / name
     script.write_text(textwrap.dedent(code), encoding="utf-8")
     env = dict(os.environ, ECTYPE_DATA_DIR=str(tmp_path / "data"), PYTHONPATH=SRC)
-    return subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True)
+    return subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
 def test_an_abort_leaves_a_report_found_at_the_next_start(tmp_path):
