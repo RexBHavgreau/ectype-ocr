@@ -146,17 +146,22 @@ jobs:
         shell: pwsh
         run: |
           @'
-          from PySide6.QtWidgets import QApplication, QToolButton
+          from PySide6.QtCore import Qt
+          from PySide6.QtWidgets import QApplication, QWidget
           from ectype.gui import MainWindow
           from ectype.project import Project
           import tempfile, pathlib
           app = QApplication([])
           d = pathlib.Path(tempfile.mkdtemp()); (d / "a.pdf").write_bytes(b"%PDF-1.4")
-          w = MainWindow(Project.for_scan(d / "a.pdf")); w.show()
-          for width in (1400, 520):
-              w.resize(width, 700); app.processEvents()
-              print(width, "window", w.width(), "min", w.minimumSizeHint().width(), "row", w.button_row.width(), w.button_row.height(),
-                    "buttons", [(b.defaultAction().text(), b.geometry().x(), b.geometry().y(), b.width()) for b in w.button_row.findChildren(QToolButton) if b.defaultAction()])
+          w = MainWindow(Project.for_scan(d / "a.pdf")); w.show(); app.processEvents()
+          print("window min", w.minimumSizeHint().width(), "row min", w.button_row.minimumSizeHint().width(), "font", app.font().family(), app.font().pointSize())
+          def walk(x, depth=0):
+              for c in x.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+                  mw = c.minimumSizeHint().width()
+                  if mw > 400 or c.minimumWidth() > 400:
+                      print("  " * depth, type(c).__name__, c.objectName(), "minHint", mw, "minW", c.minimumWidth())
+                      walk(c, depth + 1)
+          walk(w)
           '@ | python -
       # A crash (access violation) kills the whole run: try every file on its own, so each is recorded.
       - name: Tests, one file at a time (only after a crash)
