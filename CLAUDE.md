@@ -56,11 +56,21 @@ of "Planned".
   (`corpus/Pages from Grammar_Hebrew - talmudlashonibrg00lb.pdf`). Not measured. Don't
   describe Rashi as having no model.
 - **Stripping a bad text layer** (Beaux, 2026-11-16: a PDF with no OCR text layer, command
-  line only): TASKS.md T-014, `ectype strip-text`, a new PDF beside the old ("<name> - no
-  text.pdf"), never the PDF itself. Decided in writing the task: only *invisible* text
-  (text mode 3) goes by default, since visible type is the page's look in ClearScan and
-  Ectype's traced PDFs (`--all` takes that too); a text block holding both kinds is left
-  whole. Its tests are already in `tests/test_striptext.py` (skipped until the module exists).
+  line only; done 2026-11-17, `striptext.py`, `ectype strip-text PDF… [-o] [--all]`): a new
+  PDF beside the old ("<name> - no text.pdf", "(2)" … if taken), never the PDF itself, never
+  over an existing file; nothing written when there is nothing to remove. Only *invisible*
+  text (text mode 3, followed through `Tr` and `q`/`Q`) goes by default, since visible type
+  is the page's look in ClearScan and Ectype's traced PDFs (`--all` takes that too); a text
+  block (BT … ET) holding both kinds is left whole ("mixed": the visible words' place
+  depends on the hidden ones). Forms (and forms inside them) are done too, each once; a
+  form's text mode is taken to start at 0. **Lesson**: the PG 82 extract in corpus/ shows text
+  *outside* any BT … ET (after an ET with no new BT; not allowed, but viewers read it), which
+  the first version left in: such text is handled on its own, and the tests written ahead
+  (made-up PDFs) hadn't caught it, only the run on real scans did. Fonts no longer used are left in the file. Tried
+  on the corpus: the grammar, PG 82, Patrologiæ and Origenes 5 extracts and Ectype's own
+  text-layer PDF of Young all come out looking the same with no text left; the Acrobat
+  ClearScan Young (visible type only) is left alone with a note. Its tests
+  (`tests/test_striptext.py`) were written with the task, before the code.
 - **Text encodings** (from that run): `src/` already stated UTF-8 for every file it reads
   or writes; other programs' output read with `text=True` now does too (T-010, done;
   `tests/test_text_encoding.py` keeps it so; `converter.py` is left out of it until T-013).
