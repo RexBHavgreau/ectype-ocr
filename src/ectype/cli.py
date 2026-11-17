@@ -377,6 +377,39 @@ def cmd_idml(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_strip_text(args: argparse.Namespace) -> int:
+    from . import striptext
+
+    if args.output and len(args.pdfs) > 1:
+        print("-o names one result, so give it with one PDF only.")
+        return 2
+    status = 0
+    for name in args.pdfs:
+        src = Path(name)
+        if not src.is_file():
+            print(f"No such file: {src}")
+            status = 1
+            continue
+        try:
+            out = striptext.strip_text(src, Path(args.output) if args.output else None, everything=args.all)
+        except (FileExistsError, ValueError) as exc:
+            print(f"{src.name}: {exc}")
+            status = 1
+            continue
+        what = "text" if args.all else "hidden text"
+        if out["output"] is None:
+            print(f"{src.name}: no hidden text layer found; nothing written."
+                  if not args.all else f"{src.name}: no text found; nothing written.")
+        else:
+            print(f"{src.name}: {what} removed from {out['pages_changed']} of {out['pages']} pages.\n  Saved: {out['output']}")
+        if out["visible_left"]:
+            print("  It also has visible text (type drawn on the page, as Acrobat's ClearScan and Ectype's traced PDFs "
+                  "have); that was left.\n  --all removes it too, which leaves gaps where the type was.")
+        if out["mixed"]:
+            print(f"  {out['mixed']} piece(s) of text holding both hidden and visible words were left as they were.")
+    return status
+
+
 def cmd_data_folder(args: argparse.Namespace) -> int:
     from . import datafolder
     from .resources import user_data_dir
@@ -856,6 +889,7 @@ Examples:
   A whole book, scan to PDF:
     ectype run "D:\\Library\\Treatise.pdf" --lang eng+grc+heb
   Where Ectype keeps its data (models, training), and moving it to another drive:
+    ectype strip-text "D:\\Books\\Old scan.pdf"      (a copy without its bad hidden text layer)
     ectype data-folder      ectype data-folder --move "D:\\Ectype OCR"
   See what takes space in Ectype's data folder, and free some (your corrections are never removed):
     ectype free-space      ectype free-space --cache      ectype free-space --font-lines heb grc
@@ -1037,6 +1071,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kraken", action="append", metavar="LANG=MODEL",
                    help="read a language with a Kraken model, e.g. --kraken heb=7051645 (repeatable; see: ectype kraken list)")
     p.set_defaults(func=cmd_text_files)
+
+    p = sub.add_parser("strip-text", help="a copy of a PDF without its hidden (OCR) text layer, beside it as \"<name> - no text.pdf\"")
+    p.add_argument("pdfs", nargs="+", metavar="PDF", help="the PDF, or several; none of them is changed")
+    p.add_argument("-o", "--output", metavar="FILE", help="where to save the copy (with one PDF only; never over a file that exists)")
+    p.add_argument("--all", action="store_true",
+                   help="remove visible text too. Careful: in Acrobat ClearScan PDFs and Ectype's own traced PDFs the "
+                        "visible type is how the page looks, and removing it leaves gaps")
+    p.set_defaults(func=cmd_strip_text)
 
     p = sub.add_parser("data-folder", help="show where Ectype keeps its data and how big it is; --move puts it elsewhere")
     p.add_argument("--move", metavar="FOLDER", help="move all of it to this (empty or new) folder, e.g. \"D:\\Ectype OCR\"")

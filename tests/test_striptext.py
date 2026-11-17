@@ -96,6 +96,16 @@ def test_a_text_block_with_both_kinds_is_left_whole(tmp_path):
     assert np.array_equal(picture(src), picture(out["output"]))
 
 
+def test_text_shown_outside_a_text_block(tmp_path):
+    # Not allowed in a PDF, but some OCR programs write text after ET with no new BT, and viewers
+    # still read it (found in a real scan): the hidden kind goes there too.
+    src = make(tmp_path / "book.pdf", b"BT /F1 12 Tf 3 Tr 20 100 Td (hidden words) Tj ET (more hidden) Tj ET " + BOX)
+    assert "more hidden" in text(src)
+    out = striptext.strip_text(src)
+    assert out["removed"] == 2 and text(out["output"]) == ""
+    assert np.array_equal(picture(src), picture(out["output"]))
+
+
 def test_text_inside_a_form(tmp_path):
     src = make(tmp_path / "book.pdf", BOX, form=HIDDEN)
     assert text(src) == "hidden words"

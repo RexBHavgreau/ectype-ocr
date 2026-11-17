@@ -93,6 +93,7 @@ ectype textlayer reports/work-young   # the scan with an invisible OCR text laye
 ectype text reports/work-young [-o book.txt] [--lines] [--no-page-markers] [--keep-heads] [--keep-marks]   # the OCR text as a .txt
 ectype text-files scans/ [more folders or PDFs] [--lang eng+grc+heb] [--recursive] [--redo] [--keep] [--keep-marks]   # a .txt beside each scan
 ectype idml reports/work-young --mode reflow|facsimile [-o out/book.idml] [--page-markers] [--profile NAME]
+ectype strip-text book.pdf [more.pdf] [-o out.pdf] [--all]   # a copy without its hidden (OCR) text layer, as "book - no text.pdf"; the PDF itself is never changed
 ```
 
 ```
