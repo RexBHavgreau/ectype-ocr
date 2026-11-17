@@ -67,9 +67,19 @@ jobs:
           New-Item -ItemType Directory -Force $tmp | Out-Null
           $dest = Join-Path $env:LOCALAPPDATA "Microsoft\Windows\Fonts"
           New-Item -ItemType Directory -Force $dest | Out-Null
-          Invoke-WebRequest "https://ftp.gnu.org/gnu/freefont/freefont-ttf-20120503.zip" -OutFile "$tmp\freefont.zip"
-          Invoke-WebRequest "https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz" -OutFile "$tmp\liberation.tar.gz"
-          Invoke-WebRequest "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.zip" -OutFile "$tmp\dejavu.zip"
+          # ftp.gnu.org sometimes doesn't answer: try again, then its mirror redirector.
+          function Get-File($urls, $out) {
+            foreach ($try in 1..3) {
+              foreach ($u in $urls) {
+                try { Invoke-WebRequest $u -OutFile $out -TimeoutSec 60; return } catch { Write-Host "failed: $u ($($_.Exception.Message))" }
+              }
+              Start-Sleep -Seconds (5 * $try)
+            }
+            throw "could not download $($urls[0])"
+          }
+          Get-File @("https://ftp.gnu.org/gnu/freefont/freefont-ttf-20120503.zip", "https://ftpmirror.gnu.org/gnu/freefont/freefont-ttf-20120503.zip") "$tmp\freefont.zip"
+          Get-File @("https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz") "$tmp\liberation.tar.gz"
+          Get-File @("https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.zip") "$tmp\dejavu.zip"
           Expand-Archive "$tmp\freefont.zip" "$tmp\freefont"
           Expand-Archive "$tmp\dejavu.zip" "$tmp\dejavu"
           New-Item -ItemType Directory -Force "$tmp\liberation" | Out-Null
