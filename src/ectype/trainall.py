@@ -99,6 +99,15 @@ def read(path: Path) -> dict:
 
 
 def _stamp(scan: Path, text: str) -> str:
+    """What an edition was matched from: the scan's content (kept in memory beside its size and
+    time, so a big PDF isn't read again on every call) and the text's name."""
+    from .stamps import remembered_digest, stamp
+
+    return "c" + stamp("edition", remembered_digest(scan), text)[:11]
+
+
+def _old_stamp(scan: Path, text: str) -> str:
+    """The form before content stamps (path, size and time); accepted once."""
     st = scan.stat()
     return hashlib.sha1(f"{scan.resolve()}:{st.st_size}:{st.st_mtime_ns}:{text}".encode()).hexdigest()[:12]
 
@@ -169,7 +178,11 @@ def run(config: Path, progress: Callable[[str], None] | None = None, iterations:
             report.append(f"Edition {e['name']}: scan not found ({scan}); skipped.")
             continue
         stamp = _stamp(scan, e["text"])
-        if done.get(e["name"], {}).get("stamp") == stamp:
+        kept = done.get(e["name"], {}).get("stamp")
+        if kept is not None and kept == _old_stamp(scan, e["text"]):
+            done[e["name"]]["stamp"] = kept = stamp             # old form, accepted once
+            done_path.write_text(json.dumps(done, indent=1), encoding="utf-8")
+        if kept == stamp:
             report.append(f"Edition {e['name']}: already matched ({done[e['name']]['kept']} lines).")
             continue
         say(f"Edition {e['name']}: reading the scan and matching it to the text")
