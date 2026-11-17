@@ -261,15 +261,40 @@ def render(text: str, font: FontInfo, size: int, rtl: bool, language: str | None
 
 
 def _stamp(font: FontInfo, lines: int, script: str = "") -> str:
+    """What a font's lines were set from: the font file's content (read again only when its size
+    or time changed), the number of lines and the version of the setting (VERSION, kept by hand
+    on purpose: a hash of the code would remake an hour of lines after every update)."""
+    from .stamps import remembered_digest
+
+    version = SCRIPT_VERSION.get(script, VERSION)
+    return hashlib.sha1(f"{font.path.name}:{font.index}:{remembered_digest(font.path)}:{lines}:{version}".encode()).hexdigest()[:12]
+
+
+def _old_stamp(font: FontInfo, lines: int, script: str = "") -> str:
+    """The form before content stamps (size and time of the file). A pool made then keeps it;
+    `font_done` accepts it once."""
     st = font.path.stat()
     version = SCRIPT_VERSION.get(script, VERSION)
     return hashlib.sha1(f"{font.path.name}:{font.index}:{st.st_size}:{st.st_mtime_ns}:{lines}:{version}".encode()).hexdigest()[:12]
 
 
-def font_done(books: dict, writer, book: str, stamp: str) -> bool:
+def font_done(books: dict, writer, book: str, stamp: str, old: str | None = None) -> bool:
     """Whether a font's lines are in the pool already: its record matches and its images exist
-    (so lines removed to free space are made again)."""
-    return books.get(book, {}).get("stamp") == stamp and bool(writer.count(book))
+    (so lines removed to free space are made again). A record in the old form (`old`: the same
+    stamp as made before content stamps) is accepted once and rewritten in the new form, so a
+    pool that took hours to set isn't set again."""
+    kept = books.get(book, {}).get("stamp")
+    if not writer.count(book):
+        return False
+    if kept == stamp:
+        return True
+    if old is not None and kept == old:
+        from . import pool
+
+        pool.set_book(writer.lang, book, stamp=stamp)
+        books[book] = {**books.get(book, {}), "stamp": stamp}
+        return True
+    return False
 
 
 def italic_of(font: FontInfo, pool: list[FontInfo]) -> FontInfo | None:
@@ -343,6 +368,20 @@ def unpointed_count(lines_per_font: int) -> int:
     return max(1, int(lines_per_font * UNPOINTED_SHARE))
 
 
+def _unpointed_stamp(font: FontInfo, count: int, lv: str, prose, old: bool = False) -> str:
+    """The stamp of a font's unpointed set: its content (or, `old`, its size and time as stamps
+    were made before), the count, UNPOINTED_VERSION, the level, and which text it came from."""
+    if old:
+        st = font.path.stat()
+        made_from = f"{st.st_size}:{st.st_mtime_ns}"
+    else:
+        from .stamps import remembered_digest
+
+        made_from = remembered_digest(font.path)
+    return hashlib.sha1(f"{font.path.name}:{font.index}:{made_from}:{count}:{UNPOINTED_VERSION}:{lv}:"
+                        f"{texts.prose_pin() if prose else ''}".encode()).hexdigest()[:12] + ("-prose" if prose else "-bible")
+
+
 def unpointed_lines(font, have, lv, k, split, books, passages, prose, lines_per_font, w, set_lines, say) -> None:
     """Set a Hebrew font's unpointed lines, once. Books and grammars print Hebrew unpointed and
     in full spelling, which the Hebrew Bible (pointed, spelled defectively) doesn't show, so they
@@ -353,10 +392,8 @@ def unpointed_lines(font, have, lv, k, split, books, passages, prose, lines_per_
     stamp says which they were made from)."""
     count = unpointed_count(lines_per_font)
     book = unpointed_book(font)
-    st = font.path.stat()
-    stamp = hashlib.sha1(f"{font.path.name}:{font.index}:{st.st_size}:{st.st_mtime_ns}:{count}:{UNPOINTED_VERSION}:{lv}:"
-                         f"{texts.prose_pin() if prose else ''}".encode()).hexdigest()[:12] + ("-prose" if prose else "-bible")
-    if font_done(books, w, book, stamp):
+    stamp = _unpointed_stamp(font, count, lv, prose)
+    if font_done(books, w, book, stamp, _unpointed_stamp(font, count, lv, prose, old=True)):
         say(f"Hebrew: {font.name} unpointed lines already done")
         return
     bible = [without_marks(p) for p in passages]
@@ -469,9 +506,10 @@ def generate(fonts: Path | list[FontInfo], scripts: list[str], lines_per_font: i
             for k, (font, have, lv) in enumerate(usable, 1):
                 fraction((si + (k - 1) / len(usable)) / len(scripts))
                 book = f"font: {font.name}"
-                stamp = _stamp(font, lines_per_font, script) + ("" if lv == FULL else "-" + lv)
+                tail = "" if lv == FULL else "-" + lv
+                stamp = _stamp(font, lines_per_font, script) + tail
                 split = "test" if font.name in test_fonts else "train"
-                if font_done(books, w, book, stamp):
+                if font_done(books, w, book, stamp, _old_stamp(font, lines_per_font, script) + tail):
                     say(f"{name}: {font.name} already done")
                 else:
                     def make_text(rng, n):

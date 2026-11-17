@@ -230,8 +230,23 @@ def _dir(ws: Path) -> Path:
 
 
 def _stamp(path: Path) -> str:
+    """What a file is, by its content (kept in memory beside its size and time, so a model
+    isn't read again on every page)."""
+    from .stamps import remembered_digest
+
+    return "sha1:" + remembered_digest(path)
+
+
+def _old_stamp(path: Path) -> str:
+    """The form before content stamps (size and whole seconds of the time), still accepted
+    once so work already kept isn't made again."""
     st = Path(path).stat()
     return f"{st.st_size}-{int(st.st_mtime)}"
+
+
+def _same(stored, path: Path) -> bool:
+    """Whether a stored stamp is this file's: in the content form, or in the old form."""
+    return stored is not None and stored in (_stamp(path), _old_stamp(path))
 
 
 def _load(path: Path, default):
@@ -290,14 +305,23 @@ def read_page(ws: Path, page: str, image: Path, hand_ids: list[str], how: str, d
     found = lines_of(ws, page)
     model = segmenter_file(ws)
     finder = _stamp(model) if model else "kraken"
+    upgraded = False
     # Lines are found again when the page image changed, or when the book's line-finding was
     # trained since; not on a page whose lines were changed or corrected (that work is kept).
     untouched = not found.get("edited") and not corrections_of(ws, page)
+    if found["lines"] and not resegment:
+        # A stamp kept in the old form that still matches is accepted and written in the new.
+        if found.get("image") != _stamp(image) and _same(found.get("image"), image):
+            found["image"], upgraded = _stamp(image), True
+        if model and found.get("segmenter") != finder and _same(found.get("segmenter"), model):
+            found["segmenter"], upgraded = finder, True
     if resegment or not found["lines"] or (untouched and (found.get("image") != _stamp(image)
                                                           or found.get("segmenter") != finder)):
         seg = session.segment(image, direction, str(model) if model else None)
         found = {"image": _stamp(image), "lines": seg["lines"], "regions": seg.get("regions", []),
                  "segmenter": finder, "edited": False}
+        _save_lines(ws, page, found)
+    elif upgraded:
         _save_lines(ws, page, found)
     old = {l["key"]: l for l in readings_of(ws, page)["lines"]}
     stamps = {h: _stamp(Path(have[h]["file"])) for h in hand_ids if h in have}
@@ -305,7 +329,14 @@ def read_page(ws: Path, page: str, image: Path, hand_ids: list[str], how: str, d
     for line in found["lines"]:
         key = line_key(line)
         prev = old.get(key, {})
-        readings = {h: r for h, r in prev.get("readings", {}).items() if r.get("model") == stamps.get(h)}
+        readings = {}
+        for h, r in prev.get("readings", {}).items():
+            if h not in stamps:
+                continue
+            if r.get("model") == stamps[h]:
+                readings[h] = r
+            elif _same(r.get("model"), Path(have[h]["file"])):
+                readings[h] = {**r, "model": stamps[h]}       # old form, accepted once
         lines.append({"key": key, "readings": readings})
 
     def read_with(hand: str, todo: list[int]) -> None:
