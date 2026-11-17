@@ -10,7 +10,7 @@
 - Fonts: GNU FreeFont 20120503, Liberation 2.1.5, DejaVu 2.37, put in the user's font folder (downloads retried).
 - Ectype IDML cloned and run as `python -m ectype_idml`; Temurin Java 17 with the element-attribute limit lifted.
 - `pip install -e ".[dev,gui]"`: numpy 2.5.5, opencv 5.0.0.93, Pillow 13.0.0, PySide6 6.12.0, vtracer 0.6.15.
-- The job is `continue-on-error: true` (the suite is not fully green yet).
+- The job was `continue-on-error: true` until the suite passed whole; it is required now.
 
 ## Last run
 
@@ -45,3 +45,11 @@ Skipped (not Windows faults): `test_lept.py` (Leptonica not installed here), two
 - `test_latin_lines_with_italic_words` (29 of 60): passes here, with the fonts installed. That PC lacked
   fonts: a setup problem.
 - Most of that run's 80 failures were setup (no Tesseract, no fonts, no training tools, Python 3.14).
+
+## Afterwards: the one failure fixed, the job required
+
+The two Review legends now wrap and Manuscript Review's buttons flow onto more rows; the test compares
+a very wide window with a narrow one. Run 44008560195 (commit 13ee978): the whole suite passed on
+Windows (pytest exit code 0), and the window's least width on the runner went from 1582 to 884 px
+(Linux: 771 to 536). https://github.com/RexBHavgreau/ectype-ocr/actions/runs/44008560195
+The `windows` job is no longer allowed to fail.
