@@ -11,7 +11,7 @@ def test_synth_truth_matches_ink(tmp_path):
     truth = make_page(tmp_path, degrade=Degrade.none())
     clean = np.asarray(Image.open(tmp_path / "clean.png"))
     assert clean.shape[::-1] == tuple(truth["size_px"])
-    assert truth["text"] == (tmp_path / "truth.txt").read_text()
+    assert truth["text"] == (tmp_path / "truth.txt").read_text(encoding="utf-8")
     chars = [c for line in truth["lines"] for w in line["words"] for c in w["chars"]]
     assert "".join(c["text"] for c in chars) == "".join(truth["text"].split())
     # Every non-space character's box contains ink, and the text outside all boxes is blank.

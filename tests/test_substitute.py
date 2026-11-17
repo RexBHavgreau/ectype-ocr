@@ -66,9 +66,18 @@ def test_fonts_for_italics_and_scripts_the_font_lacks(tmp_path):
     from ectype.substitute import _script, _visual, choose_faces
     from ectype.synthtrain import FontInfo
 
-    serif = Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf")
-    free = Path("/usr/share/fonts/truetype/freefont/FreeSerif.ttf")
-    free_italic = Path("/usr/share/fonts/truetype/freefont/FreeSerifItalic.ttf")
+    from ectype.resources import font_index
+
+    def installed(family, style):
+        # searched in the system's font folders (Linux's /usr/share/fonts, Windows' Fonts)
+        for fam, sty, path in font_index():
+            if fam == family and sty == style:
+                return path
+        return Path("missing")
+
+    serif = installed("DejaVu Serif", "Book")
+    free = installed("FreeSerif", "Regular")
+    free_italic = installed("FreeSerif", "Italic")
     if not (serif.is_file() and free.is_file() and free_italic.is_file()):
         import pytest
 
