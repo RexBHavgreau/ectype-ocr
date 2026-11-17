@@ -22,7 +22,7 @@ https://github.com/RexBHavgreau/ectype-ocr/actions/runs/44006436508
 Skipped (not Windows faults): `test_lept.py` (Leptonica not installed here), two in `test_kraken.py`
 (need the Kraken engine and a model; the Linux `kraken` job runs them).
 
-## The one failure
+## The one failure (fixed afterwards: see the end)
 
 `tests/test_gui.py::test_buttons_wrap_and_stay_visible_in_a_narrow_window`
 - Last line: `assert 83 > 83` ("the buttons wrapped onto more rows").

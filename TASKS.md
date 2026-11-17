@@ -177,20 +177,6 @@ Report (<tool>, <date>):
 
 These need the project's history or judgement about risk. Other agents: do not take them.
 
-### T-012 · The tests run on Windows too, automatically
-- **Status:** Ready
-- **Who:** Claude · **Size:** M
-- **Why:** The app is Windows-only but its tests run on Linux only. T-006 (a run on Beaux's
-  PC, `docs/windows-tests-2026-11-16.md`) could not give a clean list: that PC had Python
-  3.14 and no Tesseract, so 78 of 85 failures were the missing setup. A `windows-latest`
-  job in `ci.yml` (Python 3.12, Tesseract as `release.yml` installs it, the test fonts:
-  Liberation, DejaVu, FreeFont; FriBiDi for Pillow's raqm) gives the real list on every
-  push. Start it allowed to fail, fix what it finds, then make it required.
-- **Leads from T-006 to check there** (may be the setup, may be real): the traced-font tests
-  ended in an access violation inside `trace.trace_bitmap` (vtracer) on Python 3.14: does it
-  happen on 3.12, which the app ships? `test_buttons_wrap_and_stay_visible_in_a_narrow_window`
-  (83 > 83: the buttons didn't wrap); `test_latin_lines_with_italic_words` (29 of 60).
-
 ### T-013 · Ectype IDML's notes shown with the right letters
 - **Status:** Ready
 - **Who:** Claude · **Size:** S
@@ -274,6 +260,10 @@ printed books; no platform other than Windows.
 Newest first. The manager moves a task here when its pull request is merged, as one line,
 and deletes the task's full text above. Older history: `CLAUDE.md`, "What each version brought".
 
+- 2026-11-17 · T-012 · The tests run on Windows on GitHub at every push (Python 3.12, as the
+  app ships). Of the 80 failures seen on Beaux's PC, one was real: the window could not be
+  made narrow (fixed). Done by two cheaper Claude agents (the first cut off by a restart);
+  the fix and the check by the manager. Report: `docs/windows-tests-ci.md`.
 - 2026-11-17 · T-014 · `ectype strip-text`: a copy of a PDF without its hidden (OCR) text
   layer (done by the manager at Beaux's word; its ten tests pass).
 - 2026-11-17 · T-007 · Training's kept results are judged by content (fonts' set lines,
