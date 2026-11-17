@@ -63,7 +63,7 @@ Report (<tool>, <date>):
 ## Ready
 
 ### T-011 · Tests read and write text as UTF-8
-- **Status:** In progress (ChatGPT, 2026-11-16)
+- **Status:** For review (task/T-011-tests-utf8)
 - **Who:** any agent that can run the tests · **Size:** M
 - **Why:** On Windows one test fails only because the test itself reads a file without
   saying it is UTF-8 (`tests/test_synth_compare.py`, line 14: a dash comes back as "?").
@@ -90,7 +90,12 @@ Report (<tool>, <date>):
   - The whole suite passes, with the same number of tests passed as before you began (run
     it first and note the number).
 - **Report:**
-
+  
+  Report (ChatGPT, 2026-11-16):
+  - Did: Extended the UTF-8 checker to scan `tests/`; added explicit UTF-8 to all 35 flagged file reads and writes in 11 test files, and UTF-8/replacement handling to the two text-mode subprocess calls. No assertions or test behavior changed.
+  - Checks: Full Linux CI suite: 292 passed, 2 skipped, matching the pre-change baseline (292 passed, 2 skipped). The encoding checker passed as part of that full suite; its focused command was not run separately. Windows CI was still running when this report was written.
+  - Not done / unsure: A local checkout was unavailable because this environment could not resolve `github.com`; verification was run through GitHub Actions.
+  - For Beaux to try on Windows: nothing beyond checking the Windows CI result.
 ### T-015 · Move the old build-phase write-ups into docs/history
 - **Status:** Ready
 - **Who:** any agent · **Size:** S · documents only: no setup and no tests needed
