@@ -145,7 +145,7 @@ Report (<tool>, <date>):
 - **Report:**
 
 ### T-017 · Report which parts of the program the tests don't reach (a list only)
-- **Status:** Ready
+- **Status:** Done
 - **Who:** any agent that can run the tests · **Size:** S
 - **Why:** The manager writes test tasks for other agents. To choose them well it needs to
   know which parts of the program no test runs. This task measures that and writes it
@@ -169,7 +169,7 @@ Report (<tool>, <date>):
 - **Done when:** the file exists with the totals, the table and the ten lists;
   `git diff --stat main` shows only that new file (and this task's lines here); nothing in
   `pyproject.toml` changed.
-- **Report:**
+- **Report:** Wrote `docs/test-coverage-2026-11-16.md` with the measured totals, full per-file coverage table, the ten lowest-coverage files and their completely uncovered functions, and the skip reasons from the full suite.
 
 ---
 
