@@ -92,6 +92,23 @@ jobs:
             Copy-Item $dll.FullName (Join-Path $d "fribidi.dll")
           }
           python -c "from PIL import features; print('raqm:', features.check('raqm'), features.version('raqm'), 'fribidi:', features.version('fribidi'))"
+      # As release.yml does: the training tools of this Tesseract package that can't start (its ICU needs
+      # a runtime entry point its own libstdc++ lacks) come from MSYS2's Tesseract, into "training".
+      - name: Tesseract's training tools
+        shell: pwsh
+        run: |
+          $full = "C:\Program Files\Tesseract-OCR"
+          $env:MSYSTEM = "UCRT64"; $env:CHERE_INVOKING = "1"
+          $bash = "C:\msys64\usr\bin\bash.exe"
+          & $bash -lc "pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-tesseract-ocr" | Select-Object -Last 3
+          $training = "$full\training"
+          New-Item -ItemType Directory -Force $training | Out-Null
+          foreach ($t in "unicharset_extractor", "combine_lang_model", "merge_unicharsets") {
+            Copy-Item "C:\msys64\ucrt64\bin\$t.exe" $training -Force
+            $dlls = & $bash -lc "ldd /ucrt64/bin/$t.exe" | ForEach-Object { if ($_ -match '=> (/ucrt64/bin/\S+\.dll)') { $Matches[1] } }
+            foreach ($d in $dlls) { Copy-Item ("C:\msys64" + ($d -replace '/', '\')) $training -Force }
+            & "$training\$t.exe" --version 2>&1 | Select-Object -First 1
+          }
       - name: Ectype IDML
         shell: pwsh
         run: |
@@ -112,10 +129,28 @@ jobs:
           $rc = $LASTEXITCODE
           "pytest exit code: $rc"
           "rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          exit 0
+          exit $rc
+      # Facts for docs/windows-tests-ci.md: why the narrow window did not wrap the buttons.
+      - name: GUI diagnostics (narrow window)
+        if: always()
+        shell: pwsh
+        run: |
+          @'
+          from PySide6.QtWidgets import QApplication, QToolButton
+          from ectype.gui import MainWindow
+          from ectype.project import Project
+          import tempfile, pathlib
+          app = QApplication([])
+          d = pathlib.Path(tempfile.mkdtemp()); (d / "a.pdf").write_bytes(b"%PDF-1.4")
+          w = MainWindow(Project.for_scan(d / "a.pdf")); w.show()
+          for width in (1400, 520):
+              w.resize(width, 700); app.processEvents()
+              print(width, "window", w.width(), "min", w.minimumSizeHint().width(), "row", w.button_row.width(), w.button_row.height(),
+                    "buttons", [(b.defaultAction().text(), b.geometry().x(), b.geometry().y(), b.width()) for b in w.button_row.findChildren(QToolButton) if b.defaultAction()])
+          '@ | python -
       # A crash (access violation) kills the whole run: try every file on its own, so each is recorded.
       - name: Tests, one file at a time (only after a crash)
-        if: steps.full.outputs.rc != '0' && steps.full.outputs.rc != '1'
+        if: always() && steps.full.outputs.rc != '0' && steps.full.outputs.rc != '1'
         shell: pwsh
         env:
           ECTYPE_DOCX2IDML: python -m ectype_idml
