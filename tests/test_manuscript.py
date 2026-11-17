@@ -4,13 +4,14 @@ lines changed in the Kraken view, sample pages. Kraken stands in as a fake sessi
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from xml.etree import ElementTree
 
 import pytest
 from PIL import Image, ImageDraw
 
-from ectype import manuscript
+from ectype import manuscript, stamps
 from ectype.project import Project
 
 
@@ -225,3 +226,41 @@ def test_manuscript_and_print_keep_their_own_languages(data, tmp_path):
     assert p.settings.ms_languages == [] and p.settings.hands == {}
     saved = json.loads((p.workspace / "project.json").read_text(encoding="utf-8"))
     assert saved["script"] == "manuscript"
+
+
+def test_manuscript_stamp_is_content_and_old_form_is_accepted_once(data, tmp_path):
+    p = _book(tmp_path)
+    a = _hand(tmp_path, "Square")
+    p.set_hands("heb", [a])
+    model = Path(manuscript.hands()[a]["file"])
+    fake = FakeKraken({str(model): [("אבג", 95.0), ("דהו", 90.0), ("זח", 97.0)]})
+    manuscript.read_workspace(p.workspace, p.settings, sessions=lambda n: fake)
+    image = p.workspace / "pages" / "p001.png"
+    found = manuscript.lines_of(p.workspace, "p001")
+    assert found["image"] == "sha1:" + stamps.file_digest(image)
+    # Same bytes, different time: still fresh.
+    os.utime(image, ns=(1, 1))
+    manuscript.read_workspace(p.workspace, p.settings, sessions=lambda n: fake)
+    assert fake.segmented == 1 and len(fake.read) == 1
+
+    # Put the old forms in the kept files, as an earlier version wrote them.
+    lines_file = p.workspace / "ms" / "p001.lines.json"
+    read_file = p.workspace / "ms" / "p001.read.json"
+    d = json.loads(lines_file.read_text(encoding="utf-8"))
+    d["image"] = manuscript._old_stamp(image)
+    lines_file.write_text(json.dumps(d), encoding="utf-8")
+    r = json.loads(read_file.read_text(encoding="utf-8"))
+    for line in r["lines"]:
+        for rd in line["readings"].values():
+            rd["model"] = manuscript._old_stamp(model)
+    read_file.write_text(json.dumps(r), encoding="utf-8")
+    manuscript.read_workspace(p.workspace, p.settings, sessions=lambda n: fake)
+    assert fake.segmented == 1 and len(fake.read) == 1, "old stamps accepted: nothing found or read again"
+    assert manuscript.lines_of(p.workspace, "p001")["image"].startswith("sha1:")
+    new = json.loads(read_file.read_text(encoding="utf-8"))
+    assert all(rd["model"] == manuscript._stamp(model) for l in new["lines"] for rd in l["readings"].values())
+
+    # A model with other content is stale.
+    model.write_bytes(b"changed model")
+    manuscript.read_workspace(p.workspace, p.settings, sessions=lambda n: fake)
+    assert len(fake.read) == 2

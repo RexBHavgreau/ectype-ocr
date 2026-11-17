@@ -159,3 +159,31 @@ def test_a_font_without_points_takes_most_unpointed_lines_from_the_prose(fonts, 
     assert len(unpointed) == 16 and r["added"]["heb"] == 40 + 16
     bible = sum(1 for t in unpointed if "בראשית" in t or "תהו" in t)
     assert 0 < len(unpointed) - bible and bible <= len(unpointed) * 0.6, "mostly prose"
+
+
+def test_stamps_made_from_file_times_are_accepted_once_and_rewritten(fonts, monkeypatch):
+    """A pool set before stamps held the font's content: nothing is set again, the records are upgraded."""
+    import json
+    import os
+
+    _texts(monkeypatch, PROSE)
+    synthtrain.generate(fonts, ["hebrew"], lines_per_font=20)
+    font = synthtrain.fonts_in(fonts)[0]
+    pointed, unpointed = _books()
+    assert pointed["stamp"] == synthtrain._stamp(font, 20, "hebrew")
+    lang_dir = pool._dir("heb") / "books.json"
+    data = json.loads(lang_dir.read_text(encoding="utf-8"))
+    data["font: FreeSerif Regular"]["stamp"] = synthtrain._old_stamp(font, 20, "hebrew")
+    data["font: FreeSerif Regular (unpointed)"]["stamp"] = synthtrain._unpointed_stamp(
+        font, synthtrain.unpointed_count(20), synthtrain.FULL, PROSE, old=True)
+    lang_dir.write_text(json.dumps(data), encoding="utf-8")
+    assert _books()[0]["stamp"] != pointed["stamp"]
+    messages = []
+    r = synthtrain.generate(fonts, ["hebrew"], lines_per_font=20, progress=messages.append)
+    assert r["added"].get("heb", 0) == 0 and not any("setting" in m for m in messages)
+    assert _books() == (pointed, unpointed), "both records are in the new form again"
+    # the same bytes with another time are still the same font; other bytes are not
+    os.utime(font.path, ns=(1, 1))
+    r = synthtrain.generate(fonts, ["hebrew"], lines_per_font=20)
+    assert r["added"].get("heb", 0) == 0
+
