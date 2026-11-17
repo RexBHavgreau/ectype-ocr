@@ -38,6 +38,135 @@ jobs:
           export PYTHONPATH="$ECTYPE_DOCX2IDML_SOURCE"
           pytest -q
 
+  # The same suite on Windows, the only platform the app ships for. Allowed to fail while its
+  # list of real failures is worked through (docs/windows-tests-ci.md).
+  windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    env:
+      PYTHONFAULTHANDLER: "1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tesseract (English), as release.yml installs it
+        shell: pwsh
+        run: |
+          choco install tesseract -y --no-progress
+          "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          "ECTYPE_TESSERACT=C:\Program Files\Tesseract-OCR\tesseract.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & "C:\Program Files\Tesseract-OCR\tesseract.exe" --version
+          & "C:\Program Files\Tesseract-OCR\tesseract.exe" --list-langs
+      # The test fonts, in the per-user font folder the app searches (resources.font_dirs).
+      - name: Fonts (GNU FreeFont 20120503, Liberation 2.1.5, DejaVu 2.37)
+        shell: pwsh
+        run: |
+          $tmp = Join-Path $env:RUNNER_TEMP "fontdl"
+          New-Item -ItemType Directory -Force $tmp | Out-Null
+          $dest = Join-Path $env:LOCALAPPDATA "Microsoft\Windows\Fonts"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Invoke-WebRequest "https://ftp.gnu.org/gnu/freefont/freefont-ttf-20120503.zip" -OutFile "$tmp\freefont.zip"
+          Invoke-WebRequest "https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz" -OutFile "$tmp\liberation.tar.gz"
+          Invoke-WebRequest "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.zip" -OutFile "$tmp\dejavu.zip"
+          Expand-Archive "$tmp\freefont.zip" "$tmp\freefont"
+          Expand-Archive "$tmp\dejavu.zip" "$tmp\dejavu"
+          New-Item -ItemType Directory -Force "$tmp\liberation" | Out-Null
+          tar -xzf "$tmp\liberation.tar.gz" -C "$tmp\liberation"
+          Get-ChildItem -Recurse $tmp -Include *.ttf | Copy-Item -Destination $dest
+          (Get-ChildItem $dest -Filter *.ttf).Count
+      - name: Python packages
+        run: pip install -e ".[dev,gui]"
+      # Pillow's raqm layout (Hebrew, Syriac) loads FriBiDi as a separate DLL on Windows.
+      - name: FriBiDi for Pillow's raqm layout
+        shell: pwsh
+        run: |
+          C:\msys64\usr\bin\bash.exe -lc "pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-fribidi" | Select-Object -Last 3
+          $dll = Get-ChildItem C:\msys64\ucrt64\bin -Filter "libfribidi*.dll" | Select-Object -First 1
+          $dll.FullName
+          $py = Split-Path (Get-Command python).Source
+          $pil = python -c "import PIL, os; print(os.path.dirname(PIL.__file__))"
+          foreach ($d in $py, $pil) {
+            Copy-Item $dll.FullName (Join-Path $d "libfribidi-0.dll")
+            Copy-Item $dll.FullName (Join-Path $d "fribidi.dll")
+          }
+          python -c "from PIL import features; print('raqm:', features.check('raqm'), features.version('raqm'), 'fribidi:', features.version('fribidi'))"
+      # As release.yml does: the training tools of this Tesseract package that can't start (its ICU needs
+      # a runtime entry point its own libstdc++ lacks) come from MSYS2's Tesseract, into "training".
+      - name: Tesseract's training tools
+        shell: pwsh
+        run: |
+          $full = "C:\Program Files\Tesseract-OCR"
+          $env:MSYSTEM = "UCRT64"; $env:CHERE_INVOKING = "1"
+          $bash = "C:\msys64\usr\bin\bash.exe"
+          & $bash -lc "pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-tesseract-ocr" | Select-Object -Last 3
+          $training = "$full\training"
+          New-Item -ItemType Directory -Force $training | Out-Null
+          foreach ($t in "unicharset_extractor", "combine_lang_model", "merge_unicharsets") {
+            Copy-Item "C:\msys64\ucrt64\bin\$t.exe" $training -Force
+            $dlls = & $bash -lc "ldd /ucrt64/bin/$t.exe" | ForEach-Object { if ($_ -match '=> (/ucrt64/bin/\S+\.dll)') { $Matches[1] } }
+            foreach ($d in $dlls) { Copy-Item ("C:\msys64" + ($d -replace '/', '\')) $training -Force }
+            & "$training\$t.exe" --version 2>&1 | Select-Object -First 1
+          }
+      - name: Ectype IDML
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/RexBHavgreau/ectype-idml ../ectype-idml
+          pip install -r ../ectype-idml/requirements-dev.txt
+          java -version
+      - name: Tests
+        id: full
+        shell: pwsh
+        env:
+          ECTYPE_DOCX2IDML: python -m ectype_idml
+          JAVA_TOOL_OPTIONS: -Djdk.xml.elementAttributeLimit=0
+        run: |
+          $env:ECTYPE_DOCX2IDML_SOURCE = (Resolve-Path "..\ectype-idml").Path
+          $env:PYTHONPATH = $env:ECTYPE_DOCX2IDML_SOURCE
+          python -c "from PIL import features; print('raqm:', features.check('raqm'))"
+          python -m pytest -q -rs -p no:cacheprovider 2>&1 | Tee-Object -FilePath pytest-full.txt
+          $rc = $LASTEXITCODE
+          "pytest exit code: $rc"
+          "rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          exit $rc
+      # Facts for docs/windows-tests-ci.md: why the narrow window did not wrap the buttons.
+      - name: GUI diagnostics (narrow window)
+        if: always()
+        shell: pwsh
+        run: |
+          @'
+          from PySide6.QtWidgets import QApplication, QToolButton
+          from ectype.gui import MainWindow
+          from ectype.project import Project
+          import tempfile, pathlib
+          app = QApplication([])
+          d = pathlib.Path(tempfile.mkdtemp()); (d / "a.pdf").write_bytes(b"%PDF-1.4")
+          w = MainWindow(Project.for_scan(d / "a.pdf")); w.show()
+          for width in (1400, 520):
+              w.resize(width, 700); app.processEvents()
+              print(width, "window", w.width(), "min", w.minimumSizeHint().width(), "row", w.button_row.width(), w.button_row.height(),
+                    "buttons", [(b.defaultAction().text(), b.geometry().x(), b.geometry().y(), b.width()) for b in w.button_row.findChildren(QToolButton) if b.defaultAction()])
+          '@ | python -
+      # A crash (access violation) kills the whole run: try every file on its own, so each is recorded.
+      - name: Tests, one file at a time (only after a crash)
+        if: always() && steps.full.outputs.rc != '0' && steps.full.outputs.rc != '1'
+        shell: pwsh
+        env:
+          ECTYPE_DOCX2IDML: python -m ectype_idml
+          JAVA_TOOL_OPTIONS: -Djdk.xml.elementAttributeLimit=0
+        run: |
+          $env:ECTYPE_DOCX2IDML_SOURCE = (Resolve-Path "..\ectype-idml").Path
+          $env:PYTHONPATH = $env:ECTYPE_DOCX2IDML_SOURCE
+          $results = @()
+          foreach ($f in Get-ChildItem tests -Filter "test_*.py" | Sort-Object Name) {
+            Write-Host "=== $($f.Name)"
+            python -m pytest -q -rs -p no:cacheprovider "tests/$($f.Name)" 2>&1 | Tee-Object -Variable out | Write-Host
+            $results += "$($f.Name): exit $LASTEXITCODE ($($out | Select-Object -Last 1))"
+          }
+          Write-Host "=== SUMMARY"
+          $results | ForEach-Object { Write-Host $_ }
+
   # Kraken, the second OCR engine: its tests with a model from Kraken's repository on Zenodo,
   # and a comparison of the repository's printed Greek and Hebrew models with Tesseract
   # (tools/kraken_eval.py), printed in the log and kept as an artifact.

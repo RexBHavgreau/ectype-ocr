@@ -135,13 +135,13 @@ def test_second_run_computes_nothing(ws, monkeypatch):
 def test_changed_reading_with_old_size_and_time_is_made_again(ws, monkeypatch):
     path = ws / "ocr" / "s01.ocr.json"
     st = path.stat()
-    text = path.read_text(encoding="utf-8")
+    text = path.read_bytes().decode("utf-8")  # bytes, not read_text: on Windows the file has CRLF line ends
     m = re.search(r'"text": "([A-Za-z]{2,})"', text)
     word = m.group(1)
     other = word[1] + word[0] if word[1] != word[0] else "x" + word[1:]
     changed = text[:m.start(1)] + other + text[m.end(1):]
     assert changed != text and len(changed.encode()) == len(text.encode())
-    path.write_text(changed, encoding="utf-8", newline="\n")
+    path.write_bytes(changed.encode("utf-8"))
     os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
     assert path.stat().st_size == st.st_size and path.stat().st_mtime_ns == st.st_mtime_ns
     counter = Counter(monkeypatch)
@@ -175,7 +175,7 @@ def test_stale_cluster_follows_the_readings(ws):
     assert not project._stale("segment")
     path = ws / "ocr" / "s02.ocr.json"
     st = path.stat()
-    text = path.read_text(encoding="utf-8")
+    text = path.read_bytes().decode("utf-8")  # bytes, not read_text: on Windows the file has CRLF line ends
     m = re.search(r'"text": "([A-Za-z]{2,})"', text)
     word = m.group(1)
     other = word[1] + word[0] if word[1] != word[0] else "x" + word[1:]

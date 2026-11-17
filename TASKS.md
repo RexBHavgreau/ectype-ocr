@@ -251,19 +251,6 @@ Report (<tool>, <date>):
 
 These need the project's history or judgement about risk. Other agents: do not take them.
 
-### T-007 · Training's kept results judged by content, not file times
-- **Status:** Ready
-- **Who:** Claude · **Size:** M (split by file before starting)
-- **Why:** Everything else in Ectype reuses a kept result only when its inputs' contents are
-  unchanged (`stamps.py`). Training still trusts file times and hand-raised version numbers:
-  `pool.py` (`items`), `synthtrain.py` (font stamps, `SCRIPT_VERSION`, `VERSION`,
-  `UNPOINTED_VERSION`), `trainall.py`, `training.py`, `manuscript._stamp`.
-- **Care:** a new stamp format must not make Beaux's existing work look stale. Their Hebrew
-  pool has 112,000+ lines set from fonts (over an hour to remake) and Greek 149,600. Accept
-  the old stamp once and rewrite it in the new form, as `ocr.stamp` does for readings made
-  before sidecars. Model files are large: hash them once and keep the digest, don't hash on
-  every read.
-
 ### T-012 · The tests run on Windows too, automatically
 - **Status:** Ready
 - **Who:** Claude · **Size:** M
@@ -359,6 +346,11 @@ printed books; no platform other than Windows.
 Newest first. The manager moves a task here when its pull request is merged, as one line,
 and deletes the task's full text above. Older history: `CLAUDE.md`, "What each version brought".
 
+- 2026-11-17 · T-007 · Training's kept results are judged by content (fonts' set lines,
+  matched editions, Manuscript Mode's page images and hand models, a model's kept checking
+  errors); what was kept under the old stamps is accepted once and rewritten. Two places
+  deliberately stay on file times (see `CLAUDE.md`). Done by a cheaper Claude agent, checked
+  by the manager.
 - 2026-11-16 · T-010 · Other programs' output is read as UTF-8 in six places, and
   `tests/test_text_encoding.py` keeps it so (Copilot on Beaux's PC).
 - 2026-11-16 · T-004 · README says what the app does now and lists every module (ChatGPT).

@@ -29,6 +29,28 @@ def file_digest(path) -> str:
     return h.hexdigest()
 
 
+_MEMO: dict[tuple[str, int, int], str] = {}
+
+
+def remembered_digest(path) -> str:
+    """Like `file_digest`, for big files (a model, a scan) asked about again and again: the
+    digest is kept in memory beside the file's size and time and taken again only when either
+    changed. The size and time only say when to look again; what a stamp holds is the content."""
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return "-"
+    key = (str(Path(path).resolve()), st.st_size, st.st_mtime_ns)
+    got = _MEMO.get(key)
+    if got is None:
+        got = file_digest(path)
+        if got != "-":
+            if len(_MEMO) > 512:
+                _MEMO.clear()
+            _MEMO[key] = got
+    return got
+
+
 def code_version() -> str:
     """What the program's code is. From source: a hash of every .py file of the package (paths
     and contents), taken once a run, so any change to the code makes kept results stale. In the
