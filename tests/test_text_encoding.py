@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FOLDERS = ["src/ectype", "tools"]
+FOLDERS = ["src/ectype", "tools", "tests"]
 # Places left as they are on purpose: (file, function called). Each needs a reason.
 ALLOWED = {
     ("src/ectype/converter.py", "Popen"),  # Ectype IDML's own output: its encoding is decided in T-013

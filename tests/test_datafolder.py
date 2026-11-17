@@ -52,7 +52,7 @@ def test_refusals(home, tmp_path, monkeypatch):
         datafolder.move_data(home)
     full = tmp_path / "full"
     full.mkdir()
-    (full / "x").write_text("x")
+    (full / "x").write_text("x", encoding="utf-8")
     with pytest.raises(ValueError, match="not empty"):
         datafolder.move_data(full)
     monkeypatch.setattr(shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(10, 9, 1))
