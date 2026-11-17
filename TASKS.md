@@ -62,162 +62,8 @@ Report (<tool>, <date>):
 
 ## Ready
 
-### T-003 · docs/releasing.md: match what the release actually does
-- **Status:** For review (task/T-003-release-guide)
-- **Who:** any agent · **Size:** S · documents only: no setup and no tests needed
-- **Why:** `docs/releasing.md` describes the first release (0.1.0). The release now also
-  builds a second download, the Kraken engine, and tests more.
-- **Read first:** `docs/releasing.md`; `.github/workflows/release.yml` (read every step's
-  `name:` line and its comments).
-- **Files to change:** `docs/releasing.md` only.
-- **Steps:**
-  1. Rewrite the numbered list under "The workflow then:" so it has one item per step of
-     the first job in `release.yml`, in the same order, each in one plain sentence.
-  2. After it, add a short second list for the second job (the Kraken engine): what it
-     builds, how it is tested, and the name of the file it attaches
-     (`Ectype-OCR-Kraken-<version>-win64.zip`).
-  3. Add one paragraph: the release offers two files, the installer and the Kraken engine
-     zip; the app downloads the engine itself when the user asks for Kraken.
-  4. Change the example version numbers `v0.1.0` / `0.1.0` to `vX.Y.Z` / `X.Y.Z`.
-  5. Add one sentence near the top: "Beaux pushes the release tags; agents never do."
-  6. Keep every other paragraph as it is unless `release.yml` contradicts it; if it does,
-     fix the sentence and name it in your report.
-- **Done when:**
-  - Each step `name:` in `release.yml` is covered by an item in the doc (list the pairing
-    in your report).
-  - `grep -n "0\.1\.0" docs/releasing.md` prints nothing.
-- **Review note (manager, 2026-11-16):** the first attempt stopped because Python was 3.13
-  and `AGENTS.md` then said "must be 3.12". That rule was wrong (the manager's mistake, now
-  fixed): Python 3.10 to 3.13 are all fine, and this task changes one document, so it needs
-  no Python at all. Nothing was wrong with the worker's stopping. Start again from step 1.
-- **Report:**
-
-Report (ChatGPT GitHub, 2026-11-16):
-- Did: Updated the release guide for the installer and Kraken engine jobs, explained the two downloads and tag ownership, and replaced the example version with X.Y.Z.
-- Checks: Confirmed no `0.1.0` remains. Installer-job pairing: checkout → 1; Python setup → 2; Version from the tag → 3; Tesseract and Inno Setup → 4; Python packages → 5; Bundle Tesseract → 6; Bundle EB Garamond → 7; Build the program folder (PyInstaller) → 8; Smoke test the packaged app → 9; Installer (Inno Setup) → 10; artifact upload → 11; Attach to the release → 12. The second list covers the Kraken job's checkout, Python setup, version, packages, build, smoke test, zip, artifact upload and release attachment. Branch comparison: only `docs/releasing.md` and this task's status/report changed.
-- Not done / unsure: nothing.
-- For Beaux to try on Windows: nothing; this is a documentation change.
-
-### T-004 · README: describe the project as it is now, not by build phases
-- **Status:** For review (task/T-004-readme-current)
-- **Who:** any agent · **Size:** M · documents only: no setup and no tests needed
-- **Why:** The README opens with "Phases 0–5 are done, and Phase 6 is under way", which was
-  true in October 2026. The app is far past that, and readers can't tell what it does today.
-- **Read first:** `README.md` (top paragraph, "Status", and the "Layout" section at the end);
-  the first docstring line of each file in `src/ectype/*.py`.
-- **Files to change:** `README.md` only.
-- **Steps:**
-  1. Leave the first paragraph (it already points to `TASKS.md`) as it is.
-  2. Replace the paragraph that starts "**Status: Phases 0–5 are done**" and its four
-     bullet points with one paragraph headed "**What it does**" that lists, in one sentence
-     each: the four things Run can make (take them from the README's own list under "The
-     desktop app": Traced, Substitute, Text layer only, Plain text only); Review; IDML
-     export; Kraken; training; Manuscript Mode. Use only facts already stated lower in the
-     README. Then one line: "Early results, by build phase:" followed by the four existing
-     links (`docs/phase1.md` … `docs/phase4-5.md`) on one line.
-  3. In "Layout", remove the phrases "are the Phase 0 tools", "are Phase 1", "are Phase 2",
-     "is Phase 3", "are Phase 4", "is Phase 5", "are Phase 6" and say instead what each
-     group does, in a few words, from the modules' docstrings.
-  4. Still in "Layout": list every `.py` file in `src/ectype/` that the section doesn't
-     mention, each with a few words taken from the first line of its docstring. Do not
-     describe a module from its name alone; open it.
-  5. Do not change the "Commands", "Install" or "The desktop app" sections.
-- **Done when:**
-  - `grep -n "Phase [0-9]" README.md` prints nothing.
-  - For every file `src/ectype/<name>.py` (except `__init__.py`), `<name>` appears in the
-    "Layout" section.
-- **Report:**
-
-Report (ChatGPT GitHub, 2026-11-16):
-- Did: Replaced the build-phase status with a summary of the current Run modes, Review, IDML export, Kraken, training and Manuscript Mode; rewrote Layout from the module docstrings and listed all 54 Python modules.
-- Checks: No `Phase [0-9]` matches remain in README.md; all 54 `.py` module names except `__init__` appear in Layout. The Install, desktop app and Commands sections are unchanged. No tests run because this task changes documentation only.
-- Not done / unsure: nothing.
-- For Beaux to try on Windows: nothing; this is a documentation change.
-
-### T-010 · Program output read as UTF-8, with a test that keeps it so
-- **Status:** Ready
-- **Who:** any agent that can run the tests · **Size:** S
-- **Why:** On Windows, Python reads another program's output in the old Windows encoding
-  unless told otherwise, so an accented letter or a dash in it comes back wrong. Six places
-  still don't say which encoding to use. A new test will catch any that are added later.
-- **Read first:** the six lines named in step 2.
-- **Files to change:** `src/ectype/resources.py`, `src/ectype/scripts.py`,
-  `src/ectype/synth.py`, `tools/kraken_eval.py`, `tools/make_fingerprints.py`; new file
-  `tests/test_text_encoding.py`. Nothing else.
-- **Steps:**
-  1. Create `tests/test_text_encoding.py` with exactly this content:
-
-     ```python
-     """Text files are read and written as UTF-8, said outright. Left to itself, Python on Windows
-     uses the old ANSI code page, so a dash or a Hebrew letter comes back as "?" or stops the run."""
-     import ast
-     from pathlib import Path
-
-     ROOT = Path(__file__).resolve().parents[1]
-     FOLDERS = ["src/ectype", "tools"]
-     # Places left as they are on purpose: (file, function called). Each needs a reason.
-     ALLOWED = {
-         ("src/ectype/converter.py", "Popen"),  # Ectype IDML's own output: its encoding is decided in T-013
-     }
-
-
-     def _mode(call):
-         if len(call.args) > 1 and isinstance(call.args[1], ast.Constant):
-             return str(call.args[1].value)
-         for k in call.keywords:
-             if k.arg == "mode" and isinstance(k.value, ast.Constant):
-                 return str(k.value.value)
-         return "r"
-
-
-     def offenders(path):
-         found = []
-         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-             if not isinstance(node, ast.Call):
-                 continue
-             given = {k.arg for k in node.keywords}
-             f = node.func
-             name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
-             if "encoding" in given:
-                 continue
-             if name in ("read_text", "write_text"):
-                 # a file's own read_text / write_text, not Ectype's functions of the same name
-                 ours = isinstance(f, ast.Attribute) and ast.unparse(f.value).endswith("project")  # Project.write_text
-                 if isinstance(f, ast.Attribute) and not ours and given <= {"errors", "newline"} and len(node.args) == (name == "write_text"):
-                     found.append((node.lineno, name))
-             elif name == "open" and isinstance(f, ast.Name) and "b" not in _mode(node):
-                 found.append((node.lineno, name))
-             elif name in ("run", "Popen", "check_output") and given & {"text", "universal_newlines"}:
-                 found.append((node.lineno, name))
-         return found
-
-
-     def test_text_is_read_and_written_as_utf8():
-         bad = []
-         for folder in FOLDERS:
-             for path in sorted((ROOT / folder).rglob("*.py")):
-                 rel = path.relative_to(ROOT).as_posix()
-                 bad += [f"{rel}:{line} {name}" for line, name in offenders(path) if (rel, name) not in ALLOWED]
-         assert not bad, "no encoding given:\n" + "\n".join(bad)
-     ```
-
-  2. Run `python -m pytest -q tests/test_text_encoding.py`. It fails and lists six places
-     (line numbers may have moved a little): `src/ectype/resources.py:96`,
-     `src/ectype/scripts.py:119`, `src/ectype/synth.py:78`, `tools/kraken_eval.py:67` and
-     `:105`, `tools/make_fingerprints.py:117`. If it lists others, stop and report them.
-  3. In each of the six calls, which all have `text=True`, add
-     `encoding="utf-8", errors="replace"` right after `text=True`. Change nothing else in
-     the call.
-  4. Do **not** change `src/ectype/converter.py` (it is left out of the test on purpose;
-     T-013), and do not change the test you created.
-- **Done when:**
-  - `python -m pytest -q tests/test_text_encoding.py` passes.
-  - `git diff --stat` shows only the five files above changed and the one test file added.
-  - The whole suite passes.
-- **Report:**
-
 ### T-011 · Tests read and write text as UTF-8
-- **Status:** Waiting (for T-010 to be merged: it adds the test this task extends)
+- **Status:** Ready
 - **Who:** any agent that can run the tests · **Size:** M
 - **Why:** On Windows one test fails only because the test itself reads a file without
   saying it is UTF-8 (`tests/test_synth_compare.py`, line 14: a dash comes back as "?").
@@ -317,6 +163,86 @@ Report (ChatGPT GitHub, 2026-11-16):
 - **For the report, "For Beaux to try on Windows":**
   `ectype strip-text "D:\path\to\a book with bad OCR.pdf"`, then open the new
   "… - no text.pdf": it should look the same, and searching it should find nothing.
+- **Report:**
+
+### T-015 · Move the old build-phase write-ups into docs/history
+- **Status:** Ready
+- **Who:** any agent · **Size:** S · documents only: no setup and no tests needed
+- **Why:** `docs/phase1.md`, `phase2.md`, `phase3.md` and `phase4-5.md` are results from
+  October 2026, when the app was first built. They sit beside the current guides and look
+  current. The original plan already lives in `docs/history/`; these belong with it.
+- **Read first:** the four files' first lines; `README.md` (the line that starts "Early
+  results, by build phase:").
+- **Files to change:** the four files (moved, not edited apart from step 2); `README.md`
+  (four links); any other `.md` file that links to them (step 3). Not `CLAUDE.md`.
+- **Steps:**
+  1. Move the four files with `git mv` into `docs/history/`, keeping their names.
+  2. At the top of each, under its title, add one line:
+     `> History: results from the first build (October 2026), kept as written.`
+  3. Find every link to them: `grep -rn "phase[0-9]" --include="*.md" .` Change each link
+     so it still opens the moved file. Links **inside** the four files to other documents
+     (for example to `acrobat-baseline.md` or to pictures) must be fixed too, because the
+     files are now one folder deeper (`../` in front).
+  4. Change nothing else in any file.
+- **Done when:**
+  - `ls docs/phase*.md` finds nothing and `ls docs/history/` shows the four files and
+    `original-plan.md`.
+  - Every relative link in the four moved files and every link to them points to a file
+    that exists (list each link and its target in your report).
+- **Report:**
+
+### T-016 · List where docs/idml.md no longer matches the app (a list only)
+- **Status:** Ready
+- **Who:** any agent · **Size:** S · documents only: no setup and no tests needed
+- **Why:** `docs/idml.md` is the users' guide to languages, Kraken, training and the
+  InDesign export. Parts were written several versions ago. Before anyone rewrites it, the
+  manager needs a list of what is out of date. This task makes that list and changes
+  nothing else.
+- **Read first:** `docs/idml.md` (all of it); `README.md` (the section "The desktop app",
+  which is current); the output of `ectype --help` if you can run it (if not, the
+  "Commands" section of `README.md`, which is current).
+- **Files to change:** one new file, `docs/idml-review-<date>.md`. Do **not** edit
+  `docs/idml.md`.
+- **Steps:**
+  1. Go through `docs/idml.md` one heading at a time.
+  2. For every statement about a menu, a button, a command, an option, a file name or a
+     folder, check it against `README.md` (and `ectype --help`). Note it only if the two
+     disagree, or if `README.md` describes something on the same subject that
+     `docs/idml.md` leaves out.
+  3. Write the new file as a table with four columns: the heading in `docs/idml.md`; the
+     sentence there (quoted, shortened if long); what `README.md` or `--help` says instead
+     (quoted); and "differs" or "missing".
+  4. Do not judge which is right, do not propose wording, and do not list matters of style.
+     If you are not sure two statements disagree, list it and write "unsure" in the last column.
+- **Done when:** the file exists; every row quotes both sources; `git diff --stat main`
+  shows only that new file (and this task's lines here).
+- **Report:**
+
+### T-017 · Report which parts of the program the tests don't reach (a list only)
+- **Status:** Ready
+- **Who:** any agent that can run the tests · **Size:** S
+- **Why:** The manager writes test tasks for other agents. To choose them well it needs to
+  know which parts of the program no test runs. This task measures that and writes it
+  down. It changes no code and no test.
+- **Read first:** `AGENTS.md` (setup, running the tests).
+- **Files to change:** one new file, `docs/test-coverage-<date>.md`. Nothing else: in
+  particular do **not** add `pytest-cov` to `pyproject.toml` (install it for yourself only).
+- **Steps:**
+  1. `python -m pip install pytest-cov` (in your own environment only).
+  2. Run the whole suite with coverage:
+     `python -m pytest -q --cov=ectype --cov-report=term-missing` (with
+     `QT_QPA_PLATFORM=offscreen`, as `AGENTS.md` says). Save the output.
+  3. In the new file write: the date, your Python version, the totals (tests passed,
+     skipped; overall percentage); then a table of every file in `src/ectype/` with its
+     number of lines, lines not run, and percentage, sorted with the lowest percentage first.
+  4. Below the table, for each of the ten files with the most lines not run, list the
+     **functions** that no test runs at all (name and line number). Find them from the
+     "Missing" line ranges: a function counts if every line of its body is missing.
+  5. Say which tests were skipped and why (the skip reasons pytest prints with `-rs`).
+  6. Do not write tests, and do not say what should be tested: the list is the result.
+- **Done when:** the file exists with the totals, the table and the ten lists;
+  `git diff --stat main` shows only that new file (and this task's lines here); nothing in
+  `pyproject.toml` changed.
 - **Report:**
 
 ---
@@ -433,6 +359,10 @@ printed books; no platform other than Windows.
 Newest first. The manager moves a task here when its pull request is merged, as one line,
 and deletes the task's full text above. Older history: `CLAUDE.md`, "What each version brought".
 
+- 2026-11-16 · T-010 · Other programs' output is read as UTF-8 in six places, and
+  `tests/test_text_encoding.py` keeps it so (Copilot on Beaux's PC).
+- 2026-11-16 · T-004 · README says what the app does now and lists every module (ChatGPT).
+- 2026-11-16 · T-003 · `docs/releasing.md` matches both build jobs (ChatGPT, second try).
 - 2026-11-16 · Kraken models download from Zenodo in the installed app (Beaux: the model
   they read with was installed through Ectype), so the download check works on the real thing.
 - 2026-11-16 · `corpus/arb-vd_vpl.txt` and `.xml` removed (Beaux: uploaded, not needed).
