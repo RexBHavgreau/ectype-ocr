@@ -80,7 +80,11 @@ class ManuscriptReviewTab(QWidget):
         self.special_menu.aboutToShow.connect(self._fill_special_menu)
         self.special.setMenu(self.special_menu)
         self.pane = None
-        tools = QHBoxLayout()
+        from .gui import FlowLayout  # here: gui imports this module
+
+        tools_row = QWidget()
+        tools = FlowLayout(tools_row)  # wraps onto more rows, so the buttons never set how narrow the window can be
+        tools.setContentsMargins(0, 0, 0, 0)
         self.buttons = {}
         for key, text, tip, slot in (
                 ("join", "Join with next line", "Make this line and the next one line (a line Kraken split in two)",
@@ -94,13 +98,13 @@ class ManuscriptReviewTab(QWidget):
             b.clicked.connect(slot)
             tools.addWidget(b)
             self.buttons[key] = b
-        tools.addStretch(1)
         self.info = QLabel()
         self.info.setWordWrap(True)
         legend = QLabel('<span style="color:#dc2828">■ read unsurely</span> &nbsp; '
                         '<span style="color:#e8890c">■ the hands read it differently</span> &nbsp; '
                         '<span style="color:#1a9850">■ corrected or confirmed</span> &nbsp; '
                         '<span style="color:#787878">■ not read yet</span>')
+        legend.setWordWrap(True)  # a long line that can't wrap would set the window's least width
         bar = QHBoxLayout()
         bar.addWidget(self.edit, 1)
         bar.addWidget(self.special)
@@ -109,7 +113,7 @@ class ManuscriptReviewTab(QWidget):
         self.scan.drawn.connect(self._drawn)
         right = QVBoxLayout()
         right.addLayout(bar)
-        right.addLayout(tools)
+        right.addWidget(tools_row)
         right.addWidget(self.info)
         right.addWidget(legend)
         right.addWidget(self.scan, 1)
