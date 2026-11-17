@@ -63,7 +63,7 @@ Report (<tool>, <date>):
 ## Ready
 
 ### T-011 · Tests read and write text as UTF-8
-- **Status:** Ready
+- **Status:** In progress (ChatGPT, 2026-11-16)
 - **Who:** any agent that can run the tests · **Size:** M
 - **Why:** On Windows one test fails only because the test itself reads a file without
   saying it is UTF-8 (`tests/test_synth_compare.py`, line 14: a dash comes back as "?").
