@@ -54,7 +54,8 @@ of "Planned".
   the training tools from MSYS2 (as `release.yml`), FriBiDi from MSYS2 beside Python and
   Pillow (so raqm works), FreeFont/Liberation/DejaVu in the user's font folder, Ectype IDML
   and Java as on Linux; `PYTHONFAULTHANDLER=1`, and after a crash each test file is run on
-  its own. Result: 289 passed, 1 failed, 3 skipped, no crash. So the 80 failures on Beaux's
+  its own. First result: 289 passed, 1 failed, 3 skipped, no crash; after the fix below it
+  passed whole and the job is **required** (no `continue-on-error`). So the 80 failures on Beaux's
   PC (T-006) were its setup (no Tesseract, no fonts, Python 3.14); **the vtracer access
   violation does not happen on 3.12**, only on 3.14. Tests made portable: bytes not
   `read_text` where the file has CRLF on Windows (`test_stamps`), fonts found through

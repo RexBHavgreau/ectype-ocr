@@ -38,11 +38,10 @@ jobs:
           export PYTHONPATH="$ECTYPE_DOCX2IDML_SOURCE"
           pytest -q
 
-  # The same suite on Windows, the only platform the app ships for. Allowed to fail while its
-  # list of real failures is worked through (docs/windows-tests-ci.md).
+  # The same suite on Windows, the only platform the app ships for (docs/windows-tests-ci.md).
+  # Required since it first passed whole (2026-11-17).
   windows:
     runs-on: windows-latest
-    continue-on-error: true
     env:
       PYTHONFAULTHANDLER: "1"
       QT_QPA_PLATFORM: offscreen
