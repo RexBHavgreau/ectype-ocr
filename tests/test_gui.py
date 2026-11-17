@@ -531,7 +531,10 @@ def test_buttons_wrap_and_stay_visible_in_a_narrow_window(tmp_path):
     w = MainWindow(Project.for_scan(_spread_pdf(tmp_path)))
     w.show()
     heights = {}
-    for width in (1400, 520):
+    # A very wide window against a narrow one: how many pixels the buttons need depends on the
+    # machine's font (GitHub's Windows machine sets everything about twice as wide as Linux does).
+    wide, narrow = 2600, 520
+    for width in (wide, narrow):
         w.resize(width, 700)
         app.processEvents()
         row = w.button_row
@@ -542,7 +545,10 @@ def test_buttons_wrap_and_stay_visible_in_a_narrow_window(tmp_path):
             g = b.geometry()
             assert g.left() >= 0 and g.right() < row.width() and g.bottom() < row.height(), (width, name, g)
         heights[width] = row.height()
-    assert heights[520] > heights[1400], "the buttons wrapped onto more rows"
+    assert heights[narrow] > heights[wide], "the buttons wrapped onto more rows"
+    # Nothing in the tabs may keep the window wide: long legends wrap and button rows flow (they once
+    # held the window at 771 pixels here; the widest part left is Review's correction bar).
+    assert w.minimumSizeHint().width() < 2.2 * row.minimumSizeHint().width(), w.minimumSizeHint().width()
     menus = {a.text(): a.menu() for a in w.menuBar().actions()}
     assert list(menus)[:3] == ["&File", "&Run", "&Export"]
     assert w.actions["run"] in menus["&Run"].actions() and w.actions["save_project"] in menus["&File"].actions()

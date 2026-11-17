@@ -49,6 +49,25 @@ of "Planned".
   the traced-font tests ended in an access violation in vtracer (T-006; to be looked at in
   T-012). The "must be 3.12" rule in `AGENTS.md` was the manager's overcorrection after
   T-006 and is gone; document tasks need no setup at all.
+- **Tests on Windows** (T-012, 2026-11-17; `windows` job in `ci.yml`, report in
+  `docs/windows-tests-ci.md`): windows-latest, Python 3.12, Tesseract from Chocolatey with
+  the training tools from MSYS2 (as `release.yml`), FriBiDi from MSYS2 beside Python and
+  Pillow (so raqm works), FreeFont/Liberation/DejaVu in the user's font folder, Ectype IDML
+  and Java as on Linux; `PYTHONFAULTHANDLER=1`, and after a crash each test file is run on
+  its own. Result: 289 passed, 1 failed, 3 skipped, no crash. So the 80 failures on Beaux's
+  PC (T-006) were its setup (no Tesseract, no fonts, Python 3.14); **the vtracer access
+  violation does not happen on 3.12**, only on 3.14. Tests made portable: bytes not
+  `read_text` where the file has CRLF on Windows (`test_stamps`), fonts found through
+  `resources.font_index` not Linux paths (`test_substitute`), `encoding=` (`test_synth_compare`).
+  **The one real fault: the window couldn't be narrowed** (least width 771 px on Linux, 1582
+  on the runner, whose offscreen Qt font sets everything about twice as wide): Review's two
+  colour legends were single unwrappable lines and Manuscript Review's buttons a fixed row.
+  The legends now wrap and those buttons are a `FlowLayout` (536 px on Linux; the widest
+  parts left are Review's correction bar, 532, and the Spreads tab, 521). The test compares a
+  very wide window (2600) with a narrow one, since pixel widths depend on the machine's
+  font, and guards the least width against the button row's (`< 2.2x`). **Lesson**: a
+  `QLabel` that can't wrap, or a row of buttons in a plain `QHBoxLayout`, sets the least
+  width of the whole window, through the tab widget, even from a tab not in view.
 - **Rashi script is not untrained** (Beaux, 2026-11-16, correcting TASKS.md and the dated
   evaluation in `docs/`): they have at least one Rashi font and trained Hebrew on it with
   Train from fonts (Rashi uses the same Unicode letters as square Hebrew, so it trains

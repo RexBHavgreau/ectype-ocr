@@ -771,6 +771,7 @@ class ReviewTab(QWidget):
         legend = QLabel('<span style="color:#dc2828">■ low OCR confidence</span> &nbsp; '
                         '<span style="color:#e8890c">■ glyph looks like another character</span> &nbsp; '
                         '<span style="color:#1a9850">■ corrected or confirmed</span>')
+        legend.setWordWrap(True)  # a long line that can't wrap would set the window's least width
         bar = QHBoxLayout()
         bar.addWidget(self.edit, 1)
         bar.addWidget(self.style_buttons["bold"])
