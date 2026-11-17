@@ -937,8 +937,22 @@ number of workable font sizes and styles"):
 The list of planned work is in `TASKS.md` (kept there so every agent sees one list). What
 stays here is what was measured or learned behind those items:
 
-- **Left from 0.8.0** (TASKS.md T-007): training stamps still use file times (`pool.py`, `synthtrain.py`, `trainall.py`,
-  `training.py`, `manuscript._stamp`) and hand-kept `SCRIPT_VERSION`/`VERSION` in synthtrain.
+- **Training stamps by content** (T-007, done 2026-11-17 by a cheaper Claude agent in a
+  worktree, checked line by line): `stamps.remembered_digest` (a file's content digest, kept
+  in memory beside its size and time so a big file is read once a run). Font stamps
+  (`synthtrain._stamp`, `_unpointed_stamp`), matched editions (`trainall._stamp`, no longer
+  holding the scan's path), Manuscript Mode (`manuscript._stamp`: page image, segmenter, hand
+  models) and a model's kept errors (`training._stamp`) hold content. **Each accepts the old
+  form once** when it still matches the file, and rewrites it (`font_done(old=)`, `_same`,
+  `_old_stamp`), so Beaux's 112,000 Hebrew and 149,600 Greek lines are not set again; it is
+  one-way (an older version would then see a mismatch). `VERSION`/`SCRIPT_VERSION`/
+  `UNPOINTED_VERSION` stay hand-kept on purpose (a code hash would remake an hour of lines
+  after every update). **Left on file times on purpose**: `pool.Writer.add`'s shortcut
+  (size, time, text hash: only skips copying an unchanged source image; the item's id is
+  already its content) and `training.known_items` (a pre-0.5.0 model is taken to know images
+  older than its training time; nothing to compare by content, used once). Both would need
+  every pool image opened (2 million files, each scanned by Defender). Cost to know: each
+  run reads every usable font once (Train from fonts) and each model or scan once.
 - **Kraken as the main reader** (Beaux: "more accurate and much stronger"): measure first,
   Tesseract against Kraken models on the Treatise and Young with checked pages, before making it
   the default; the engine is a ~290 MB download and Ectype's tracing needs each letter's place.
