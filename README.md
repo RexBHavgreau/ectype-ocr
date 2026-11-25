@@ -46,6 +46,8 @@ The app has four tabs:
 - **Glyphs:** the averaged glyph sheets per style, and the probable misreadings. Double-click one to correct it.
 - **Log:** stage-by-stage progress.
 
+**Command line:** every command and option is in [`docs/cli.md`](docs/cli.md) (a searchable text layer only: `ectype run "Book.pdf" --mode text --lang eng`; `ectype --help` also lists them).
+
 **Export PDF…** saves the result. **Export IDML…** lays the OCR text out as an InDesign document, in one of two ways ([details](docs/idml.md)):
 - **Reflow:** the text laid out as a book by [Ectype IDML (called docx-to-idml before its 1.0.0)](https://github.com/RexBHavgreau/ectype-idml), with masters, running heads, footnotes and the fonts of its layout profile. Ectype writes the reading text as a Word manuscript (kept beside the IDML) and runs the installed converter. Running heads are dropped, paragraphs split by a page break are joined, words the OCR was unsure of are marked "Check OCR", and optionally the scan's page numbers are marked as {p. 172}.
 - **Facsimile:** each text block sits where it stands on the scan, line for line, in the installed fonts most like the scan's. They are chosen automatically and shown before the export, and you can change them. The scan goes on a locked layer underneath that doesn't print.

@@ -780,6 +780,14 @@ number of workable font sizes and styles"):
   stored as ¹ ᵃ. Treatise: all note marks and most verse parts right (13ᵇ, 547ᵈ, 27ᵇ); 171ᵃ
   read 171⁴, who³ unchanged. About 1.8 s a page.
 
+## Command-line guide (Beaux, 2026-11-25)
+
+- `docs/cli.md` lists every `ectype` command with examples (Beaux dislikes CLIs that assume prior
+  knowledge). **Keep it in step with `cli.build_parser`** when a command or option changes.
+  Beaux couldn't find how to add a text layer without a project and tracing: it is
+  `ectype run "<scan>" --mode text --lang …` (the PDF lands beside the scan as "<name> - OCR.pdf",
+  nothing else kept); `ectype textlayer "<scan>"` is the same.
+
 ## Decisions Beaux made about proposals (so they aren't offered again)
 
 - Rejected: applying one correction everywhere the same misreading occurs ("too much can go
