@@ -143,6 +143,14 @@ of "Planned".
 sessions and agents release too: on 2026-11-25 the manager suggested v0.11.3 from memory when
 v0.11.4 was out). The tag for 0.11.3 was written `v.0.11.3`; tags are `vX.Y.Z`.
 
+**Attaching to the release** (v0.11.5, 2026-11-25: both programs built, then
+`softprops/action-gh-release@v2` found the release and failed, "Unexpected error fetching GitHub
+release", so nothing was attached, release.yml unchanged since v0.11.4): both jobs now attach with
+GitHub's own `gh` (`packaging/attach_to_release.sh`: makes the release if missing, generated notes
+if it has none, replaces same-named files, retries). **A tag whose run failed**: run the workflow by
+hand with `release` = the tag (e.g. v0.11.5): it builds that tag's code and attaches both, with no
+new tag needed.
+
 Merge to `main`, Beaux tags it, `release.yml` builds and attaches `Ectype-OCR-<v>-Setup.exe` and
 `Ectype-OCR-Kraken-<v>-win64.zip`. The Windows installer workflow also runs on a branch push, but only one
 that changes packaging files (its `paths`); otherwise run it by hand (workflow_dispatch). Check it
