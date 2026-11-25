@@ -24,7 +24,7 @@ from PIL import Image
 
 from . import report, stamps
 from .resources import subprocess_flags
-from .scripts import clean
+from .scripts import KNOWN_CONF, clean, word_form
 
 
 @dataclass
@@ -66,6 +66,7 @@ class OcrPage:
     lines: list[Line] = field(default_factory=list)
     dropped: list[dict] = field(default_factory=list)  # words removed as noise, kept for review
     unread_scripts: dict[str, int] = field(default_factory=dict)  # words in scripts the languages don't cover
+    unread_words: list | None = None  # those words, [script, text] (None: read before they were kept)
     models: list[str] = field(default_factory=list)  # the models read with ("heb=general", "grc=f1"...)
 
     def words(self):
@@ -347,10 +348,11 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
 
             kraken = kraken_scripts(resolved)
             word_engine = TesseractEngine(psm=8, threads=threads)
+            page.unread_words = []
             page.unread_scripts = dict(check_words(
                 gray, page, codes,
                 lambda crop, one: list(word_engine.recognize(crop, dpi=dpi, lang=names.get(one, one)).words()),
-                defer=frozenset(kraken)))
+                defer=frozenset(kraken), found=page.unread_words))
             # Raised note numbers and verse parts ("!" for ¹, "%" for ᵃ): read again by themselves.
             from .raised import ALLOWED, reread_raised, voted
 
@@ -378,6 +380,9 @@ def _ocr_one(png: Path, out_dir: Path, engine: str, lang: str, low_conf: float, 
         "low_conf_words": [w.text for w in words if w.conf < low_conf],
         "dropped": len(page.dropped),
         "unread_scripts": page.unread_scripts,
+        "unread_words": page.unread_words,
+        # The page's surely read words, for checking the other pages' doubtful ones (reassess).
+        "known": sorted({f for f in (word_form(w.text) for w in words if w.conf >= KNOWN_CONF) if f}),
     }
 
 
@@ -447,8 +452,13 @@ def ocr_pages(pages_dir: Path, out_dir: Path, engine: str = "tesseract", lang: s
     finally:
         if session is not None:
             session.close()
-    from .scripts import suggest
+    from .scripts import reassess, suggest
 
+    # Words counted as other scripts are checked against what the whole book reads surely.
+    known: set[str] = set()
+    for r in rows:
+        known.update(r.pop("known", ()))
+    reassess(rows, known)
     unread: dict[str, int] = {}
     for r in rows:
         for script, n in (r.get("unread_scripts") or {}).items():

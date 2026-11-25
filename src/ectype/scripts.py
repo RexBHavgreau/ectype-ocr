@@ -130,12 +130,13 @@ def osd_available(tessdata: Path | None) -> bool:
 
 
 def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None,
-                defer: frozenset = frozenset()) -> Counter:
+                defer: frozenset = frozenset(), found: list | None = None) -> Counter:
     """Check the page's unsure words (see the module docstring). `reread(crop, lang)` reads one
     word image with one language and returns its words (an OcrPage's, in crop coordinates).
     Words are changed in place. Words found in a script in `defer` (one a Kraken model reads)
     are only marked, word.script, for Kraken to read with their neighbours. Returns how many
-    words were found in each script that none of the chosen languages covers."""
+    words were found in each script that none of the chosen languages covers; `found`, if given,
+    gets each such word as [script, text] (for `reassess`, once the whole book is read)."""
     from .resources import subprocess_flags, tessdata_dir, tesseract_cmd, tesseract_env
 
     unread: Counter = Counter()
@@ -171,8 +172,15 @@ def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None
                 word.script = script
             continue
         if script not in covered:
+            if any(in_script(word.text, other) for other in covered if other != "Latin"):
+                # Already read in a chosen script (Beaux's grammar: "עליהכם", "נקבות" taken for
+                # Latin or Devanagari): the detector's guess on one word doesn't outweigh that.
+                # (Latin is left out: Greek read as English comes out in Latin letters.)
+                continue
             if script in SUGGEST or script == "Latin":
                 unread[script] += 1
+                if found is not None:
+                    found.append([script, word.text])
             continue
         if any(in_script(word.text, other) for other in covered if other != "Latin"):
             continue  # already read in a script of the chosen languages
@@ -189,6 +197,33 @@ def check_words(gray: np.ndarray, page, langs: list[str], reread, detect_fn=None
             c.box = [c.box[0] + dx, c.box[1] + dy, c.box[2] + dx, c.box[3] + dy]
         word.text, word.chars, word.conf = new.text, new.chars, new.conf
     return unread
+
+
+KNOWN_CONF = 85  # a word read this surely is a word of the book's chosen languages
+
+
+def word_form(text: str) -> str:
+    """A word as compared across the book: punctuation at its ends removed, lower case."""
+    text = unicodedata.normalize("NFC", clean(text))
+    return re.sub(r"^\W+|\W+$", "", text).lower()
+
+
+def reassess(rows: list[dict], known: set[str]) -> None:
+    """The pages' counts of words in other scripts, checked against the whole book (in place).
+
+    Beaux: "Ectype always alleges to find words that are in other languages". On the Treatise
+    (eng+grc+heb) most words the detector called Devanagari or Cyrillic were plain English read
+    right ("incipient", "class", "secondary.", "been."); its certainty is no help (about 2 on its
+    scale for those and for real Hebrew alike), nor is reading such a word again alone. What tells
+    them apart is the book: a word it reads surely elsewhere (`known`: forms of words read with
+    confidence KNOWN_CONF or more, on any page) is a word of the chosen languages, so it isn't
+    counted. Greek read as English ("pywata" for ῥήματα, "Vedc." for θεός) is no such word and
+    still counts. A row read by an older version (no "unread_words") keeps its count."""
+    for row in rows:
+        words = row.get("unread_words")
+        if words is None:
+            continue
+        row["unread_scripts"] = dict(Counter(script for script, text in words if word_form(text) not in known))
 
 
 def _join_words(words):
