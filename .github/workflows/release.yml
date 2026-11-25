@@ -16,6 +16,10 @@ on:
         description: "Build only the Kraken engine and attach it to this existing release (e.g. v0.3.0)"
         required: false
         default: ""
+      release:
+        description: "Build both from this existing tag's code and attach them to its release (e.g. v0.11.5), when the tag's own run failed"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -26,6 +30,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.release || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -34,8 +40,11 @@ jobs:
       - name: Version from the tag
         id: version
         shell: bash
+        env:
+          RELEASE: ${{ github.event.inputs.release }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          if [[ -n "$RELEASE" ]]; then v="${RELEASE#v}"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
           sed -i "s/^__version__ = .*/__version__ = \"$v\"/" src/ectype/__init__.py
           cat src/ectype/__init__.py
@@ -159,12 +168,16 @@ jobs:
           name: Ectype-OCR-${{ steps.version.outputs.version }}-Setup
           path: packaging/Output/*.exe
 
+      # GitHub's own gh tool, not softprops/action-gh-release: on 2026-11-25 (v0.11.5) that action
+      # found the release and then failed ("Unexpected error fetching GitHub release"), so
+      # nothing was attached, with this file unchanged since v0.11.4.
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: packaging/Output/*.exe
-          generate_release_notes: true
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.release || github.ref_name }}
+        run: bash packaging/attach_to_release.sh "$TAG" packaging/Output/*.exe
 
   # The Kraken engine: Kraken and PyTorch (CPU) as ectype-kraken.exe, zipped as an optional
   # download the app fetches from this release (Languages > Add languages > Kraken models).
@@ -172,6 +185,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.release || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -181,7 +196,7 @@ jobs:
         id: version
         shell: bash
         env:
-          ENGINE_FOR: ${{ github.event.inputs.engine_for_release }}
+          ENGINE_FOR: ${{ github.event.inputs.engine_for_release || github.event.inputs.release }}
         run: |
           if [[ -n "$ENGINE_FOR" ]]; then v="${ENGINE_FOR#v}"
           elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
@@ -220,8 +235,9 @@ jobs:
           path: Ectype-OCR-Kraken-*-win64.zip
 
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.engine_for_release != ''
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Ectype-OCR-Kraken-*-win64.zip
-          tag_name: ${{ github.event.inputs.engine_for_release || github.ref_name }}
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.engine_for_release != '' || github.event.inputs.release != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.engine_for_release || github.event.inputs.release || github.ref_name }}
+        run: bash packaging/attach_to_release.sh "$TAG" Ectype-OCR-Kraken-*-win64.zip
