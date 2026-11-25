@@ -139,6 +139,10 @@ of "Planned".
 
 ## Releasing
 
+**Before naming the next version to Beaux, look up the latest release on GitHub** (other
+sessions and agents release too: on 2026-11-25 the manager suggested v0.11.3 from memory when
+v0.11.4 was out). The tag for 0.11.3 was written `v.0.11.3`; tags are `vX.Y.Z`.
+
 Merge to `main`, Beaux tags it, `release.yml` builds and attaches `Ectype-OCR-<v>-Setup.exe` and
 `Ectype-OCR-Kraken-<v>-win64.zip`. The Windows installer workflow also runs on a branch push, but only one
 that changes packaging files (its `paths`); otherwise run it by hand (workflow_dispatch). Check it
