@@ -171,13 +171,24 @@ jobs:
       # GitHub's own gh tool, not softprops/action-gh-release: on 2026-11-25 (v0.11.5) that action
       # found the release and then failed ("Unexpected error fetching GitHub release"), so
       # nothing was attached, with this file unchanged since v0.11.4.
+      # The attaching script from this workflow's own commit: a hand run for an older tag
+      # builds that tag's code, which may not have it.
+      - name: The attaching script
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          sparse-checkout: packaging/attach_to_release.sh
+          sparse-checkout-cone-mode: false
+
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.release || github.ref_name }}
-        run: bash packaging/attach_to_release.sh "$TAG" packaging/Output/*.exe
+        run: bash release-tools/packaging/attach_to_release.sh "$TAG" packaging/Output/*.exe
 
   # The Kraken engine: Kraken and PyTorch (CPU) as ectype-kraken.exe, zipped as an optional
   # download the app fetches from this release (Languages > Add languages > Kraken models).
@@ -234,10 +245,21 @@ jobs:
           name: Ectype-OCR-Kraken-${{ steps.version.outputs.version }}-win64
           path: Ectype-OCR-Kraken-*-win64.zip
 
+      # The attaching script from this workflow's own commit: a hand run for an older tag
+      # builds that tag's code, which may not have it.
+      - name: The attaching script
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.engine_for_release != '' || github.event.inputs.release != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          sparse-checkout: packaging/attach_to_release.sh
+          sparse-checkout-cone-mode: false
+
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.engine_for_release != '' || github.event.inputs.release != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.engine_for_release || github.event.inputs.release || github.ref_name }}
-        run: bash packaging/attach_to_release.sh "$TAG" Ectype-OCR-Kraken-*-win64.zip
+        run: bash release-tools/packaging/attach_to_release.sh "$TAG" Ectype-OCR-Kraken-*-win64.zip
