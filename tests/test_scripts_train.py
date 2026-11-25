@@ -55,6 +55,39 @@ def test_check_words_rereads_and_counts():
     assert page.lines[0].words[1].chars[0].box[0] > 100, "boxes moved back to page coordinates"
 
 
+def test_words_taken_for_another_script_are_checked_against_the_whole_book():
+    """Beaux: "Ectype always alleges to find words that are in other languages … it wrongly
+    recognizes languages that aren't there." On the Treatise most such words were plain English
+    read right ("secondary.", "been."): a word the book reads surely elsewhere is a word of the
+    chosen languages and isn't counted. Greek read as English ("pywata" for ῥήματα) is no word of
+    the book and still counts; a page read by an older version keeps its count."""
+    page = OcrPage("tesseract", "eng+heb", [2000, 300], 300.0,
+                   [Line([0, 100, 1900, 140], [0, 0], 30.0, None, None,
+                         [_word("secondary.", 0, 15.0), _word("pywata", 300, 5.0), _word("been.", 600, 10.0),
+                          _word("נקבות", 900, 20.0)])])
+    found: list = []
+    # least sure first: pywata, been., secondary., then נקבות (already read as Hebrew, a chosen script:
+    # Beaux's grammar had such words counted as Latin or Devanagari)
+    detected = iter(["Greek", "Cyrillic", "Cyrillic", "Devanagari"])
+    unread = scripts.check_words(np.full((300, 2000), 255, np.uint8), page, ["eng", "heb"], lambda crop, lang: [],
+                                 detect_fn=lambda crop: (next(detected), 2.0), found=found)
+    assert unread == {"Greek": 1, "Cyrillic": 2}
+    assert sorted(found) == [["Cyrillic", "been."], ["Cyrillic", "secondary."], ["Greek", "pywata"]]
+    assert scripts.word_form("“Secondary.”") == "secondary" and scripts.word_form("ῥήματα,") == "ῥήματα"
+    rows = [{"unread_scripts": dict(unread), "unread_words": found},
+            {"unread_scripts": {"Devanagari": 4}, "unread_words": None},  # read by an older version
+            {"unread_scripts": {}, "unread_words": []}]
+    scripts.reassess(rows, known={"secondary", "been", "the"})
+    assert [r["unread_scripts"] for r in rows] == [{"Greek": 1}, {"Devanagari": 4}, {}]
+    # The list is kept with the page, and an older page's file (without it) still loads.
+    page.unread_words = found
+    again = OcrPage.from_json(json.loads(json.dumps(page.to_json())))
+    assert again.unread_words == found
+    old = page.to_json()
+    del old["unread_words"]
+    assert OcrPage.from_json(old).unread_words is None
+
+
 @pytest.mark.skipif(not features.check("raqm"), reason="right-to-left text needs Pillow's raqm layout")
 def test_detects_greek_and_hebrew_on_an_english_page(tmp_path):
     from ectype.synth import find_font

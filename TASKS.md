@@ -62,40 +62,6 @@ Report (<tool>, <date>):
 
 ## Ready
 
-### T-011 · Tests read and write text as UTF-8
-- **Status:** For review (task/T-011-tests-utf8)
-- **Who:** any agent that can run the tests · **Size:** M
-- **Why:** On Windows one test fails only because the test itself reads a file without
-  saying it is UTF-8 (`tests/test_synth_compare.py`, line 14: a dash comes back as "?").
-  About 36 places in `tests/` have the same habit.
-- **Read first:** `tests/test_text_encoding.py`.
-- **Files to change:** files in `tests/` only. **This task is the one exception to "never
-  change a test": you may add an `encoding=` argument and nothing else.**
-- **Steps:**
-  1. In `tests/test_text_encoding.py`, change `FOLDERS = ["src/ectype", "tools"]` to
-     `FOLDERS = ["src/ectype", "tools", "tests"]`.
-  2. Run `python -m pytest -q tests/test_text_encoding.py`. It lists every place.
-  3. For each `read_text()` add `encoding="utf-8"`. For each `write_text(...)` add
-     `encoding="utf-8"` as the last argument. For each `run`/`Popen`/`check_output` with
-     `text=True` add `encoding="utf-8", errors="replace"` after it. For each `open(...)` in
-     text mode add `encoding="utf-8"`.
-  4. Change no assertion, no test name, no expected value, and no line the test did not
-     list. If a listed line is not a file being read or written (for example a function of
-     Ectype's own that happens to be called `write_text`), leave it, and add it to `ALLOWED`
-     in `tests/test_text_encoding.py` with a comment saying what it is.
-- **Done when:**
-  - `python -m pytest -q tests/test_text_encoding.py` passes.
-  - `git diff` shows only added `encoding=` (and `errors=`) arguments, the one-line change
-    to `FOLDERS`, and any `ALLOWED` lines from step 4.
-  - The whole suite passes, with the same number of tests passed as before you began (run
-    it first and note the number).
-- **Report:**
-  
-  Report (ChatGPT, 2026-11-16):
-  - Did: Extended the UTF-8 checker to scan `tests/`; added explicit UTF-8 to all 35 flagged file reads and writes in 11 test files, and UTF-8/replacement handling to the two text-mode subprocess calls. No assertions or test behavior changed.
-  - Checks: Full Linux CI suite: 292 passed, 2 skipped, matching the pre-change baseline (292 passed, 2 skipped). The encoding checker passed as part of that full suite; its focused command was not run separately. Windows CI was still running when this report was written.
-  - Not done / unsure: A local checkout was unavailable because this environment could not resolve `github.com`; verification was run through GitHub Actions.
-  - For Beaux to try on Windows: nothing beyond checking the Windows CI result.
 ### T-015 · Move the old build-phase write-ups into docs/history
 - **Status:** Ready
 - **Who:** any agent · **Size:** S · documents only: no setup and no tests needed
@@ -148,35 +114,6 @@ Report (<tool>, <date>):
 - **Done when:** the file exists; every row quotes both sources; `git diff --stat main`
   shows only that new file (and this task's lines here).
 - **Report:**
-
-### T-017 · Report which parts of the program the tests don't reach (a list only)
-- **Status:** Done
-- **Who:** any agent that can run the tests · **Size:** S
-- **Why:** The manager writes test tasks for other agents. To choose them well it needs to
-  know which parts of the program no test runs. This task measures that and writes it
-  down. It changes no code and no test.
-- **Read first:** `AGENTS.md` (setup, running the tests).
-- **Files to change:** one new file, `docs/test-coverage-<date>.md`. Nothing else: in
-  particular do **not** add `pytest-cov` to `pyproject.toml` (install it for yourself only).
-- **Steps:**
-  1. `python -m pip install pytest-cov` (in your own environment only).
-  2. Run the whole suite with coverage:
-     `python -m pytest -q --cov=ectype --cov-report=term-missing` (with
-     `QT_QPA_PLATFORM=offscreen`, as `AGENTS.md` says). Save the output.
-  3. In the new file write: the date, your Python version, the totals (tests passed,
-     skipped; overall percentage); then a table of every file in `src/ectype/` with its
-     number of lines, lines not run, and percentage, sorted with the lowest percentage first.
-  4. Below the table, for each of the ten files with the most lines not run, list the
-     **functions** that no test runs at all (name and line number). Find them from the
-     "Missing" line ranges: a function counts if every line of its body is missing.
-  5. Say which tests were skipped and why (the skip reasons pytest prints with `-rs`).
-  6. Do not write tests, and do not say what should be tested: the list is the result.
-- **Done when:** the file exists with the totals, the table and the ten lists;
-  `git diff --stat main` shows only that new file (and this task's lines here); nothing in
-  `pyproject.toml` changed.
-- **Report:** Wrote `docs/test-coverage-2026-11-16.md` with the measured totals, full per-file coverage table, the ten lowest-coverage files and their completely uncovered functions, and the skip reasons from the full suite.
-
----
 
 ## For Claude
 
@@ -264,6 +201,14 @@ printed books; no platform other than Windows.
 
 Newest first. The manager moves a task here when its pull request is merged, as one line,
 and deletes the task's full text above. Older history: `CLAUDE.md`, "What each version brought".
+
+- 2026-11-25 · T-018 · Fewer false "words in other scripts" (Beaux: "Ectype always alleges to
+  find words that are in other languages"): a word already read in a chosen script, or one the
+  book reads surely elsewhere, no longer counts. The grammar: 34 such words to none; the
+  Treatise: 38 to 22, no language offered. Done by the manager (judgement and measurement).
+- 2026-11-25 · T-011 · The tests read and write text as UTF-8 (ChatGPT; checked by the
+  manager: only `encoding=` added, the checker now covers `tests/`).
+- 2026-11-25 · T-017 · Report of what the tests don't reach: `docs/test-coverage-2026-11-16.md`.
 
 - 2026-11-17 · T-012 · The tests run on Windows on GitHub at every push (Python 3.12, as the
   app ships). Of the 80 failures seen on Beaux's PC, one was real: the window could not be

@@ -102,6 +102,25 @@ of "Planned".
   and writes a report, changing nothing), which suit cheap agents and feed the manager's
   next tasks.
 
+- **False "words in other scripts"** (T-018, Beaux 2026-11-25: "Ectype always alleges to find
+  words that are in other languages … it wrongly recognizes languages that aren't there"). The
+  script detector (Tesseract OSD on one unsure word) guesses wildly and is no surer of a wrong
+  guess than of a right one (about 2 on its scale for plain English called Devanagari and for
+  real Hebrew alike), so its certainty can't be the test; nor can reading the word again alone
+  (tried: a right English reading alone scores 0-50, and Greek invents "ΕΣ"/"ΕΝ" with false
+  certainty, which replaced "ταῦ"; dropped). What tells them apart: (1) a word already read in a
+  chosen script other than Latin isn't counted (the grammar: "עליהכם", "נקבות" called Latin or
+  Devanagari; Latin is left out because Greek read as English comes out in Latin letters); (2)
+  the book: each page keeps the words it counted (`OcrPage.unread_words`, [script, text]) and
+  its surely read words (`known`, confidence `scripts.KNOWN_CONF` 85), and after all pages
+  `scripts.reassess` drops a counted word whose `word_form` the book reads surely elsewhere
+  ("secondary.", "been.", "class" on the Treatise); Greek read as English ("pywata", "Vedc.") is
+  no such word and still counts (`test_detects_greek_and_hebrew_on_an_english_page` guards it).
+  A simple "looks like an English word" test was tried and dropped: it passed "pywata" and
+  "tauta". Mostly-figure words still count: Hebrew read as English comes out as figures.
+  Measured: the grammar 34 -> 0 (no more "add English"), the Treatise 38 -> 22 (scattered scraps
+  and figures; no language offered). Pages read before keep their counts (`unread_words` None).
+
 ## Working with Beaux
 
 - Beaux is an editor and a Hebrew / Old Testament scholar, not a programmer. Reports: short,
@@ -119,6 +138,10 @@ of "Planned".
   its own window); a finished run brings Review forward.
 
 ## Releasing
+
+**Before naming the next version to Beaux, look up the latest release on GitHub** (other
+sessions and agents release too: on 2026-11-25 the manager suggested v0.11.3 from memory when
+v0.11.4 was out). The tag for 0.11.3 was written `v.0.11.3`; tags are `vX.Y.Z`.
 
 Merge to `main`, Beaux tags it, `release.yml` builds and attaches `Ectype-OCR-<v>-Setup.exe` and
 `Ectype-OCR-Kraken-<v>-win64.zip`. The Windows installer workflow also runs on a branch push, but only one
