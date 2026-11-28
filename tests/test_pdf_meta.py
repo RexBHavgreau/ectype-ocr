@@ -142,5 +142,5 @@ def test_old_project_json_loads(tmp_path):
     ws = tmp_path / "old.ectype"
     ws.mkdir()
     (ws / "project.json").write_text(json.dumps({"mode": "text", "lang": "eng"}), encoding="utf-8")
-    assert Project(ws).settings.page_image == "gray"
+    assert Project(ws).settings.page_image == "original", "a project with no choice saved gets the smallest: as scanned"
     assert Settings(page_image="lossless").page_image == "lossless"

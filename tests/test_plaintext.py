@@ -259,7 +259,7 @@ def test_gui_export_text_and_plain_text_mode(book, tmp_path):
         assert w.actions["text_files"] in export.actions()
         assert w.actions["export_text"].isEnabled(), "the book has OCR"
         assert ("plaintext", "Plain text only (no PDF)") in MODES
-        w.mode.setCurrentIndex(w.mode.count() - 1)
+        w.mode.setCurrentIndex([m for m, _ in MODES].index("plaintext"))
         assert project.settings.mode == "plaintext" and project.stages() == ["preprocess", "ocr", "plaintext"]
         assert project.update_stage() == "plaintext" and project.output_pdf() is None
         assert not w.actions["export"].isEnabled() and not w.page_image.isEnabled()
