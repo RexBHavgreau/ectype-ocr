@@ -71,6 +71,12 @@ class PageSpec:
     runs: list[GlyphRun] = field(default_factory=list)
     fill_gray: float = 0.0  # text colour, 0 = black
     invisible: bool = False  # render mode 3 (for image fallback comparisons)
+    # Instead of a background image: the scan's own page (0-based, in write_pdf's `source`), drawn
+    # with this PDF matrix (a b c d e f) from its space to this page's points. Its pictures are
+    # copied as they are, never coded again (a split spread's halves share them), so the file grows
+    # by little more than the text; the page's own hidden text (an earlier OCR layer) is left out.
+    source_page: int | None = None
+    source_matrix: tuple[float, float, float, float, float, float] | None = None
 
 
 def _tounicode(mapping: dict[int, str]) -> bytes:
@@ -152,6 +158,12 @@ def _embed_font(pdf: pikepdf.Pdf, f: EmbeddedFont) -> pikepdf.Object:
 
 def _fmt(v: float) -> str:
     text = f"{v:.3f}".rstrip("0").rstrip(".")
+    return text if text not in ("-0", "") else "0"
+
+
+def _fmt6(v: float) -> str:
+    """A matrix entry: more places than _fmt, since a scale of points per pixel is small."""
+    text = f"{v:.6f}".rstrip("0").rstrip(".")
     return text if text not in ("-0", "") else "0"
 
 
@@ -245,17 +257,54 @@ def set_document_info(pdf: pikepdf.Pdf, title: str | None, lang: str | None) -> 
     pdf.Root.ViewerPreferences = pikepdf.Dictionary(DisplayDocTitle=True)
 
 
+def scan_form(scan: pikepdf.Pdf, index: int, seen: set | None = None) -> pikepdf.Object:
+    """A scan's page as a form (a picture made of page content, in the page's own space, /Rotate
+    not applied), without its hidden text: Ectype's text layer takes the place of an earlier one."""
+    from .striptext import _forms, _strip
+
+    form = scan.pages[index].as_form_xobject(handle_transformations=False)
+    counts = {"mixed": 0, "visible_left": 0}
+    seen = set() if seen is None else seen
+    for owner in [form, *_forms(form.get("/Resources"), seen)]:
+        try:
+            data, _ = _strip(owner, False, counts)
+        except pikepdf.PdfError:
+            continue  # a stream that can't be read is left as it is
+        if data is not None:
+            owner.write(data)
+    return form
+
+
 def write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], title: str | None = None,
-              lang: str | None = None) -> None:
+              lang: str | None = None, source: Path | None = None) -> None:
+    """`source`: the scan whose pages a PageSpec's `source_page` names."""
+    scan = pikepdf.open(source) if source is not None and any(p.source_page is not None for p in pages) else None
+    try:
+        _write_pdf(path, pages, fonts, title, lang, scan)
+    finally:
+        if scan is not None:
+            scan.close()
+
+
+def _write_pdf(path: Path, pages: list[PageSpec], fonts: list[EmbeddedFont], title: str | None,
+               lang: str | None, scan: pikepdf.Pdf | None) -> None:
     pdf = pikepdf.new()
     font_objs = {f.key: _embed_font(pdf, f) for f in fonts}
+    forms: dict[int, pikepdf.Object] = {}
+    seen: set = set()
     for page in pages:
         k = 72.0 / page.dpi
         wpt, hpt = page.width_px * k, page.height_px * k
         pdf_page = pdf.add_blank_page(page_size=(wpt, hpt))
         resources = pikepdf.Dictionary()
         ops: list[str] = []
-        if page.background is not None or page.bilevel is not None:
+        if page.source_page is not None and scan is not None:
+            if page.source_page not in forms:
+                forms[page.source_page] = pdf.copy_foreign(scan_form(scan, page.source_page, seen))
+            resources.XObject = pikepdf.Dictionary(Sc0=forms[page.source_page])
+            m = " ".join(_fmt6(v) for v in page.source_matrix)
+            ops.append(f"q 0 0 {_fmt(wpt)} {_fmt(hpt)} re W n {m} cm /Sc0 Do Q")
+        elif page.background is not None or page.bilevel is not None:
             image = _bilevel_xobject(pdf, page.bilevel) if page.bilevel is not None else _background_xobject(pdf, page)
             resources.XObject = pikepdf.Dictionary(Im0=image)
             ops.append(f"q {_fmt(wpt)} 0 0 {_fmt(hpt)} 0 0 cm /Im0 Do Q")

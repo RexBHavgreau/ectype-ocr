@@ -45,6 +45,7 @@ class SourcePage:
     gray: np.ndarray
     dpi: float
     origin: str  # "embedded image", "rendered", or "image file"
+    shown_turned: int = 0  # the PDF's /Rotate: how a viewer turns the page (clockwise), not trusted for orienting
 
 
 def load_pages(path: Path, dpi: float = 300, pages: list[int] | None = None):
@@ -63,13 +64,14 @@ def load_pages(path: Path, dpi: float = 300, pages: list[int] | None = None):
             if pages and number not in pages:
                 continue
             native = _single_page_image(page)
+            p = doc[index]
+            shown = p.get_rotation() % 360
             if native is not None:
                 gray, width_pt = native
-                yield SourcePage(number, gray, gray.shape[1] / (width_pt / 72), "embedded image")
+                yield SourcePage(number, gray, gray.shape[1] / (width_pt / 72), "embedded image", shown)
                 continue
-            p = doc[index]
-            bitmap = p.render(scale=dpi / 72 * (1 - 1e-6), rotation=(360 - p.get_rotation()) % 360, grayscale=True)
-            yield SourcePage(number, np.asarray(bitmap.to_pil().convert("L")).copy(), dpi, "rendered")
+            bitmap = p.render(scale=dpi / 72 * (1 - 1e-6), rotation=(360 - shown) % 360, grayscale=True)
+            yield SourcePage(number, np.asarray(bitmap.to_pil().convert("L")).copy(), dpi, "rendered", shown)
     finally:
         doc.close()
         pdf.close()
@@ -280,8 +282,10 @@ def preprocess(
     deskew: bool = True,
     dpi: float = 300,
     on_page=None,
+    orient: bool = True,
 ) -> dict:
-    """Orient, split and deskew every source page into <out_dir>/pages. `on_page(done, total)`
+    """Orient, split and deskew every source page into <out_dir>/pages. Each can be left out
+    (`orient`, `keep_spreads`, `deskew`); a page's override still applies. `on_page(done, total)`
     is called as pages are done (two passes, so total is twice the source pages)."""
     out_dir = Path(out_dir)
     page_dir = out_dir / "pages"
@@ -300,6 +304,8 @@ def preprocess(
         ov = overrides.get(str(src.number), {})
         if "rotate" in ov:
             rotate, conf, overridden = int(ov["rotate"]) % 360, 1.0, ["rotate"]
+        elif not orient:
+            rotate, conf, overridden = src.shown_turned, 2.0, []  # as a viewer shows it; not measured, not flagged
         else:
             rotate, conf = detect_orientation(src.gray)
             overridden = []
@@ -394,6 +400,8 @@ def preprocess(
     summary = {
         "input": str(input_path),
         "keep_spreads": keep_spreads,
+        "orient": orient,
+        "deskew": deskew,
         "sources": sources,
         "pages": [vars(p) for p in outputs],
     }

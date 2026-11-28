@@ -789,6 +789,45 @@ number of workable font sizes and styles"):
 - *Kraken letter boxes keep to the line's own height*: the padding Kraken reads with reached into
   the lines above and below (`read_runs` passes the unpadded `bands` to `_words`); odd shapes 456 -> 442.
 
+**0.12.0** (on the branch; new features, after v0.11.5; Beaux, 2026-11-28: "only create a project
+folder when the user wants to train", "a simple tool", preprocessing steps on their own, and "adding a
+text layer should realistically only increase the file size by the amount of data needed to set the text"):
+- *Text layer over the scan's own pages* (`Settings.page_image` "original", the new default; GUI
+  "Page image: as scanned (smallest)"; CLI `--page-image original`). **Cause of the growth**: every page
+  was coded again as 8-bit grey JPEG from the preprocessed PNG, so a black-and-white JBIG2/CCITT scan
+  grew 6-7x (corpus English-Greek dictionary 850 KB -> 5.7 MB; Treatise extract 1.8 -> 11.8 MB). Now
+  (`textlayer.source_matrices`, `pdfwrite.PageSpec.source_page/source_matrix`, `pdfwrite.scan_form`): each
+  output page draws the scan's page as a form XObject (`as_form_xobject(handle_transformations=False)`,
+  copied with `copy_foreign`, so a spread's halves share one picture) through one `cm` matrix = output
+  points <- (preprocess's 2x3 `transform`, centre-based, wrapped in half-pixel shifts) <- source pixels
+  <- page space; the page box clips. Source pixels -> page space: for an "embedded image" page, from
+  the matrix its content draws the picture with (`_image_placement`, so a picture drawn turned is still
+  right); for a "rendered" page, the CropBox (pdfium renders it). After: 944 KB and 1.97 MB. The scan's
+  own hidden text (an earlier OCR layer) is left out of the form (striptext's `_strip`). A page is coded as
+  before (grey) if it can't be followed or the scan no longer matches what preprocessing measured
+  (picture size, box at the recorded dpi). Traced and substitute draw the page again, so "original" is
+  grey there (`project._redrawn`); the GUI shows grey and keeps the choice. **Checked**: rendered pages
+  match `pages/*.png` exactly with poppler; pdfium places turned pictures up to 3 px off at 300 dpi
+  (its rounding; tests/test_scan_pages.py allows 3).
+- *Pages only* (mode "pages", `STAGES_PAGES` preprocess + pages, `textlayer.pages_workspace`, folder
+  `pages-pdf/`, beside the scan as "<scan> - pages.pdf", `project.SUFFIX`; `ectype pages SCAN|FOLDER...
+  [--split] [--deskew] [--orient]`, none given = all three, help with examples, own results skipped;
+  `run --mode pages`). Each step can be left out: `Settings.orient`/`deskew` (with `split_spreads`), toolbar
+  boxes "Straighten pages" / "Turn pages upright", `preprocess(orient=False)` keeps the page as a viewer
+  shows it (the PDF's /Rotate, `SourcePage.shown_turned`), CLI `--no-orient`/`--no-deskew`.
+- *Projects only when wanted*: `Settings.kept` (missing in an older project.json = kept). The app opens a
+  scan with `Project.for_scan(scan, keep=False, choices=...)`: a folder in `projects/` marked not kept and
+  not in the index; `Project.keep()` (first correction, word delete/add, manuscript line edit or
+  correction, training, Train for this book, File -> Save project) marks and indexes it and tells the
+  window (`on_kept`, a Log line and status). `Project.discard()` when another book is opened
+  (`MainWindow.load`) and when the app closes (`discard_unkept`, not while a run is going); folders left by
+  a crash are removed at the next start after 12 h untouched (`project.remove_abandoned`). No more
+  `~/.ectype/scratch`: before a scan the app has `Project.scratch()`. New books start from the last
+  choices (`choices.json` in the data folder, `CHOICES`, written by `save_settings` when
+  `project.remembers`, the app's). CLI `run` keeps nothing in any mode unless --keep or -o; a traced or
+  substitute run of a book already kept uses its project. Not moved or renamed when kept (Windows
+  refuses to rename a folder with files open): the folder is in `projects/` from the start.
+
 **0.5.1 work** (in the v0.5.0 release; gaps filled, no new whole features):
 - *Faster "Update after corrections"* (69 s -> ~21 s on Young, same output): glyph grouping
   keeps its work in `cluster/cache/` (`cluster.Cache`): each page's instances while its image,

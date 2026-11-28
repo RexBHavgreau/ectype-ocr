@@ -4,6 +4,12 @@ The GUI drives everything through this class, and so can scripts; nothing here
 depends on Qt. Settings live in <workspace>/project.json, preprocessing overrides
 (split position, no split, rotation, skew) in <workspace>/overrides.json, the same
 file `ectype preprocess --overrides` reads.
+
+A project folder is kept only when it is wanted (Beaux: training is "the whole reason the
+project folder exists"): a book opened in the app works in a folder marked not kept
+(`Settings.kept` False, not in the projects index), deleted when the book is closed; the first
+correction, training, or Save project keeps it (`Project.keep`). Folders left by a copy of the
+app that ended without closing are removed later (`abandoned_projects`).
 """
 
 from __future__ import annotations
@@ -25,22 +31,35 @@ STAGES_TRACED = ["preprocess", "ocr", "segment", "cluster", "fonts", "traced"]
 STAGES_SUBSTITUTE = ["preprocess", "ocr", "segment", "substitute"]
 STAGES_TEXT = ["preprocess", "ocr", "textlayer"]
 STAGES_PLAINTEXT = ["preprocess", "ocr", "plaintext"]  # no PDF: the OCR text as a .txt file (plaintext.py)
-STAGES = {"traced": STAGES_TRACED, "substitute": STAGES_SUBSTITUTE, "text": STAGES_TEXT, "plaintext": STAGES_PLAINTEXT}
+STAGES_PAGES = ["preprocess", "pages"]  # no OCR: the pages split, straightened, turned upright, as chosen
+STAGES = {"traced": STAGES_TRACED, "substitute": STAGES_SUBSTITUTE, "text": STAGES_TEXT, "plaintext": STAGES_PLAINTEXT,
+          "pages": STAGES_PAGES}
 STAGES_MANUSCRIPT = ["preprocess", "read", "textlayer"]  # Kraken's lines read with the hands, a searchable PDF
 # Rough share of a run's time per stage, for the progress bar (OCR takes the most).
 STAGE_WEIGHT = {"preprocess": 12, "ocr": 50, "read": 75, "segment": 12, "cluster": 8, "fonts": 6, "traced": 12,
-                "substitute": 12, "textlayer": 10, "plaintext": 3}
-OUTPUT_FOLDER = {"traced": "traced", "substitute": "substitute", "text": "textlayer"}
+                "substitute": 12, "textlayer": 10, "plaintext": 3, "pages": 10}
+OUTPUT_FOLDER = {"traced": "traced", "substitute": "substitute", "text": "textlayer", "pages": "pages-pdf"}
+SUFFIX = {"pages": "pages"}  # the result beside the scan: "<scan> - <suffix>.pdf" ("OCR" otherwise)
+PAGE_IMAGE_KINDS = ("original", "gray", "lossless", "bw")
+# The choices a new book starts from: the last ones made in the app (`remember_choices`).
+CHOICES = ("mode", "split_spreads", "orient", "deskew", "font", "lang", "page_image", "script", "ms_languages", "hands",
+           "hand_reading", "text_form", "text_page_markers", "text_keep_heads", "text_keep_marks")
+ABANDONED_AFTER = 12 * 3600  # seconds untouched before a folder not kept is taken as left behind
 
 
 @dataclass
 class Settings:
     source: str = ""
-    mode: str = "traced"  # "traced", "substitute", "text" (the scan with an invisible text layer) or "plaintext" (no PDF)
+    mode: str = "traced"  # "traced", "substitute", "text" (the scan with an invisible text layer), "plaintext" (no PDF)
+    # or "pages" (no OCR: the pages split, straightened and turned upright, as chosen below)
     split_spreads: bool = True
+    orient: bool = True  # turn pages upright (Tesseract's orientation finding); off: as a PDF viewer shows them
+    deskew: bool = True  # straighten slanted pages
     font: str = ""  # substitute mode; empty = default serif
     lang: str = "eng"  # Tesseract languages, e.g. "eng+grc"
-    page_image: str = "gray"  # "gray" (JPEG), "lossless" (gray, no loss) or "bw" (text layer only: black and white, smallest)
+    # "original" (the scan's own pictures, unchanged: the smallest, text layer and pages only), "gray" (JPEG),
+    # "lossless" (gray, no loss) or "bw" (text layer only: black and white)
+    page_image: str = "original"
     declined_languages: list = field(default_factory=list)  # languages the user chose not to add when offered
     name: str = ""  # output file name without .pdf
     script: str = "print"  # "print", or "manuscript" (Manuscript Mode: manuscript.py)
@@ -52,6 +71,7 @@ class Settings:
     text_page_markers: bool = True  # Export text: "{p. 12 · PDF 14}" where each page begins
     text_keep_heads: bool = False  # Export text: keep running heads and page numbers
     text_keep_marks: bool = False  # Export text: keep vowel points and accents as read (else removed, for searching)
+    kept: bool = True  # False: a book opened but not yet worked on, deleted when it is closed (an older project is kept)
 
 
 def made_by_ectype(pdf: Path) -> bool:
@@ -65,16 +85,17 @@ def made_by_ectype(pdf: Path) -> bool:
         return False
 
 
-def beside_scan(pdf: Path, scan: Path) -> Path:
-    """Copy the finished PDF beside the scan as "<scan name> - OCR.pdf". The scan itself is never
-    touched, and a file of that name Ectype didn't make is kept: the copy then takes the next free
-    name ("… - OCR (2).pdf"). Written through a temporary file, so a failure leaves nothing half."""
+def beside_scan(pdf: Path, scan: Path, suffix: str = "OCR") -> Path:
+    """Copy the finished PDF beside the scan as "<scan name> - OCR.pdf" ("- pages.pdf" for Pages
+    only). The scan itself is never touched, and a file of that name Ectype didn't make is kept:
+    the copy then takes the next free name ("… - OCR (2).pdf"). Written through a temporary file,
+    so a failure leaves nothing half."""
     import shutil
 
     pdf, scan = Path(pdf), Path(scan)
     n = 1
     while True:
-        dest = scan.with_name(f"{scan.stem} - OCR{'' if n == 1 else f' ({n})'}.pdf")
+        dest = scan.with_name(f"{scan.stem} - {suffix}{'' if n == 1 else f' ({n})'}.pdf")
         if dest.resolve() != scan.resolve() and (not dest.exists() or made_by_ectype(dest)):
             break
         n += 1
@@ -128,20 +149,88 @@ def find_for_scan(scan: Path) -> Path | None:
     return None
 
 
-def _new_project_folder(scan: Path) -> Path:
+def _new_project_folder(scan: Path, keep: bool = True) -> Path:
     """A new folder in the projects folder named for the scan ("<name> (2).ectype" if another
-    scan's project has the name), recorded in the index."""
+    scan's project has the name), recorded in the index when kept."""
     index = _read_index()
     taken = set(index.values())
     n = 1
     while True:
-        name = f"{scan.stem}{'' if n == 1 else f' ({n})'}.ectype"
+        name = f"{Path(scan).stem}{'' if n == 1 else f' ({n})'}.ectype"
         if name not in taken and not (projects_dir() / name).exists():
             break
         n += 1
-    index[_scan_key(scan)] = name
-    _write_index(index)
+    if keep:
+        index[_scan_key(scan)] = name
+        _write_index(index)
     return projects_dir() / name
+
+
+def _choices_file() -> Path:
+    from .resources import user_data_dir
+
+    return user_data_dir() / "choices.json"
+
+
+def last_choices() -> dict:
+    """The choices last made in the app (mode, languages, page image, …), for a new book."""
+    try:
+        data = json.loads(_choices_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if k in CHOICES} if isinstance(data, dict) else {}
+
+
+def remember_choices(settings: "Settings") -> None:
+    path = _choices_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        part = path.with_name(path.name + ".part")
+        part.write_text(json.dumps({k: getattr(settings, k) for k in CHOICES}, indent=1, ensure_ascii=False),
+                        encoding="utf-8")
+        part.replace(path)
+    except OSError:
+        pass  # a convenience: never a reason for the app to fail
+
+
+def _not_kept(folder: Path) -> bool:
+    try:
+        return json.loads((folder / "project.json").read_text(encoding="utf-8")).get("kept", True) is False
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def abandoned_projects(age: float = ABANDONED_AFTER) -> list[Path]:
+    """Folders of books never kept that nothing has touched for `age` seconds: left by a copy of the
+    app that ended without closing them (a crash, the computer turned off)."""
+    from .freespace import _newest
+
+    root = projects_dir()
+    if not root.is_dir():
+        return []
+    now = time.time()
+    return sorted(p for p in root.glob("*.ectype") if p.is_dir() and _not_kept(p) and now - _newest(p) > age)
+
+
+def remove_abandoned(age: float = ABANDONED_AFTER) -> int:
+    """Delete `abandoned_projects`. Returns how many went."""
+    gone = 0
+    for folder in abandoned_projects(age):
+        shutil.rmtree(folder, ignore_errors=True)
+        gone += not folder.exists()
+    return gone
+
+
+def _redrawn(page_image: str) -> str:
+    """Traced and substitute PDFs draw the page again (the type erased from it), so the scan's own
+    pictures can't be used: "original" is grey JPEG there, and black and white too."""
+    return page_image if page_image in ("gray", "lossless") else "gray"
+
+
+def _size_note(out: dict) -> str:
+    if out.get("scan_bytes") and out.get("as_scanned"):
+        return f" (the scan: {out['scan_bytes']:,} bytes; its own pictures kept on {out['as_scanned']} pages)"
+    return ""
 
 
 class LanguagesMissing(Exception):
@@ -159,23 +248,69 @@ def found_words(found: dict[str, int]) -> str:
 
 
 class Project:
-    def __init__(self, workspace: Path, source: Path | None = None):
+    def __init__(self, workspace: Path, source: Path | None = None, kept: bool | None = None,
+                 choices: dict | None = None):
+        """`kept` False: a new folder for a book not (yet) wanted as a project; `choices`: settings a
+        new folder starts from (`last_choices`)."""
         self.workspace = Path(workspace)
+        new = not (self.workspace / "project.json").is_file()
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.settings = self._load_settings()
+        self.remembers = False  # the app's: its choices become the next book's (`remember_choices`)
+        self.on_kept: Callable[["Project"], None] | None = None  # told when the project is first kept
+        if new and choices:
+            for k, v in choices.items():
+                if k in CHOICES:
+                    setattr(self.settings, k, v)
+        if new and kept is not None:
+            self.settings.kept = kept
         if source is not None:
             self.settings.source = str(Path(source).resolve())
             if not self.settings.name:
                 self.settings.name = Path(source).stem
+        if source is not None or (new and (kept is not None or choices)):
             self.save_settings()
 
     @classmethod
-    def for_scan(cls, scan: Path) -> "Project":
+    def for_scan(cls, scan: Path, keep: bool = True, choices: dict | None = None) -> "Project":
         """The scan's project: an older one beside the scan keeps working; otherwise the one
-        recorded in Ectype's projects folder, or a new folder there (see `find_for_scan`)."""
+        recorded in Ectype's projects folder, or a new folder there (see `find_for_scan`). With
+        `keep` False a new folder is not kept until `keep` is called (the app's way)."""
         scan = Path(scan)
         found = find_for_scan(scan)
-        return cls(found if found is not None else _new_project_folder(scan), scan)
+        if found is not None:
+            return cls(found, scan)
+        return cls(_new_project_folder(scan, keep), scan, kept=keep, choices=choices)
+
+    @classmethod
+    def scratch(cls, choices: dict | None = None) -> "Project":
+        """The app's project before a scan is chosen: a folder not kept, holding only the choices."""
+        return cls(_new_project_folder(Path("Untitled"), keep=False), kept=False, choices=choices)
+
+    def kept(self) -> bool:
+        return self.settings.kept
+
+    def keep(self) -> bool:
+        """Keep this project (its readings and corrections stay, for Review and training): marked
+        kept and recorded in the projects index. True when it wasn't kept before."""
+        if self.settings.kept:
+            return False
+        self.settings.kept = True
+        self.save_settings()
+        if self.settings.source and projects_dir() in self.workspace.parents:
+            index = _read_index()
+            index[_scan_key(Path(self.settings.source))] = self.workspace.name
+            _write_index(index)
+        if self.on_kept:
+            self.on_kept(self)
+        return True
+
+    def discard(self) -> bool:
+        """Delete the folder of a project never kept (the book is closed). True when it went."""
+        if self.settings.kept or not (self.workspace / "project.json").is_file():
+            return False
+        shutil.rmtree(self.workspace, ignore_errors=True)
+        return not self.workspace.exists()
 
     @staticmethod
     def find_for_scan(scan: Path) -> Path | None:
@@ -192,6 +327,8 @@ class Project:
 
     def save_settings(self) -> None:
         report.write_json(self.workspace / "project.json", asdict(self.settings))
+        if self.remembers:
+            remember_choices(self.settings)
 
     @property
     def overrides_path(self) -> Path:
@@ -316,6 +453,7 @@ class Project:
                 box: list[int] | None = None, style: dict | None = None) -> dict:
         from .review import correct
 
+        self.keep()
         return correct(self.workspace, page, line, word, text, span, box, style)
 
     def word_styles(self, page: str) -> dict[tuple[int, int], dict]:
@@ -340,11 +478,13 @@ class Project:
     def delete_word(self, page: str, line: int, word: int) -> dict:
         from .review import delete_word
 
+        self.keep()
         return delete_word(self.workspace, page, line, word)
 
     def add_word(self, page: str, box: list[int], text: str) -> dict:
         from .review import add_word
 
+        self.keep()
         return add_word(self.workspace, page, box, text)
 
     def stages(self) -> list[str]:
@@ -355,7 +495,8 @@ class Project:
     def update_stage(self) -> str:
         """Where to start again after OCR corrections: the stage after OCR (reading)."""
         stages = self.stages()
-        return stages[stages.index("read" if self.manuscript() else "ocr") + 1]
+        read = "read" if self.manuscript() else "ocr"
+        return stages[stages.index(read) + 1] if read in stages else stages[-1]  # Pages only reads nothing
 
     # -- Manuscript Mode (manuscript.py) -------------------------------------------------
 
@@ -387,6 +528,7 @@ class Project:
     def correct_line(self, page: str, index: int, text: str) -> dict:
         from .manuscript import correct_line
 
+        self.keep()
         return correct_line(self.workspace, page, index, text, self.settings, self.book())
 
     def manuscript_corrections(self) -> int:
@@ -402,12 +544,14 @@ class Project:
 
         progress = progress or (lambda stage, msg: None)
         bar = Bar(lambda msg: progress("train", msg), lambda f: progress("fraction", f"{f:.4f}"))
+        self.keep()
         return train_book(self.workspace, self.settings, bar)
 
     def choose_sample(self, n: int = 5, pages: list[str] | None = None) -> list[str]:
         """"Train for this book": the pages to correct first (given, or n at random from the middle)."""
         from .manuscript import sample_pages
 
+        self.keep()
         self.settings.sample = sorted(pages) if pages is not None else sample_pages(self.pages(), n)
         self.save_settings()
         return self.settings.sample
@@ -517,6 +661,7 @@ class Project:
 
         progress = progress or (lambda stage, msg: None)
         say = lambda msg: progress("train", msg)  # noqa: E731
+        self.keep()
         plan = self.trainable()
         if not plan:
             raise TrainingError(f"Nothing to train yet: each language needs at least {MIN_ITEMS} corrected lines or "
@@ -591,7 +736,11 @@ class Project:
                     raise FileNotFoundError("no scan to preprocess; open a scan first")
                 from .preprocess import preprocess
 
-                out = preprocess(Path(s.source), ws, keep_spreads=not s.split_spreads, overrides=self.overrides(), on_page=on_page)
+                if s.mode == "pages" and not self.manuscript() and not (s.split_spreads or s.orient or s.deskew):
+                    raise ValueError("Pages only needs at least one of: split spreads, straighten (deskew), "
+                                     "turn pages upright")
+                out = preprocess(Path(s.source), ws, keep_spreads=not s.split_spreads, overrides=self.overrides(),
+                                 on_page=on_page, orient=s.orient, deskew=s.deskew)
                 msg = f"{len(out['sources'])} source pages -> {len(out['pages'])} pages"
             elif stage == "ocr":
                 from .ocr import ocr_pages
@@ -641,18 +790,23 @@ class Project:
                 from .textlayer import textlayer_workspace
 
                 out = textlayer_workspace(ws, out_name=s.name or None, image=s.page_image, on_page=on_page)
-                msg = f"{out['bytes']:,} bytes; {out['words']} words as an invisible text layer"
+                msg = f"{out['bytes']:,} bytes; {out['words']} words as an invisible text layer" + _size_note(out)
+            elif stage == "pages":
+                from .textlayer import pages_workspace
+
+                out = pages_workspace(ws, out_name=s.name or None, image=s.page_image, on_page=on_page)
+                msg = f"{out['bytes']:,} bytes; {len(out['pages'])} pages" + _size_note(out)
             elif stage == "traced":
                 from .traced import traced_workspace
 
-                out = traced_workspace(ws, out_name=s.name or None, image=s.page_image, on_page=on_page)
+                out = traced_workspace(ws, out_name=s.name or None, image=_redrawn(s.page_image), on_page=on_page)
                 msg = f"{out['bytes']:,} bytes; {out['words']} words as text, {out['fallback_words']} left as image"
             else:
                 from .substitute import substitute_workspace
                 from .synth import find_font
 
                 out = substitute_workspace(ws, find_font(s.font or None), out_name=s.name or None,
-                                           image=s.page_image, on_page=on_page)
+                                           image=_redrawn(s.page_image), on_page=on_page)
                 msg = f"{out['bytes']:,} bytes"
             progress(stage, msg)
             before += weight
@@ -674,7 +828,7 @@ class Project:
         if not scan.parent.is_dir():
             return None
         try:
-            return beside_scan(pdf, scan)
+            return beside_scan(pdf, scan, SUFFIX.get(self.settings.mode, "OCR") if not self.manuscript() else "OCR")
         except OSError:
             return None
 

@@ -215,6 +215,7 @@ class ManuscriptReviewTab(QWidget):
         if self.splitting:
             self.splitting = False
             self.scan.viewport().unsetCursor()
+            self.project.keep()  # a changed line teaches the line-finding: the book is kept
             manuscript.split_line(self.project.workspace, self.page, item.line["index"], pos.x())
             self._changed("Line cut in two. Read this page again to read both parts.")
             self._draw_lines(item.line["index"])
@@ -264,6 +265,7 @@ class ManuscriptReviewTab(QWidget):
             return
         index = self.selected.line["index"]
         if self.editor is not None and self.editor.changed():
+            self.project.keep()  # a changed line teaches the line-finding: the book is kept
             manuscript.set_line_box(self.project.workspace, self.page, index, self.editor.box())
         result = self.project.correct_line(self.page, index, text)
         self._draw_lines()
@@ -300,6 +302,7 @@ class ManuscriptReviewTab(QWidget):
         index = self.selected.line["index"]
         if index + 1 >= len(self.items):
             return
+        self.project.keep()  # a changed line teaches the line-finding: the book is kept
         manuscript.join_lines(self.project.workspace, self.page, index)
         self._draw_lines(index)
         self._changed("Lines joined. Read this page again to read the joined line.")
@@ -315,6 +318,7 @@ class ManuscriptReviewTab(QWidget):
         if self.selected is None:
             return
         index = self.selected.line["index"]
+        self.project.keep()  # a changed line teaches the line-finding: the book is kept
         manuscript.delete_line(self.project.workspace, self.page, index)
         self._draw_lines(min(index, len(self.items) - 2))
         self._changed("Line removed.")
@@ -326,6 +330,7 @@ class ManuscriptReviewTab(QWidget):
         self.info.setText("Drag a box around the line Kraken missed.")
 
     def _drawn(self, rect: QRectF) -> None:
+        self.project.keep()  # a changed line teaches the line-finding: the book is kept
         index = manuscript.add_line(self.project.workspace, self.page,
                                     [rect.left(), rect.top(), rect.right(), rect.bottom()])
         self._draw_lines(index)

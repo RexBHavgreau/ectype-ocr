@@ -202,6 +202,9 @@ printed books; no platform other than Windows.
 Newest first. The manager moves a task here when its pull request is merged, as one line,
 and deletes the task's full text above. Older history: `CLAUDE.md`, "What each version brought".
 
+- 2026-11-28 · (Claude, for 0.12.0) · A text layer keeps the scan's own pictures (the PDF grows by the
+  text only); Pages only (split, straighten, turn upright, each on its own; `ectype pages`); a book is
+  kept as a project only once it is corrected, trained or saved. Waiting for Beaux to try it on Windows.
 - 2026-11-25 · T-018 · Fewer false "words in other scripts" (Beaux: "Ectype always alleges to
   find words that are in other languages"): a word already read in a chosen script, or one the
   book reads surely elsewhere, no longer counts. The grammar: 34 such words to none; the

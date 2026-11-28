@@ -50,7 +50,7 @@ def cmd_preprocess(args: argparse.Namespace) -> int:
     pages = [i + 1 for i in parse_pages(args.pages, 100000)] if args.pages else None
     s = preprocess(Path(args.input), out, keep_spreads=args.keep_spreads,
                    overrides=load_overrides(Path(args.overrides) if args.overrides else None),
-                   pages=pages, deskew=not args.no_deskew, dpi=args.dpi)
+                   pages=pages, deskew=not args.no_deskew, dpi=args.dpi, orient=not getattr(args, "no_orient", False))
     flagged = [str(src["page"]) for src in s["sources"] if src["flags"]]
     print(f"{len(s['sources'])} source pages -> {len(s['pages'])} pages"
           + (f"; check source pages {', '.join(flagged)}" if flagged else ""))
@@ -712,10 +712,10 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Every stage, scan to PDF, and the PDF copied beside the scan ("<name> - OCR.pdf"). Traced
-    and substitute runs keep the book's project folder (in Ectype's projects folder, as the app
-    has it, unless -o) for correcting in Review; text and plaintext runs work in a temporary
-    folder and delete it, unless --keep or -o."""
+    """Every stage, scan to PDF, and the PDF copied beside the scan ("<name> - OCR.pdf"). The work
+    is done in a temporary folder and deleted (Beaux: a project folder only when it is wanted, for
+    training), unless --keep or -o; a traced or substitute run of a book already kept as a project
+    uses that project (its corrections count)."""
     import shutil
     import uuid
 
@@ -723,13 +723,17 @@ def cmd_run(args: argparse.Namespace) -> int:
     from .textfiles import work_root
 
     scan = Path(args.input)
-    temporary = args.mode in ("text", "plaintext") and not args.output and not args.keep
-    if temporary:
-        ws = work_root() / f"{scan.stem[:40]}-{uuid.uuid4().hex[:8]}.ectype"
-    elif args.output:
+    found = Project.find_for_scan(scan)
+    temporary = False
+    if args.output:
         ws = Path(args.output)
-    else:
+    elif found is not None and args.mode in ("traced", "substitute"):
+        ws = found
+    elif args.keep:
         ws = Project.for_scan(scan).workspace
+    else:
+        temporary = True
+        ws = work_root() / f"{scan.stem[:40]}-{uuid.uuid4().hex[:8]}.ectype"
     try:
         return _run_in(args, scan, ws)
     finally:
@@ -742,18 +746,30 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def _run_in(args: argparse.Namespace, scan: Path, ws: Path) -> int:
-    from .project import Project, beside_scan
+    from .project import Project, _redrawn, beside_scan
 
     args.name = args.name or scan.stem
     project = Project(ws, scan)  # remembers the scan and the choices, so the app can open it
     project.settings.mode = args.mode
     project.settings.name = args.name
     project.settings.page_image = args.page_image
+    project.settings.split_spreads = not args.keep_spreads
+    project.settings.deskew = not args.no_deskew
+    project.settings.orient = not args.no_orient
     project.set_languages(args.lang.split("+"))
     project.save_settings()
+    if args.mode in ("traced", "substitute"):
+        args.page_image = _redrawn(args.page_image)  # the page is drawn again: not as scanned
+    preprocess_step = ("preprocess", cmd_preprocess, argparse.Namespace(
+        input=args.input, output=str(ws), keep_spreads=args.keep_spreads, overrides=args.overrides, pages=args.pages,
+        no_deskew=args.no_deskew, no_orient=args.no_orient, dpi=300))
+    if args.mode == "pages":
+        print("== preprocess")
+        cmd_preprocess(preprocess_step[2])
+        print("== pages")
+        return _pages_beside(ws, scan, args.name, args.page_image)
     steps = [
-        ("preprocess", cmd_preprocess, argparse.Namespace(input=args.input, output=str(ws), keep_spreads=args.keep_spreads,
-                                                          overrides=args.overrides, pages=args.pages, no_deskew=False, dpi=300)),
+        preprocess_step,
         ("ocr", cmd_ocr, argparse.Namespace(workspace=str(ws), engine="tesseract", lang=args.lang)),
     ]
     if args.mode not in ("text", "plaintext"):
@@ -789,6 +805,80 @@ def _run_in(args: argparse.Namespace, scan: Path, ws: Path) -> int:
     if missing:  # text and plaintext runs finish (cheap), then say what to do
         print(_missing_message(args, scan, *missing, stopped=False))
     return 0
+
+
+def _pages_beside(ws: Path, scan: Path, name: str, page_image: str) -> int:
+    """The pages-only PDF of a prepared folder, copied beside the scan as "<scan> - pages.pdf"."""
+    from .project import beside_scan
+    from .textlayer import pages_workspace
+
+    s = pages_workspace(ws, out_name=name, image=page_image)
+    dest = beside_scan(Path(ws) / "pages-pdf" / s["pdf"], scan, "pages")
+    size = f"{s['bytes']:,} bytes"
+    if s.get("scan_bytes"):
+        size += f" (the scan: {s['scan_bytes']:,})"
+    print(f"PDF: {dest} · {len(s['pages'])} pages · {size}")
+    return 0
+
+
+PAGES_HELP = """What it does to each page (give one or more; none given = all three):
+  --split     cut two-page spreads into single pages, at the fold
+  --deskew    straighten slanted pages
+  --orient    turn sideways or upside-down pages the right way up
+
+The result goes beside each scan as "<name> - pages.pdf"; the scan itself is never changed.
+It keeps the scan's own pictures (nothing is coded again), so it is about the scan's size.
+No OCR: for a searchable PDF, use `ectype run <scan> --mode text`.
+
+Examples:
+  Only straighten the pages:
+    ectype pages "D:\\Library\\Treatise.pdf" --deskew
+  Split spreads and turn pages upright, for every scan in a folder:
+    ectype pages "D:\\Library\\New scans" --split --orient
+  All three, for one scan:
+    ectype pages "D:\\Library\\Treatise.pdf"
+"""
+
+
+def cmd_pages(args: argparse.Namespace) -> int:
+    """Pages only: split, straighten or turn the pages of each scan, as chosen, with no OCR; the
+    result beside the scan ("<name> - pages.pdf"). Nothing is kept but the result."""
+    import shutil
+    import uuid
+
+    from .project import made_by_ectype
+    from .textfiles import find_scans, work_root
+
+    chosen = {"split": args.split, "deskew": args.deskew, "orient": args.orient}
+    if not any(chosen.values()):
+        chosen = dict.fromkeys(chosen, True)
+    names = {"split": "split spreads", "deskew": "straighten", "orient": "turn upright"}
+    print("Doing: " + ", ".join(names[k] for k, on in chosen.items() if on) + "   (see: ectype pages --help)", flush=True)
+    scans = [s for s in find_scans([Path(i) for i in args.inputs], args.recursive)
+             if not (s.suffix.lower() == ".pdf" and made_by_ectype(s))]  # not Ectype's own results
+    if not scans:
+        print("No scans found (PDFs or page images). Give a scan, or a folder of them.")
+        return 1
+    failed = 0
+    for scan in scans:
+        print(f"-- {scan}", flush=True)
+        ws = work_root() / f"{scan.stem[:40]}-{uuid.uuid4().hex[:8]}.ectype"
+        try:
+            from .preprocess import preprocess
+
+            preprocess(scan, ws, keep_spreads=not chosen["split"], deskew=chosen["deskew"], orient=chosen["orient"])
+            _pages_beside(ws, scan, scan.stem, args.page_image)
+        except Exception as e:  # noqa: BLE001 - one damaged scan doesn't stop the rest
+            failed += 1
+            print(f"   failed: {e}")
+        finally:
+            shutil.rmtree(ws, ignore_errors=True)
+            try:
+                ws.parent.rmdir()
+            except OSError:
+                pass
+    print(f"{len(scans) - failed} done" + (f", {failed} failed" if failed else "") + ".")
+    return 1 if failed else 0
 
 
 def _missing_message(args: argparse.Namespace, scan: Path, codes: list[str], found: dict[str, int],
@@ -896,10 +986,13 @@ Examples:
   Languages: what is installed, what can be added, and adding some:
     ectype languages      ectype languages --all      ectype languages --add spa lat
 
+  Only fix the pages, no OCR: straighten them, split spreads, turn them upright (any of the three):
+    ectype pages "D:\\Library\\Treatise.pdf" --deskew      ectype pages "D:\\Library" --split --orient
+
 preprocess, ocr, segment, cluster, fonts, traced, substitute and textlayer are single steps on a
 book's project folder (the .ectype folder Ectype keeps in its data folder); for a scan use text,
-text-files or run. `run --mode text` and `--mode plaintext` keep nothing but the result beside
-the scan (add --keep to keep the project for Review); traced and substitute runs keep it.
+text-files, pages or run. A run keeps nothing but the result beside the scan; add --keep to keep
+the book as a project, for correcting in Review and training.
 
   Read Hebrew with a particular Kraken model (it must be installed):
     ectype kraken list      ectype kraken available --script Hebrew      ectype kraken add 7051645
@@ -945,7 +1038,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-spreads", action="store_true", help="don't split two-page spreads")
     p.add_argument("--overrides", help="JSON of per-page corrections: rotate, split, skew")
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
-    p.add_argument("--no-deskew", action="store_true")
+    p.add_argument("--no-deskew", action="store_true", help="don't straighten slanted pages")
+    p.add_argument("--no-orient", action="store_true", help="don't turn pages upright (keep them as a PDF viewer shows them)")
     p.add_argument("--dpi", type=float, default=300, help="render resolution for pages that aren't a single image")
     p.set_defaults(func=cmd_preprocess)
 
@@ -990,20 +1084,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("run", help="every stage, scan to PDF")
     p.add_argument("input", help="scanned PDF or page image")
-    p.add_argument("-o", "--output", help="project folder (default: Ectype's projects folder; text and plaintext keep nothing)")
+    p.add_argument("-o", "--output", help="project folder to keep the work in (default: nothing is kept but the result)")
     p.add_argument("--anyway", action="store_true",
                    help="go on to the slow steps even if the book has a script the languages don't read")
     p.add_argument("--keep", action="store_true",
-                   help="keep the project for correcting in Review (text and plaintext modes delete it otherwise)")
-    p.add_argument("--mode", choices=["traced", "substitute", "text", "plaintext"], default="traced",
+                   help="keep the book as a project, for correcting in Review and training (otherwise only the result is kept)")
+    p.add_argument("--mode", choices=["traced", "substitute", "text", "plaintext", "pages"], default="traced",
                    help="text: just the scan with an invisible OCR text layer (no tracing); "
-                        "plaintext: no PDF, the OCR text as a .txt file")
+                        "plaintext: no PDF, the OCR text as a .txt file; pages: no OCR, the pages split, "
+                        "straightened and turned upright (see also: ectype pages)")
     p.add_argument("--font", help="substitute mode: font file or family name")
     p.add_argument("--name", help="output file name without .pdf")
     p.add_argument("--lang", default="eng", help="OCR languages, e.g. eng or eng+grc (see: ectype languages)")
-    p.add_argument("--page-image", choices=["gray", "lossless", "bw"], default="gray",
-                   help="grayscale JPEG, lossless grayscale (larger), or black and white (text mode only)")
-    p.add_argument("--keep-spreads", action="store_true")
+    p.add_argument("--page-image", choices=["original", "gray", "lossless", "bw"], default="original",
+                   help="the scan's own pictures, unchanged (default; text and pages modes: the smallest), grayscale "
+                        "JPEG, lossless grayscale (larger), or black and white (text and pages modes)")
+    p.add_argument("--keep-spreads", action="store_true", help="don't split two-page spreads")
+    p.add_argument("--no-deskew", action="store_true", help="don't straighten slanted pages")
+    p.add_argument("--no-orient", action="store_true", help="don't turn pages upright")
     p.add_argument("--overrides", help="JSON of per-page preprocessing corrections")
     p.add_argument("--pages", help="1-based source pages, e.g. 1-3,5")
     p.add_argument("--kraken", action="append", metavar="LANG=MODEL",
@@ -1013,8 +1111,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("textlayer", help="(a step, on a project folder) build the text-layer PDF (the scan + invisible OCR text): <workspace>/textlayer")
     p.add_argument("workspace")
     p.add_argument("--name", help="output file name without .pdf (default: the workspace name)")
-    p.add_argument("--page-image", choices=["gray", "lossless", "bw"], default="gray",
-                   help="grayscale JPEG, lossless grayscale (larger), or black and white (CCITT G4)")
+    p.add_argument("--page-image", choices=["original", "gray", "lossless", "bw"], default="original",
+                   help="the scan's own pictures, unchanged (default: the smallest), grayscale JPEG, lossless "
+                        "grayscale (larger), or black and white (CCITT G4)")
     p.set_defaults(func=cmd_textlayer)
 
     p = sub.add_parser("languages", help="list the OCR languages, or download more")
@@ -1071,6 +1170,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kraken", action="append", metavar="LANG=MODEL",
                    help="read a language with a Kraken model, e.g. --kraken heb=7051645 (repeatable; see: ectype kraken list)")
     p.set_defaults(func=cmd_text_files)
+
+    p = sub.add_parser("pages", help="split, straighten or turn a scan's pages upright, with no OCR: \"<name> - pages.pdf\" beside it",
+                       formatter_class=argparse.RawDescriptionHelpFormatter, epilog=PAGES_HELP)
+    p.add_argument("inputs", nargs="+", metavar="SCAN", help="scanned PDFs or page images, or folders of them")
+    p.add_argument("--split", action="store_true", help="cut two-page spreads into single pages")
+    p.add_argument("--deskew", action="store_true", help="straighten slanted pages")
+    p.add_argument("--orient", action="store_true", help="turn pages the right way up")
+    p.add_argument("--recursive", action="store_true", help="also the scans in folders inside the folders given")
+    p.add_argument("--page-image", choices=["original", "gray", "lossless", "bw"], default="original",
+                   help="the scan's own pictures, unchanged (default: the smallest), or the page coded again: "
+                        "grayscale JPEG, lossless grayscale, black and white")
+    p.set_defaults(func=cmd_pages)
 
     p = sub.add_parser("strip-text", help="a copy of a PDF without its hidden (OCR) text layer, beside it as \"<name> - no text.pdf\"")
     p.add_argument("pdfs", nargs="+", metavar="PDF", help="the PDF, or several; none of them is changed")
@@ -1219,8 +1330,8 @@ def _wrong_target(args: argparse.Namespace) -> str | None:
         return (f"`ectype {args.command}` works on a book's project folder (the folder Ectype makes for it), "
                 f"not on a scan.\nFor a scan, use:\n"
                 f'  ectype text "{path}" --lang spa        (a text file beside it)\n'
-                f'  ectype run "{path}" --lang spa         (a PDF beside it; the project folder is kept in '
-                f"Ectype's data folder)\nPut the book's languages after --lang (eng, spa, lat, grc, heb, … joined with +).")
+                f'  ectype run "{path}" --lang spa         (a PDF beside it; add --keep to keep the book as a '
+                f"project, for Review and training)\nPut the book's languages after --lang (eng, spa, lat, grc, heb, … joined with +).")
     if not path.exists():
         return f"No such folder: {path}"
     return None

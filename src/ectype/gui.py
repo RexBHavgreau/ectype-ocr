@@ -34,10 +34,12 @@ from PySide6.QtWidgets import (
 from . import __version__, crashlog, languages, stopping, updates
 from .project import LanguagesMissing, Project, found_words
 
-PAGE_IMAGES = [("gray", "Page image: grayscale (JPEG)"), ("lossless", "Page image: grayscale, lossless (larger)"),
-               ("bw", "Page image: black and white (smallest)")]
+PAGE_IMAGES = [("original", "Page image: as scanned (smallest)"), ("gray", "Page image: grayscale (JPEG)"),
+               ("lossless", "Page image: grayscale, lossless (larger)"), ("bw", "Page image: black and white")]
 MODES = [("traced", "Traced (fonts from the scan)"), ("substitute", "Substitute (a real font)"),
-         ("text", "Text layer only (the scan + OCR)"), ("plaintext", "Plain text only (no PDF)")]
+         ("text", "Text layer only (the scan + OCR)"), ("plaintext", "Plain text only (no PDF)"),
+         ("pages", "Pages only (split, straighten, turn; no OCR)")]
+KEEPS_THE_SCAN = ("text", "pages")  # modes that can keep the scan's own pictures (and black and white)
 
 LOW_CONF = 70.0
 COLOURS = {"low": QColor(220, 40, 40), "suspect": QColor(232, 137, 12), "fixed": QColor(26, 152, 80),
@@ -2636,7 +2638,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Ectype OCR")
         self.resize(1400, 900)
-        self.project = project or Project(Path.home() / ".ectype" / "scratch")
+        if project is None:
+            from .project import last_choices
+
+            project = Project.scratch(last_choices())
+        self.project = project
         self.worker: Worker | None = None
         self.task: Task | None = None
         self.progress_window: ProgressWindow | None = None
@@ -2677,10 +2683,11 @@ class MainWindow(QMainWindow):
         for value, label in PAGE_IMAGES:
             self.page_image.addItem(label, value)
         self.page_image.setToolTip(
-            "How the page picture is kept in the PDF. Grayscale (JPEG) is small, with a little loss. "
-            "Lossless keeps every grey value exactly, for libraries and archives, and is a few times larger. "
-            "Black and white is the smallest, for plain text; only the scan-with-text-layer mode and "
-            "manuscripts have it.")
+            "How the page picture is kept in the PDF. As scanned keeps the scan's own pictures unchanged, so "
+            "the PDF is the scan's size plus its text (text layer, Pages only and manuscripts). Grayscale (JPEG) "
+            "codes the page again, with a little loss. Lossless keeps every grey value exactly, and is several "
+            "times larger. Black and white codes the page again in black and white (text layer, Pages only and "
+            "manuscripts). Traced and Substitute draw the page again, so they use grayscale.")
         self.page_image.currentIndexChanged.connect(self._page_image_changed)
         self.page_image_action = self.page_image
         bar.addWidget(self.page_image)
@@ -2697,6 +2704,17 @@ class MainWindow(QMainWindow):
         self.split = QCheckBox("Split two-page spreads")
         self.split.toggled.connect(self._split_changed)
         bar.addWidget(self.split)
+        self.deskew = QCheckBox("Straighten pages")
+        self.deskew.setToolTip("Level slanted pages (deskew)")
+        self.deskew.toggled.connect(lambda on: self._page_choice("deskew", on, "Pages will be "
+                                                                 + ("straightened" if on else "left as scanned")))
+        bar.addWidget(self.deskew)
+        self.orient = QCheckBox("Turn pages upright")
+        self.orient.setToolTip("Find which way up each page's text is and turn it upright. Off: the pages stay as a "
+                               "PDF viewer shows them.")
+        self.orient.toggled.connect(lambda on: self._page_choice("orient", on, "Pages will be "
+                                                                 + ("turned upright" if on else "left as a viewer shows them")))
+        bar.addWidget(self.orient)
         bar.addWidget(_separator())
         action("run", "Run", lambda: self.run("preprocess"), "F5")
         action("update", "Update after corrections", lambda: self.run(self.project.update_stage()), "Shift+F5")
@@ -2778,7 +2796,12 @@ class MainWindow(QMainWindow):
         help_menu.addAction("About Ectype OCR", self.about)
 
     def load(self, project: Project) -> None:
+        old = getattr(self, "project", None)
+        if old is not None and old is not project and old.workspace != project.workspace:
+            old.discard()  # a book never kept goes when another is opened
         self.project = project
+        project.remembers = True
+        project.on_kept = self._kept
         for tab in (self.spreads, self.review, self.ms_review, self.glyphs):
             tab.project = project
         self.mode.blockSignals(True)
@@ -2787,9 +2810,11 @@ class MainWindow(QMainWindow):
         self.page_image.blockSignals(True)
         self.page_image.blockSignals(False)
         self._show_script()
-        self.split.blockSignals(True)
-        self.split.setChecked(project.settings.split_spreads)
-        self.split.blockSignals(False)
+        for box, on in ((self.split, project.settings.split_spreads), (self.deskew, project.settings.deskew),
+                        (self.orient, project.settings.orient)):
+            box.blockSignals(True)
+            box.setChecked(on)
+            box.blockSignals(False)
         source = Path(project.settings.source).name if project.settings.source else "no scan yet"
         self.setWindowTitle(f"Ectype OCR — {source}")
         self._show_source()
@@ -2952,7 +2977,7 @@ class MainWindow(QMainWindow):
         count = ", ".join(t for t in (f"{lines} lines" if lines else "", f"{words} words in other scripts" if words else "") if t)
         self.actions["train"].setText(f"Train OCR model ({count})…" if count else "Train OCR model…")
         self.actions["train"].setToolTip("Teach the OCR model this book's type from the lines you corrected in Review")
-        self.actions["update"].setEnabled(bool(self.project.pages()))
+        self.actions["update"].setEnabled(bool(self.project.pages()) and self.project.settings.mode != "pages")
         self.actions["run"].setEnabled(bool(self.project.settings.source))
 
     def _mode_changed(self, index: int) -> None:
@@ -2962,20 +2987,19 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def _sync_page_image(self) -> None:
-        """Show the project's page image choice; black and white only where it is supported (the
-        text-layer mode and manuscripts), else that item is off and the choice falls back to gray."""
+        """Show the project's page image choice. As scanned and black and white only where the page
+        isn't drawn again (text layer, Pages only, manuscripts); elsewhere those items are off and
+        grayscale is shown, the choice itself kept for when the mode changes back."""
         settings = self.project.settings
-        bw_ok = self.project.manuscript() or settings.mode == "text"
-        if settings.page_image == "bw" and not bw_ok:
-            settings.page_image = "gray"
-            self.project.save_settings()
+        keeps = self.project.manuscript() or settings.mode in KEEPS_THE_SCAN
         if settings.page_image not in dict(PAGE_IMAGES):
-            settings.page_image = "gray"
+            settings.page_image = "original"
+        shown = settings.page_image if keeps or settings.page_image in ("gray", "lossless") else "gray"
         self.page_image.setEnabled(self.project.manuscript() or settings.mode != "plaintext")  # no PDF, no page image
-        bw_row = self.page_image.findData("bw")
-        self.page_image.model().item(bw_row).setEnabled(bool(bw_ok))
+        for value in ("original", "bw"):
+            self.page_image.model().item(self.page_image.findData(value)).setEnabled(bool(keeps))
         self.page_image.blockSignals(True)
-        self.page_image.setCurrentIndex(self.page_image.findData(settings.page_image))
+        self.page_image.setCurrentIndex(self.page_image.findData(shown))
         self.page_image.blockSignals(False)
 
     def _page_image_changed(self, index: int) -> None:
@@ -3191,9 +3215,24 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def _split_changed(self, on: bool) -> None:
-        self.project.settings.split_spreads = on
+        self._page_choice("split_spreads", on, "Spreads will be " + ("split" if on else "kept whole"))
+
+    def _page_choice(self, key: str, on: bool, said: str) -> None:
+        setattr(self.project.settings, key, on)
         self.project.save_settings()
-        self.statusBar().showMessage("Spreads will be " + ("split" if on else "kept whole") + ". Run to apply.")
+        self.statusBar().showMessage(said + ". Run to apply.")
+
+    def _kept(self, project: Project) -> None:
+        """The book was first corrected (or trained, or saved): its folder is kept from now on."""
+        self._log(f"This book is kept as a project, for Review and training: {project.workspace}")
+        self.statusBar().showMessage("This book is now kept as a project (its corrections are for training). "
+                                     "File → Show project folder shows where.", 8000)
+
+    def discard_unkept(self) -> None:
+        """When the app closes: a book never kept leaves nothing behind."""
+        if self.worker is not None and self.worker.isRunning():
+            return  # still writing there; removed on a later start (project.remove_abandoned)
+        self.project.discard()
 
     def _jump(self, page: str, line: int, word: int) -> None:
         self.tabs.setCurrentWidget(self.review_stack)
@@ -3218,7 +3257,10 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Select a scanned PDF", "",
                                               "Scanned books (*.pdf *.png *.tif *.tiff *.jpg *.jpeg);;PDF (*.pdf)")
         if path:
-            self.load(Project.for_scan(Path(path)))
+            from .project import CHOICES
+
+            choices = {k: getattr(self.project.settings, k) for k in CHOICES}  # the choices in view go on
+            self.load(Project.for_scan(Path(path), keep=False, choices=choices))
             self.tabs.setCurrentWidget(self.spreads)
             self.statusBar().showMessage(f"Selected {Path(path).name}. Press Run to read it.")
 
@@ -3228,9 +3270,13 @@ class MainWindow(QMainWindow):
             self.load(Project(Path(path)))
 
     def save_project(self) -> None:
-        """Ectype keeps its work as it goes (settings, corrections, readings); this writes the
-        settings now and says where the project is."""
+        """Keep this book as a project (a book is otherwise kept only once it is corrected or
+        trained); Ectype then keeps its work as it goes. Says where the project is."""
+        if not self.project.settings.source:
+            self.statusBar().showMessage("Select a PDF first: a project is a book's readings and corrections.")
+            return
         self.project.save_settings()
+        self.project.keep()
         self.statusBar().showMessage(f"Saved. The project is kept in {self.project.workspace}")
 
     def show_project_folder(self) -> None:
@@ -3265,8 +3311,10 @@ class MainWindow(QMainWindow):
             a.setEnabled(True)
         self.refresh()
         self._show_source()
-        self.tabs.setCurrentWidget(self.review_stack)
-        self.offer_languages()
+        pages_only = self.project.settings.mode == "pages" and not self.project.manuscript()
+        self.tabs.setCurrentWidget(self.spreads if pages_only else self.review_stack)  # nothing read to review
+        if not pages_only:
+            self.offer_languages()
 
     def _languages_needed(self) -> None:
         """The run stopped after reading: a script none of the languages reads. Offer the language
@@ -3645,9 +3693,16 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setWindowIcon(app_icon())
     project = None
+    from . import project as projects
+
+    try:
+        projects.remove_abandoned()  # books another copy of the app opened and never closed
+    except OSError:
+        pass
     if argv:
         target = Path(argv[0])
-        project = Project(target) if target.is_dir() else Project.for_scan(target)
+        project = Project(target) if target.is_dir() else Project.for_scan(target, keep=False,
+                                                                           choices=projects.last_choices())
     window = MainWindow(project)
     window.show()
     if updates.installed_app() is not None and updates.check_at_start(updates.load_settings()):
@@ -3655,6 +3710,7 @@ def main(argv: list[str] | None = None) -> int:
     if crashlog.previous_crash() is not None:
         _offer_report(window, crashlog.previous_crash())
     code = app.exec()
+    window.discard_unkept()
     crashlog.close_cleanly()
     return code
 
