@@ -166,8 +166,8 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     w.mode.setCurrentIndex(2)
     assert project.settings.mode == "text" and project.stages() == ["preprocess", "ocr", "textlayer"]
     assert project.update_stage() == "textlayer"
-    assert [w.page_image.itemData(k) for k in range(w.page_image.count())] == ["gray", "lossless", "bw"]
-    assert w.page_image.model().item(2).isEnabled()
+    assert [w.page_image.itemData(k) for k in range(w.page_image.count())] == ["original", "gray", "lossless", "bw"]
+    assert w.page_image.model().item(3).isEnabled() and w.page_image.model().item(0).isEnabled()
     w.page_image.setCurrentIndex(w.page_image.findData("lossless"))
     assert project.settings.page_image == "lossless"
     w.page_image.setCurrentIndex(w.page_image.findData("bw"))
@@ -175,9 +175,14 @@ def test_languages_text_mode_and_idml_dialog(project, tmp_path):
     project.run("textlayer")
     assert project.output_pdf() is not None and project.output_pdf().parent.name == "textlayer"
     w.mode.setCurrentIndex(0)
-    # Black and white is off outside the text-layer mode and the choice falls back to gray.
-    assert not w.page_image.model().item(2).isEnabled() and project.settings.page_image == "gray"
+    # As scanned and black and white are off where the page is drawn again: gray is shown, and the
+    # choice is kept for when the mode changes back (it used to be lost, making text layers large).
+    assert not w.page_image.model().item(3).isEnabled() and not w.page_image.model().item(0).isEnabled()
     assert w.page_image.currentData() == "gray" and not w.page_image.isHidden()
+    assert project.settings.page_image == "bw"
+    w.mode.setCurrentIndex(2)
+    assert w.page_image.currentData() == "bw"
+    w.mode.setCurrentIndex(0)
 
     # IDML: the choice comes first, before anything is prepared (a damaged font used to stop
     # the export before it was shown); Facsimile's fonts follow, once compared.
